@@ -1,0 +1,58 @@
+site_name: cfbooklet
+site_description: CF conventions multi-dimensional array storage on top of Booklet
+
+repo_url: https://github.com/mullenkamp/cfbooklet
+repo_name: mullenkamp/cfbooklet
+
+theme:
+    name: material
+    icon:
+        logo: material/library
+    palette:
+        # Palette toggle for light mode
+        - media: "(prefers-color-scheme: light)"
+          scheme: default
+          primary: teal
+          accent: indigo
+          toggle:
+            icon: material/brightness-7
+            name: Switch to dark mode
+
+        # Palette toggle for dark mode
+        - media: "(prefers-color-scheme: dark)"
+          scheme: slate
+          primary: teal
+          accent: indigo
+          toggle:
+            icon: material/brightness-4
+            name: Switch to light mode
+
+markdown_extensions:
+    - toc:
+        permalink: true
+    - pymdownx.highlight:
+        anchor_linenums: true
+    - pymdownx.tasklist:
+        custom_checkbox: true
+    - pymdownx.inlinehilite
+    - pymdownx.snippets
+    - pymdownx.superfences
+
+plugins:
+    - search
+    - mkdocstrings:
+        handlers:
+            python:
+                import:
+                    - https://docs.python.org/3.10/objects.inv
+                options:
+                    docstring_style: google
+
+watch:
+    - docs
+    - cfbooklet
+
+nav:
+    - About: index.md
+    - Reference:
+        - cfbooklet: reference/cfbooklet.md

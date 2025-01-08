@@ -1,0 +1,197 @@
+[project]
+name = "cfbooklet"
+authors = [
+  { name = "mullenkamp", email = "mullenkamp1@gmail.com" }
+]
+description = "CF conventions multi-dimensional array storage on top of Booklet"
+readme = "README.md"
+dynamic = ["version"]
+classifiers = [
+    "Programming Language :: Python :: 3 :: Only",
+]
+requires-python = ">=3.10"
+dependencies = [
+  'numpy',
+  'zstandard',
+  "cftime",
+]
+
+# [tool.ruff]
+# target-version = "py310"
+# extend-select = ["I", "TRY", "UP"]
+
+# [tool.pytest.ini_options]
+# addopts = "--cov=cfbooklet/ --cov-report=term-missing"
+
+
+[tool.hatch]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+# [tool.hatch.version]
+# source = "regex_commit"
+# commit_extra_args = ["-e"]
+# path = "cfbooklet/__init__.py"
+
+[dependency-groups]
+dev = [
+  "spyder-kernels==2.5.2",
+  "black",
+  "mypy",
+  "ruff",
+  "pytest",
+  "pytest-cov",
+]
+
+[tool.hatch.envs.default]
+python = "3.10"
+dependencies = [
+    "spyder-kernels==2.5.2",
+    "black",
+    "mypy",
+    "ruff",
+    "pytest",
+    "pytest-cov",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+    
+]
+
+[[tool.hatch.envs.all.matrix]]
+python = ['3.9', '3.10', '3.11']
+
+[tool.hatch.envs.lint]
+detached = true
+dependencies = [
+  "black>=23.1.0",
+  "mypy>=1.0.0",
+  "ruff>=0.0.243",
+]
+[tool.hatch.envs.lint.scripts]
+typing = "mypy --install-types --non-interactive {args:src/cfbooklet tests}"
+style = [
+  "ruff {args:.}",
+  "black --check --diff {args:.}",
+]
+fmt = [
+  "black {args:.}",
+  "ruff --fix {args:.}",
+  "style",
+]
+all = [
+  "style",
+  "typing",
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest {args:tests}"
+test-cov = "coverage run -m pytest {args:tests}"
+cov-report = [
+  "- coverage combine",
+  "coverage report",
+]
+cov = [
+  "test-cov",
+  "cov-report",
+]
+docs-serve = "mkdocs serve"
+docs-build = "mkdocs build"
+
+[tool.black]
+target-version = ["py37"]
+line-length = 120
+skip-string-normalization = true
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+select = [
+  "A",
+  "ARG",
+  "B",
+  "C",
+  "DTZ",
+  "E",
+  "EM",
+  "F",
+  "FBT",
+  "I",
+  "ICN",
+  "ISC",
+  "N",
+  "PLC",
+  "PLE",
+  "PLR",
+  "PLW",
+  "Q",
+  "RUF",
+  "S",
+  "T",
+  "TID",
+  "UP",
+  "W",
+  "YTT",
+]
+ignore = [
+  # Allow non-abstract empty methods in abstract base classes
+  "B027",
+  # Allow boolean positional values in function calls, like `dict.get(... True)`
+  "FBT003",
+  # Ignore checks for possible passwords
+  "S105", "S106", "S107",
+  # Ignore complexity
+  "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
+]
+unfixable = [
+  # Don't touch unused imports
+  "F401",
+]
+
+[tool.ruff.isort]
+known-first-party = ["cfbooklet"]
+
+[tool.ruff.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.per-file-ignores]
+# Tests can use magic values, assertions, and relative imports
+"tests/**/*" = ["PLR2004", "S101", "TID252"]
+
+[tool.coverage.run]
+source_pkgs = ["cfbooklet", "tests"]
+branch = true
+parallel = true
+omit = [
+  "src/cfbooklet/__about__.py",
+]
+
+[tool.coverage.paths]
+cfbooklet = ["src/cfbooklet", "*/cfbooklet/src/cfbooklet"]
+tests = ["tests", "*/cfbooklet/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
+[build-system]
+requires = ["hatchling>=1.26.1"]
+build-backend = "hatchling.build"
+
+[project.urls]
+Documentation = "https://mullenkamp.github.io/cfbooklet/"
+Source = "https://github.com/mullenkamp/cfbooklet"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/cfbooklet",
+]
+exclude = [
+    "/cfbooklet/tests/*",
+]
+
+[tool.hatch.version]
+path = "cfbooklet/__init__.py"
