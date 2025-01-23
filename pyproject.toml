@@ -1,3 +1,11 @@
+[build-system]
+requires = ["hatchling>=1.26.1"]
+build-backend = "hatchling.build"
+
+[project.urls]
+Documentation = "https://mullenkamp.github.io/cfbooklet/"
+Source = "https://github.com/mullenkamp/cfbooklet"
+
 [project]
 name = "cfbooklet"
 authors = [
@@ -16,24 +24,6 @@ dependencies = [
   "cftime",
 ]
 
-# [tool.ruff]
-# target-version = "py310"
-# extend-select = ["I", "TRY", "UP"]
-
-# [tool.pytest.ini_options]
-# addopts = "--cov=cfbooklet/ --cov-report=term-missing"
-
-
-[tool.hatch]
-
-[tool.hatch.metadata]
-allow-direct-references = true
-
-# [tool.hatch.version]
-# source = "regex_commit"
-# commit_extra_args = ["-e"]
-# path = "cfbooklet/__init__.py"
-
 [dependency-groups]
 dev = [
   "spyder-kernels==2.5.2",
@@ -44,19 +34,24 @@ dev = [
   "pytest-cov",
 ]
 
-[tool.hatch.envs.default]
-python = "3.10"
-dependencies = [
-    "spyder-kernels==2.5.2",
-    "black",
-    "mypy",
-    "ruff",
-    "pytest",
-    "pytest-cov",
-    "mkdocs-material",
-    "mkdocstrings[python]",
+[tool.hatch]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+# [tool.hatch.envs.default]
+# python = "3.10"
+# dependencies = [
+#     "spyder-kernels==2.5.2",
+#     "black",
+#     "mypy",
+#     "ruff",
+#     "pytest",
+#     "pytest-cov",
+#     "mkdocs-material",
+#     "mkdocstrings[python]",
     
-]
+# ]
 
 [[tool.hatch.envs.all.matrix]]
 python = ['3.9', '3.10', '3.11']
@@ -176,14 +171,6 @@ exclude_lines = [
   "if __name__ == .__main__.:",
   "if TYPE_CHECKING:",
 ]
-
-[build-system]
-requires = ["hatchling>=1.26.1"]
-build-backend = "hatchling.build"
-
-[project.urls]
-Documentation = "https://mullenkamp.github.io/cfbooklet/"
-Source = "https://github.com/mullenkamp/cfbooklet"
 
 [tool.hatch.build.targets.sdist]
 include = [

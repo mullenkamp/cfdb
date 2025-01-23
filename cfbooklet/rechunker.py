@@ -2,8 +2,9 @@
 import logging
 import warnings
 from math import ceil, floor, prod, gcd
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple, Iterator
 import numpy as np
+import itertools
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,7 @@ class ExcessiveIOWarning(Warning):
 
 def multistage_rechunking_plan(
     shape: Sequence[int],
+    new_shape,
     source_chunks: Sequence[int],
     target_chunks: Sequence[int],
     itemsize: int,
@@ -243,7 +245,7 @@ def multistage_rechunking_plan(
         logger.debug(
             f"consolidate_write_chunks({shape}, {target_chunks}, {itemsize}, {max_mem})"
         )
-        write_chunks = consolidate_chunks(shape, target_chunks, itemsize, max_mem)
+        write_chunks = consolidate_chunks(new_shape, target_chunks, itemsize, max_mem)
     else:
         write_chunks = tuple(target_chunks)
 
@@ -320,8 +322,56 @@ def multistage_rechunking_plan(
     )
 
 
+# def rechunking_plan(
+#     shape: Sequence[int],
+#     source_chunks: Sequence[int],
+#     target_chunks: Sequence[int],
+#     itemsize: int,
+#     max_mem: int,
+#     consolidate_reads: bool = True,
+#     consolidate_writes: bool = True,
+# ) -> Tuple[Tuple[int, ...], Tuple[int, ...], Tuple[int, ...]]:
+#     """
+#     Calculate a plan for rechunking arrays.
+
+#     Parameters
+#     ----------
+#     shape : Tuple
+#         Array shape
+#     source_chunks : Tuple
+#         Original chunk shape (must be in form (5, 10, 20), no irregular chunks)
+#     target_chunks : Tuple
+#         Target chunk shape (must be in form (5, 10, 20), no irregular chunks)
+#     itemsize: int
+#         Number of bytes used to represent a single array element
+#     max_mem : int
+#         Maximum permissible chunk memory size, measured in units of itemsize
+#     consolidate_reads: bool, optional
+#         Whether to apply read chunk consolidation
+#     consolidate_writes: bool, optional
+#         Whether to apply write chunk consolidation
+
+#     Returns
+#     -------
+#     new_chunks : tuple
+#         The new chunks, size guaranteed to be <= max_mem
+#     """
+#     (stage,) = multistage_rechunking_plan(
+#         shape,
+#         source_chunks,
+#         target_chunks,
+#         itemsize=itemsize,
+#         min_mem=itemsize,
+#         max_mem=max_mem,
+#         consolidate_writes=consolidate_writes,
+#         consolidate_reads=consolidate_reads,
+#     )
+#     return stage
+
+
 def rechunking_plan(
     shape: Sequence[int],
+    new_shape: Sequence[int],
     source_chunks: Sequence[int],
     target_chunks: Sequence[int],
     itemsize: int,
@@ -336,6 +386,8 @@ def rechunking_plan(
     ----------
     shape : Tuple
         Array shape
+    new_shape : Tuple
+        Output array shape
     source_chunks : Tuple
         Original chunk shape (must be in form (5, 10, 20), no irregular chunks)
     target_chunks : Tuple
@@ -356,6 +408,7 @@ def rechunking_plan(
     """
     (stage,) = multistage_rechunking_plan(
         shape,
+        new_shape,
         source_chunks,
         target_chunks,
         itemsize=itemsize,
@@ -365,3 +418,29 @@ def rechunking_plan(
         consolidate_reads=consolidate_reads,
     )
     return stage
+
+
+def chunk_keys(
+    shape: Tuple[int, ...], chunks: Tuple[int, ...]
+) -> Iterator[Tuple[slice, ...]]:
+    """Iterator over array indexing keys of the desired chunk sized.
+
+    The union of all keys indexes every element of an array of shape ``shape``
+    exactly once. Each array resulting from indexing is of shape ``chunks``,
+    except possibly for the last arrays along each dimension (if ``chunks``
+    do not even divide ``shape``).
+    """
+    ranges = [range(ceil(s / c)) for s, c in zip(shape, chunks)]
+    for indices in itertools.product(*ranges):
+        yield tuple(
+            slice(c * i, min(c * (i + 1), s)) for i, s, c in zip(indices, shape, chunks)
+        )
+
+
+
+
+
+
+
+
+
