@@ -1,18 +1,18 @@
 import copy
 import numpy as np
-
+from time import time
 
 ###################################################
 ### Parameters
 
-shape = (410, 410, 410)
+shape = (20, 20, 20)
 
 new_shape = (35, 31)
 
-source_chunks = (5, 2, 5)
+source_chunks = (10, 2, 5)
 target_chunks = (2, 5, 2)
 itemsize = 1
-max_mem = 160
+max_mem = 130
 
 ###################################################
 ### Functions
@@ -178,6 +178,7 @@ print(round(tot_count2/target_count2, 2))
 print(round(tot_count2/(tot_count1 + tot_count0), 2))
 
 
+
 ## different shape to target
 inter0, inter_count0, tot_count0 = rechunker(source, source_chunks, source_read_chunks, inter_chunks, new_shape)
 
@@ -196,7 +197,40 @@ print(round((tot_count1 + tot_count0)/(inter_count0 + target_count1), 2))
 
 
 
+### Multi shape testing
+results_dict = {}
+for i in range(0, 11, 2):
+    if i == 0:
+        test_shape = shape
+    else:
+        test_shape = tuple(s * i for s in shape)
 
+    print(test_shape)
+
+    source1 = np.arange(1, np.prod(test_shape) + 1).reshape(test_shape)
+
+    start1 = time()
+    target2, target_count2, tot_count2 = rechunker(source1, source_chunks, source_chunks, target_chunks)
+    end1 = time()
+
+    tot_time = end1 - start1
+    n_points = np.prod(test_shape)
+
+    results_dict[test_shape] = dict(n_points=n_points,
+                                    n_chunks_target=target_count2,
+                                    n_iter_source=tot_count2,
+                                    source_target_ratio=round(tot_count2/target_count2, 2),
+                                    time=round(tot_time, 4),
+                                    n_pts_per_sec=round(n_points/tot_time)
+                                    )
+
+
+
+
+
+
+
+target2, target_count2, tot_count2 = rechunker(source, source_chunks, source_chunks, target_chunks)
 
 
 
