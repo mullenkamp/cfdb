@@ -11,7 +11,7 @@ from itertools import count
 ### Parameters
 
 source_shape = (30, 30)
-source_shape = (300, 300, 300)
+source_shape = (30, 30, 30)
 
 new_shape = (35, 31)
 
@@ -324,14 +324,16 @@ def calc_n_reads_target_fancy(source_shape, source_chunk_shape, target_chunk_sha
 
     else:
         writen_chunks = set() # Need to keep track of the bulk writes
-    
+
         read_chunk_iter = chunk_range(chunk_start, source_shape, target_chunk_shape)
-    
+
         for write_chunk in read_chunk_iter:
             write_chunk_start = tuple(s.start for s in write_chunk)
+            write_chunk_stop = tuple(s.stop for s in write_chunk)
             if write_chunk_start not in writen_chunks:
-                # read_chunk_start = tuple(rc * (wc//rc) for wc, rc in zip(write_chunk_start, source_chunk_shape))
-                read_chunk_stop = tuple(min(wc + rcg, sh) for wc, rcg, sh in zip(write_chunk_start, target_chunk_shape, source_shape))
+                read_chunk_start = tuple(rc * (wc//rc) for wc, rc in zip(write_chunk_start, source_chunk_shape))
+                read_chunk_stop = tuple(min(max(rcs + rc, wc), sh) for rcs, rc, wc, sh in zip(read_chunk_start, source_read_chunk_shape, write_chunk_stop, source_shape))
+                # read_chunk_stop = tuple(min(wc + rcg, sh) for wc, rcg, sh in zip(write_chunk_start, target_chunk_shape, source_shape))
                 read_chunks = list(chunk_range(write_chunk_start, read_chunk_stop, source_chunk_shape, True, False))
                 if len(read_chunks) <= n_chunks_per_read:
                     for read_chunk in read_chunks:
@@ -339,15 +341,16 @@ def calc_n_reads_target_fancy(source_shape, source_chunk_shape, target_chunk_sha
                         # print(len(read_chunks))
                         next(read_counter)
 
-                    write_chunk_stop = tuple(min(wc + rc, sh) for wc, rc, sh in zip(write_chunk_start, source_read_chunk_shape, source_shape))
-                    for write_chunk1 in chunk_range(write_chunk_start, write_chunk_stop, target_chunk_shape, include_partial_chunks=False):
+                    # write_chunk_stop = tuple(min(wc + rc, sh) for wc, rc, sh in zip(write_chunk_start, source_read_chunk_shape, source_shape))
+                    for write_chunk1 in chunk_range(write_chunk_start, read_chunk_stop, target_chunk_shape, include_partial_chunks=False):
                         # print(write_chunk1)
                         write_chunk1_start = tuple(s.start for s in write_chunk1)
                         if write_chunk1_start not in writen_chunks:
                             writen_chunks.add(write_chunk1_start)
                             next(write_counter)
                 else:
-                    for read_chunk in read_chunks:
+                    for read_chunk in chunk_range(write_chunk_start, write_chunk_stop, source_chunk_shape, True, False):
+                        # print(read_chunk)
                         next(read_counter)
                     writen_chunks.add(write_chunk_start)
                     next(write_counter)
