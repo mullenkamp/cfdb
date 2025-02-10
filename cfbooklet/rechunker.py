@@ -1,440 +1,401 @@
 """Core rechunking algorithm stuff."""
-import logging
-import warnings
-from math import ceil, floor, prod, gcd
+import copy
 from typing import List, Optional, Sequence, Tuple, Iterator
 import numpy as np
 import itertools
+from time import time
+from math import ceil, floor, prod, gcd, lcm
+from collections import Counter, deque
+from itertools import count
 
-logger = logging.getLogger(__name__)
+########################################################
+### Functions
 
 
-def lcm(a: int, b: int) -> int:  # type: ignore
-    """Implementation of `math.lcm()` for all Python versions."""
-    # https://stackoverflow.com/a/51716959/809705
-    return a * b // gcd(a, b)
-
-
-def consolidate_chunks(
-    shape: Sequence[int],
-    chunks: Sequence[int],
-    itemsize: int,
-    max_mem: int,
-    chunk_limits: Optional[Sequence[Optional[int]]] = None,
-) -> Tuple[int, ...]:
+def get_slice_min_max(read_slices, write_slices):
     """
-    Consolidate input chunks up to a certain memory limit. Consolidation starts on the
-    highest axis and proceeds towards axis 0.
+    Function to get the max start position and the min stop position.
+    """
+    slices = tuple(slice(max(rs.start, ws.start), min(rs.stop, ws.stop)) for rs, ws in zip(read_slices, write_slices))
+
+    return slices
+
+
+def chunk_range(
+    chunk_start: Tuple[int, ...], chunk_stop: Tuple[int, ...], chunk_step: Tuple[int, ...], include_partial_chunks=True, clip_ends=True,
+) -> Iterator[Tuple[slice, ...]]:
+    """Iterator like the Python range function, but for multiple dimensions and it returns tuples of slices.
 
     Parameters
     ----------
-    shape : Tuple
-        Array shape
-    chunks : Tuple
-        Original chunk shape (must be in form (5, 10, 20), no irregular chunks)
-    max_mem : Int
-        Maximum permissible chunk memory size, measured in units of itemsize
-    chunk_limits : Tuple, optional
-        Maximum size of each chunk along each axis. If None, don't consolidate
-        axis. If -1, no limit.
+    chunk_start: tuple of int
+        The start positions of the chunks.
+    chunk_stop: tuple of int
+        The stop positions of the chunks.
+    chunk_step: tuple of int
+        The chunking step.
+    include_partial_chunks: bool
+        Should partial chunks be included? True by default.
+    clip_ends: bool
+        Only applies when include_partial_chunks == True. Should the chunks be clipped to the overall extents? True by default.
 
     Returns
     -------
-    new_chunks : tuple
-        The new chunks, size guaranteed to be <= mam_mem
+    Iterator/generator with tuples of slices
     """
+    if not isinstance(chunk_start, tuple):
+        chunk_start = tuple(0 for i in range(len(chunk_stop)))
 
-    ndim = len(shape)
-    if chunk_limits is None:
-        chunk_limits = shape
-    assert len(chunk_limits) == ndim
+    if include_partial_chunks:
+        start_ranges = [cs * (sc//cs) for cs, sc in zip(chunk_step, chunk_start)]
+    else:
+        start_ranges = [cs * (((sc - 1)//cs) + 1) for cs, sc in zip(chunk_step, chunk_start)]
 
-    # now convert chunk_limits to a dictionary
-    # key: axis, value: limit
-    chunk_limit_per_axis = {}
-    for n_ax, cl in enumerate(chunk_limits):
-        if cl is not None:
-            if cl == -1:
-                chunk_limit_per_axis[n_ax] = shape[n_ax]
-            elif chunks[n_ax] <= cl <= shape[n_ax]:
-                chunk_limit_per_axis[n_ax] = cl
-            elif cl > shape[n_ax]:
-                chunk_limit_per_axis[n_ax] = shape[n_ax]
-            else:
-                raise ValueError(f"Invalid chunk_limits {chunk_limits}.")
+    ranges = [range(sr, ec, cs) for ec, cs, sr in zip(chunk_stop, chunk_step, start_ranges)]
 
-    chunk_mem = itemsize * prod(chunks)
-    if chunk_mem > max_mem:
-        raise ValueError(f"chunk_mem {chunk_mem} > max_mem {max_mem}")
-    headroom = max_mem / chunk_mem
-    logger.debug(f"  initial headroom {headroom}")
+    for indices in itertools.product(*ranges):
+        # print(indices)
+        inside = True
+        res = []
+        for i, ec, cs, sc in zip(indices, chunk_stop, chunk_step, chunk_start):
+            stop = i + cs
+            if stop > ec:
+                if clip_ends:
+                    stop = ec
+                inside = False
 
-    new_chunks = list(chunks)
-    # only consolidate over these axes
-    axes = sorted(chunk_limit_per_axis.keys())[::-1]
-    for n_axis in axes:
-        upper_bound = min(shape[n_axis], chunk_limit_per_axis[n_axis])
-        # try to just increase the chunk to the upper bound
-        new_chunks[n_axis] = upper_bound
-        chunk_mem = itemsize * prod(new_chunks)
-        upper_bound_headroom = max_mem / chunk_mem
-        if upper_bound_headroom > 1:
-            # ok it worked
-            headroom = upper_bound_headroom
-            logger.debug("  ! maxed out headroom")
+            start = i
+            if start < sc:
+                if clip_ends:
+                    start = sc
+                inside = False
+
+            res.append(slice(start, stop))
+
+        if inside or include_partial_chunks:
+            yield tuple(res)
+
+
+def calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape):
+    """
+    Calculates the minimum ideal read chunk shape between a source and target. 
+    """
+    return tuple(lcm(i, s) for i, s in zip(source_chunk_shape, target_chunk_shape))
+
+
+def calc_ideal_read_chunk_mem(ideal_read_chunk_shape, itemsize):
+    """
+    Calculates the minimum ideal read chunk memory between a source and target. 
+    """
+    return int(prod(ideal_read_chunk_shape) * itemsize)
+
+
+def calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem):
+    """
+    Calculates the optimum read chunk shape given a maximum amount of available memory.
+
+    Parameters
+    ----------
+    source_chunk_shape: tuple of int
+        The source chunk shape
+    target_chunk_shape: tuple of int
+        The target chunk shape
+    itemsize: int
+        The byte length of the data type.
+    max_mem: int
+        The max allocated memory to perform the chunking operation in bytes. 
+
+    Returns
+    -------
+    optimal chunk shape: tuple of ints
+    """
+    max_cells = max_mem // itemsize
+    source_len = len(source_chunk_shape)
+    target_len = len(target_chunk_shape)
+
+    if source_len != target_len:
+        raise ValueError('The source_chunk_shape and target_chunk_shape do not have the same number of dims.')
+
+    tot_source = prod(source_chunk_shape)
+    if tot_source >= max_cells:
+        return source_chunk_shape
+
+    new_chunks = list(calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape))
+
+    ## Max mem
+    tot_target = prod(new_chunks)
+    # ideal_target = tot_target
+    pos = 0
+    while tot_target > max_cells:
+        prod_chunk = new_chunks[pos]
+        source_chunk = source_chunk_shape[pos]
+        if prod_chunk > source_chunk:
+            new_chunks[pos] = prod_chunk - source_chunk
+
+        tot_target = prod(new_chunks)
+
+        if tot_target == tot_source:
+            return source_chunk_shape
         else:
-            # nope, that was too much
-            # instead increase it by an integer multiple
-            larger_chunk = int(chunks[n_axis] * int(headroom))
-            # not sure the min check is needed any more; it safeguards against making it too big
-            new_chunks[n_axis] = min(larger_chunk, upper_bound)
-            chunk_mem = itemsize * prod(new_chunks)
-            headroom = max_mem / chunk_mem
+            if pos + 1 == source_len:
+                pos = 0
+            else:
+                pos += 1
 
-        logger.debug(f"  axis {n_axis}, {chunks[n_axis]} -> {new_chunks[n_axis]}")
-        logger.debug(f"  chunk_mem {chunk_mem}, headroom {headroom}")
-
-        assert headroom >= 1
+    ## Min mem
+    n_chunks_write = tuple(s//target_chunk_shape[i] for i, s in enumerate(new_chunks))
+    for i in range(len(new_chunks)):
+        while True:
+            n_chunk_write = n_chunks_write[i]
+            prod_chunk = new_chunks[i]
+            source_chunk = source_chunk_shape[i]
+            target_chunk = target_chunk_shape[i]
+            new_chunk = prod_chunk - source_chunk
+            if new_chunk//target_chunk == n_chunk_write:
+                new_chunks[i] = new_chunk
+            else:
+                break
 
     return tuple(new_chunks)
 
 
-def _calculate_shared_chunks(
-    read_chunks: Sequence[int], write_chunks: Sequence[int]
-) -> Tuple[int, ...]:
-    # Intermediate chunks are the smallest possible chunks which fit
-    # into both read_chunks and write_chunks.
-    # Example:
-    #   read_chunks:            (20, 5)
-    #   target_chunks:          (4, 25)
-    #   intermediate_chunks:    (4, 5)
-    # We don't need to check their memory usage: they are guaranteed to be smaller
-    # than both read and write chunks.
-    return tuple(
-        min(c_read, c_target) for c_read, c_target in zip(read_chunks, write_chunks)
-    )
-
-
-def calculate_stage_chunks(
-    read_chunks: Tuple[int, ...],
-    write_chunks: Tuple[int, ...],
-    stage_count: int = 1,
-) -> List[Tuple[int, ...]]:
+def calc_n_chunks_per_read(source_chunk_shape, source_read_chunk_shape):
     """
-    Calculate chunks after each stage of a multi-stage rechunking.
 
-    Each stage consists of "split" step followed by a "consolidate" step.
-
-    The strategy used here is to progressively enlarge or shrink chunks along
-    each dimension by the same multiple in each stage (geometric spacing). This
-    should roughly minimize the total number of arrays resulting from "split"
-    steps in a multi-stage pipeline. It also keeps the total number of elements
-    in each chunk constant, up to rounding error, so memory usage should remain
-    constant.
-
-    Examples::
-
-        >>> calculate_stage_chunks((1_000_000, 1), (1, 1_000_000), stage_count=2)
-        [(1000, 1000)]
-        >>> calculate_stage_chunks((1_000_000, 1), (1, 1_000_000), stage_count=3)
-        [(10000, 100), (100, 10000)]
-        >>> calculate_stage_chunks((1_000_000, 1), (1, 1_000_000), stage_count=4)
-        [(31623, 32), (1000, 1000), (32, 31623)]
-
-    TODO: consider more sophisticated algorithms. In particular, exact geometric
-    spacing often requires irregular intermediate chunk sizes, which (currently)
-    cannot be stored in Zarr arrays.
     """
-    approx_stages = np.geomspace(read_chunks, write_chunks, num=stage_count + 1)
-    return [tuple(floor(c) for c in stage) for stage in approx_stages[1:-1]]
+    return prod(tuple(nc//sc for nc, sc in zip(source_read_chunk_shape, source_chunk_shape)))
 
 
-def _count_intermediate_chunks(source_chunk: int, target_chunk: int, size: int) -> int:
-    """Count intermediate chunks required for rechunking along a dimension.
-
-    Intermediate chunks must divide both the source and target chunks, and in
-    general do not need to have a regular size. The number of intermediate
-    chunks is proportional to the number of required read/write operations.
-
-    For example, suppose we want to rechunk an array of size 20 from size 5
-    chunks to size 7 chunks. We can draw out how the array elements are divided:
-        0 1 2 3 4|5 6 7 8 9|10 11 12 13 14|15 16 17 18 19   (4 chunks)
-        0 1 2 3 4 5 6|7 8 9 10 11 12 13|14 15 16 17 18 19   (3 chunks)
-
-    To transfer these chunks, we would need to divide the array into irregular
-    intermediate chunks that fit into both the source and target:
-       0 1 2 3 4|5 6|7 8 9|10 11 12 13|14|15 16 17 18 19    (6 chunks)
-
-    This matches what ``_count_intermediate_chunks()`` calculates::
-
-        >>> _count_intermediate_chunks(5, 7, 20)
-        6
+def calc_n_chunks(shape, chunk_shape):
     """
-    multiple = lcm(source_chunk, target_chunk)
-    splits_per_lcm = multiple // source_chunk + multiple // target_chunk - 1
-    lcm_count, remainder = divmod(size, multiple)
-    if remainder:
-        splits_in_remainder = (
-            ceil(remainder / source_chunk) + ceil(remainder / target_chunk) - 1
-        )
+
+    """
+    chunk_start = tuple(0 for i in range(len(shape)))
+    chunk_iter = chunk_range(chunk_start, shape, chunk_shape)
+
+    counter = count()
+    deque(zip(chunk_iter, counter), maxlen=0)
+
+    return next(counter)
+
+
+def calc_n_reads_simple(source_shape, source_chunk_shape, target_chunk_shape):
+    """
+
+    """
+    chunk_start = tuple(0 for i in range(len(source_shape)))
+    read_counter = count()
+
+    for write_chunk in chunk_range(chunk_start, source_shape, target_chunk_shape):
+        write_chunk_start = tuple(rc.start for rc in write_chunk)
+        write_chunk_stop = tuple(rc.stop for rc in write_chunk)
+        for chunk_slice in chunk_range(write_chunk_start, write_chunk_stop, source_chunk_shape):
+            next(read_counter)
+
+    return next(read_counter)
+
+
+def calc_n_reads_rechunker(source_shape, source_chunk_shape, target_chunk_shape, itemsize, max_mem):
+    """
+
+    """
+    ## Calc the optimum read_chunk shape
+    ## Calc n chunks per read
+    ## Calc ideal read chunking shape
+    source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
+
+    ## Calc n chunks per read
+    n_chunks_per_read = calc_n_chunks_per_read(source_chunk_shape, source_read_chunk_shape)
+
+    ## Calc ideal read chunking shape
+    ideal_read_chunk_shape = calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape)
+
+    ## Chunk_start
+    chunk_start = tuple(0 for i in range(len(source_shape)))
+
+    ## Counters
+    read_counter = count()
+    write_counter = count()
+
+    ## If the read chunking is set to the ideal chunking case, then use the simple implementation. Otherwise, the more complicated one.
+    if source_read_chunk_shape == ideal_read_chunk_shape:
+        read_chunk_iter = chunk_range(chunk_start, source_shape, source_read_chunk_shape)
+        for read_chunk_grp in read_chunk_iter:
+            read_chunk_grp_start = tuple(s.start for s in read_chunk_grp)
+            read_chunk_grp_stop = tuple(s.stop for s in read_chunk_grp)
+            for read_chunk in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, source_chunk_shape, True, True):
+                # print(read_chunk)
+                next(read_counter)
+            for write_chunk1 in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, target_chunk_shape, include_partial_chunks=True):
+                next(write_counter)
+
     else:
-        splits_in_remainder = 0
-    return lcm_count * splits_per_lcm + splits_in_remainder
+        writen_chunks = set() # Need to keep track of the bulk writes
+
+        read_chunk_iter = chunk_range(chunk_start, source_shape, target_chunk_shape)
+
+        for write_chunk in read_chunk_iter:
+            write_chunk_start = tuple(s.start for s in write_chunk)
+            write_chunk_stop = tuple(s.stop for s in write_chunk)
+            if write_chunk_start not in writen_chunks:
+                read_chunk_start = tuple(rc * (wc//rc) for wc, rc in zip(write_chunk_start, source_chunk_shape))
+                read_chunk_stop = tuple(min(max(rcs + rc, wc), sh) for rcs, rc, wc, sh in zip(read_chunk_start, source_read_chunk_shape, write_chunk_stop, source_shape))
+                # read_chunk_stop = tuple(min(wc + rcg, sh) for wc, rcg, sh in zip(write_chunk_start, target_chunk_shape, source_shape))
+                read_chunks = list(chunk_range(write_chunk_start, read_chunk_stop, source_chunk_shape, True, False))
+                if len(read_chunks) <= n_chunks_per_read:
+                    for read_chunk in read_chunks:
+                        # print(read_chunk)
+                        # print(len(read_chunks))
+                        next(read_counter)
+
+                    # write_chunk_stop = tuple(min(wc + rc, sh) for wc, rc, sh in zip(write_chunk_start, source_read_chunk_shape, source_shape))
+                    for write_chunk1 in chunk_range(write_chunk_start, read_chunk_stop, target_chunk_shape, include_partial_chunks=False):
+                        # print(write_chunk1)
+                        write_chunk1_start = tuple(s.start for s in write_chunk1)
+                        if write_chunk1_start not in writen_chunks:
+                            writen_chunks.add(write_chunk1_start)
+                            next(write_counter)
+                else:
+                    for read_chunk in chunk_range(write_chunk_start, write_chunk_stop, source_chunk_shape, True, False):
+                        # print(read_chunk)
+                        next(read_counter)
+                    writen_chunks.add(write_chunk_start)
+                    next(write_counter)
+
+    return next(read_counter), next(write_counter)
 
 
-def calculate_single_stage_io_ops(
-    shape: Sequence[int], in_chunks: Sequence[int], out_chunks: Sequence[int]
-) -> int:
-    """Count the number of read/write operations required for rechunking."""
-    return prod(map(_count_intermediate_chunks, in_chunks, out_chunks, shape))
-
-
-# not a tight upper bound, but ensures that the loop in
-# multistage_rechunking_plan always terminates.
-MAX_STAGES = 100
-
-
-_MultistagePlan = List[Tuple[Tuple[int, ...], Tuple[int, ...], Tuple[int, ...]]]
-
-
-class ExcessiveIOWarning(Warning):
-    pass
-
-
-def multistage_rechunking_plan(
-    shape: Sequence[int],
-    new_shape,
-    source_chunks: Sequence[int],
-    target_chunks: Sequence[int],
-    itemsize: int,
-    min_mem: int,
-    max_mem: int,
-    consolidate_reads: bool = True,
-    consolidate_writes: bool = True,
-) -> _MultistagePlan:
-    """Caculate a rechunking plan that can use multiple split/consolidate steps.
-
-    For best results, max_mem should be significantly larger than min_mem (e.g.,
-    10x). Otherwise an excessive number of rechunking steps will be required.
+def rechunker(source, source_chunk_shape, target_chunk_shape, max_mem):
     """
 
-    ndim = len(shape)
-    if len(source_chunks) != ndim:
-        raise ValueError(f"source_chunks {source_chunks} must have length {ndim}")
-    if len(target_chunks) != ndim:
-        raise ValueError(f"target_chunks {target_chunks} must have length {ndim}")
+    """
+    source_shape = source.shape
+    dtype = source.dtype
+    itemsize = dtype.itemsize
 
-    source_chunk_mem = itemsize * prod(source_chunks)
-    target_chunk_mem = itemsize * prod(target_chunks)
+    target = np.zeros(source_shape, dtype=dtype)
+    # target_shape = target.shape
 
-    if source_chunk_mem > max_mem:
-        raise ValueError(
-            f"Source chunk memory ({source_chunk_mem}) exceeds max_mem ({max_mem})"
-        )
-    if target_chunk_mem > max_mem:
-        raise ValueError(
-            f"Target chunk memory ({target_chunk_mem}) exceeds max_mem ({max_mem})"
-        )
+    ## Calc the optimum read_chunk_shape
+    source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
 
-    if max_mem < min_mem:  # basic sanity check
-        raise ValueError(
-            f"max_mem ({max_mem}) cannot be smaller than min_mem ({min_mem})"
-        )
+    mem_arr1 = np.zeros(source_read_chunk_shape, dtype=dtype)
 
-    if consolidate_writes:
-        logger.debug(
-            f"consolidate_write_chunks({shape}, {target_chunks}, {itemsize}, {max_mem})"
-        )
-        write_chunks = consolidate_chunks(new_shape, target_chunks, itemsize, max_mem)
+    ## Calc n chunks per read
+    n_chunks_per_read = calc_n_chunks_per_read(source_chunk_shape, source_read_chunk_shape)
+
+    ## Calc ideal read chunking shape
+    ideal_read_chunk_shape = calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape)
+
+    ## Chunk_start
+    chunk_start = tuple(0 for i in range(len(source_shape)))
+
+    ## If the read chunking is set to the ideal chunking case, then use the simple implementation. Otherwise, the more complicated one.
+    if source_read_chunk_shape == ideal_read_chunk_shape:
+        read_chunk_iter = chunk_range(chunk_start, source_shape, source_read_chunk_shape)
+        for read_chunk_grp in read_chunk_iter:
+            read_chunk_grp_start = tuple(s.start for s in read_chunk_grp)
+            read_chunk_grp_stop = tuple(s.stop for s in read_chunk_grp)
+            for read_chunk in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, source_chunk_shape, True, True):
+                # print(read_chunk)
+                offset_slices = tuple(slice(rc.start - wcs, rc.stop - wcs) for wcs, rc in zip(read_chunk_grp_start, read_chunk))
+                mem_arr1[offset_slices] = source[read_chunk]
+
+            for write_chunk1 in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, target_chunk_shape, include_partial_chunks=True):
+                offset_slices = tuple(slice(wc.start - wcs, wc.stop - wcs) for wcs, wc in zip(read_chunk_grp_start, write_chunk1))
+                target[write_chunk1] = mem_arr1[offset_slices]
+
     else:
-        write_chunks = tuple(target_chunks)
+        writen_chunks = set() # Need to keep track of the bulk writes
 
-    if consolidate_reads:
-        read_chunk_limits: List[Optional[int]] = []
-        for sc, wc in zip(source_chunks, write_chunks):
-            limit: Optional[int]
-            if wc > sc:
-                # consolidate reads over this axis, up to the write chunk size
-                limit = wc
-            else:
-                # don't consolidate reads over this axis
-                limit = None
-            read_chunk_limits.append(limit)
+        read_chunk_iter = chunk_range(chunk_start, source_shape, target_chunk_shape)
 
-        logger.debug(
-            f"consolidate_read_chunks({shape}, {source_chunks}, {itemsize}, {max_mem}, {read_chunk_limits})"
-        )
-        read_chunks = consolidate_chunks(
-            shape, source_chunks, itemsize, max_mem, read_chunk_limits
-        )
-    else:
-        read_chunks = tuple(source_chunks)
+        for write_chunk in read_chunk_iter:
+            write_chunk_start = tuple(s.start for s in write_chunk)
+            if write_chunk_start not in writen_chunks:
+                write_chunk_stop = tuple(s.stop for s in write_chunk)
+                read_chunk_start = tuple(rc * (wc//rc) for wc, rc in zip(write_chunk_start, source_chunk_shape))
+                read_chunk_stop = tuple(min(max(rcs + rc, wc), sh) for rcs, rc, wc, sh in zip(read_chunk_start, source_read_chunk_shape, write_chunk_stop, source_shape))
+                read_chunks = list(chunk_range(write_chunk_start, read_chunk_stop, source_chunk_shape, True, False))
+                if len(read_chunks) <= n_chunks_per_read:
+                    for read_chunk in read_chunks:
+                        # print(read_chunk)
+                        offset_slices = tuple(slice(rc.start - rcs, rc.stop - rcs) for rcs, rc in zip(read_chunk_start, read_chunk))
+                        mem_arr1[offset_slices] = source[read_chunk]
 
-    prev_io_ops: Optional[float] = None
-    prev_plan: Optional[_MultistagePlan] = None
+                    for write_chunk1 in chunk_range(write_chunk_start, read_chunk_stop, target_chunk_shape, include_partial_chunks=False):
+                        # print(write_chunk1)
+                        write_chunk1_start = tuple(s.start for s in write_chunk1)
+                        if write_chunk1_start not in writen_chunks:
+                            offset_slices = tuple(slice(wc.start - wcs, wc.stop - wcs) for wcs, wc in zip(read_chunk_start, write_chunk1))
+                            target[write_chunk1] = mem_arr1[offset_slices]
+                            writen_chunks.add(write_chunk1_start)
+                else:
+                    for read_chunk in chunk_range(write_chunk_start, write_chunk_stop, source_chunk_shape, True, False):
+                        # print(read_chunk)
+                        clip_chunk = get_slice_min_max(read_chunk, write_chunk)
+                        target[clip_chunk] = source[clip_chunk]
+                    writen_chunks.add(write_chunk_start)
 
-    # increase the number of stages until min_mem is exceeded
-    for stage_count in range(1, MAX_STAGES):
-        stage_chunks = calculate_stage_chunks(read_chunks, write_chunks, stage_count)
-        pre_chunks = [read_chunks] + stage_chunks
-        post_chunks = stage_chunks + [write_chunks]
-
-        int_chunks = [
-            _calculate_shared_chunks(pre, post)
-            for pre, post in zip(pre_chunks, post_chunks)
-        ]
-        plan = list(zip(pre_chunks, int_chunks, post_chunks))
-
-        int_mem = min(itemsize * prod(chunks) for chunks in int_chunks)
-        if int_mem >= min_mem:
-            return plan  # success!
-
-        io_ops = sum(
-            calculate_single_stage_io_ops(shape, pre, post)
-            for pre, post in zip(pre_chunks, post_chunks)
-        )
-        if prev_io_ops is not None and io_ops > prev_io_ops:
-            warnings.warn(
-                "Search for multi-stage rechunking plan terminated before "
-                "achieving the minimum memory requirement due to increasing IO "
-                f"requirements. Smallest intermediates have size {int_mem}. "
-                f"Consider decreasing min_mem ({min_mem}) or increasing "
-                f"max_mem ({max_mem}) to find a more efficient plan.",
-                category=ExcessiveIOWarning,
-            )
-            assert prev_plan is not None
-            return prev_plan
-
-        prev_io_ops = io_ops
-        prev_plan = plan
-
-    raise AssertionError(
-        "Failed to find a feasible multi-staging rechunking scheme satisfying "
-        f"min_mem ({min_mem}) and max_mem ({max_mem}) constraints. "
-        "Please file a bug report on GitHub: "
-        "https://github.com/pangeo-data/rechunker/issues\n\n"
-        "Include the following debugging info:\n"
-        f"shape={shape}, source_chunks={source_chunks}, "
-        f"target_chunks={target_chunks}, itemsize={itemsize}, "
-        f"min_mem={min_mem}, max_mem={max_mem}, "
-        f"consolidate_reads={consolidate_reads}, "
-        f"consolidate_writes={consolidate_writes}"
-    )
+    return target
 
 
-# def rechunking_plan(
-#     shape: Sequence[int],
-#     source_chunks: Sequence[int],
-#     target_chunks: Sequence[int],
-#     itemsize: int,
-#     max_mem: int,
-#     consolidate_reads: bool = True,
-#     consolidate_writes: bool = True,
-# ) -> Tuple[Tuple[int, ...], Tuple[int, ...], Tuple[int, ...]]:
-#     """
-#     Calculate a plan for rechunking arrays.
-
-#     Parameters
-#     ----------
-#     shape : Tuple
-#         Array shape
-#     source_chunks : Tuple
-#         Original chunk shape (must be in form (5, 10, 20), no irregular chunks)
-#     target_chunks : Tuple
-#         Target chunk shape (must be in form (5, 10, 20), no irregular chunks)
-#     itemsize: int
-#         Number of bytes used to represent a single array element
-#     max_mem : int
-#         Maximum permissible chunk memory size, measured in units of itemsize
-#     consolidate_reads: bool, optional
-#         Whether to apply read chunk consolidation
-#     consolidate_writes: bool, optional
-#         Whether to apply write chunk consolidation
-
-#     Returns
-#     -------
-#     new_chunks : tuple
-#         The new chunks, size guaranteed to be <= max_mem
-#     """
-#     (stage,) = multistage_rechunking_plan(
-#         shape,
-#         source_chunks,
-#         target_chunks,
-#         itemsize=itemsize,
-#         min_mem=itemsize,
-#         max_mem=max_mem,
-#         consolidate_writes=consolidate_writes,
-#         consolidate_reads=consolidate_reads,
-#     )
-#     return stage
 
 
-def rechunking_plan(
-    shape: Sequence[int],
-    new_shape: Sequence[int],
-    source_chunks: Sequence[int],
-    target_chunks: Sequence[int],
-    itemsize: int,
-    max_mem: int,
-    consolidate_reads: bool = True,
-    consolidate_writes: bool = True,
-) -> Tuple[Tuple[int, ...], Tuple[int, ...], Tuple[int, ...]]:
-    """
-    Calculate a plan for rechunking arrays.
-
-    Parameters
-    ----------
-    shape : Tuple
-        Array shape
-    new_shape : Tuple
-        Output array shape
-    source_chunks : Tuple
-        Original chunk shape (must be in form (5, 10, 20), no irregular chunks)
-    target_chunks : Tuple
-        Target chunk shape (must be in form (5, 10, 20), no irregular chunks)
-    itemsize: int
-        Number of bytes used to represent a single array element
-    max_mem : int
-        Maximum permissible chunk memory size, measured in units of itemsize
-    consolidate_reads: bool, optional
-        Whether to apply read chunk consolidation
-    consolidate_writes: bool, optional
-        Whether to apply write chunk consolidation
-
-    Returns
-    -------
-    new_chunks : tuple
-        The new chunks, size guaranteed to be <= max_mem
-    """
-    (stage,) = multistage_rechunking_plan(
-        shape,
-        new_shape,
-        source_chunks,
-        target_chunks,
-        itemsize=itemsize,
-        min_mem=itemsize,
-        max_mem=max_mem,
-        consolidate_writes=consolidate_writes,
-        consolidate_reads=consolidate_reads,
-    )
-    return stage
 
 
-def chunk_keys(
-    shape: Tuple[int, ...], chunks: Tuple[int, ...]
-) -> Iterator[Tuple[slice, ...]]:
-    """Iterator over array indexing keys of the desired chunk sized.
 
-    The union of all keys indexes every element of an array of shape ``shape``
-    exactly once. Each array resulting from indexing is of shape ``chunks``,
-    except possibly for the last arrays along each dimension (if ``chunks``
-    do not even divide ``shape``).
-    """
-    ranges = [range(ceil(s / c)) for s, c in zip(shape, chunks)]
-    for indices in itertools.product(*ranges):
-        yield tuple(
-            slice(c * i, min(c * (i + 1), s)) for i, s, c in zip(indices, shape, chunks)
-        )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

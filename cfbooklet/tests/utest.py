@@ -10,18 +10,18 @@ from itertools import count
 ###################################################
 ### Parameters
 
-source_shape = (30, 30)
-# source_shape = (30, 30, 30)
+# source_shape = (30, 30)
+source_shape = (30, 30, 30)
 
 new_shape = (35, 31)
 
 source_chunk_shape = (5, 2)
 target_chunk_shape = (2, 5)
-# source_chunk_shape = (5, 2, 4)
-# target_chunk_shape = (2, 5, 3)
+source_chunk_shape = (5, 2, 4)
+target_chunk_shape = (2, 5, 3)
 itemsize = 4
 max_mem = 40 * itemsize
-# max_mem = 160 * itemsize
+max_mem = 160 * itemsize
 
 dtype = 'int32'
 
@@ -712,20 +712,26 @@ source = np.arange(1, prod(source_shape) + 1).reshape(source_shape).astype(dtype
 n_chunks_source = calc_n_chunks(source_shape, source_chunk_shape)
 n_chunks_target = calc_n_chunks(source_shape, target_chunk_shape)
 
-source_read_chunk_shape, n_chunks_per_read, ideal_read_chunk_size = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
+source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
+
+ideal_read_chunk_shape = calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape)
+ideal_read_chunk_mem = calc_ideal_read_chunk_mem(ideal_read_chunk_shape, itemsize)
 
 n_reads_simple = calc_n_reads_simple(source_shape, source_chunk_shape, target_chunk_shape)
 
 n_reads, n_writes = calc_n_reads_rechunker(source_shape, source_chunk_shape, target_chunk_shape, itemsize, max_mem)
 
-n_reads_ideal, _ = calc_n_reads_rechunker(source_shape, source_chunk_shape, target_chunk_shape, itemsize, ideal_read_chunk_size)
+n_reads_ideal, _ = calc_n_reads_rechunker(source_shape, source_chunk_shape, target_chunk_shape, itemsize, ideal_read_chunk_mem)
 
 target2 = rechunker(source, source_chunk_shape, target_chunk_shape, max_mem)
 
 if not (target2 == source).all():
     raise ValueError()
 
+target3 = rechunker(source, source_chunk_shape, target_chunk_shape, ideal_read_chunk_mem)
 
+if not (target3 == source).all():
+    raise ValueError()
 
 
 
