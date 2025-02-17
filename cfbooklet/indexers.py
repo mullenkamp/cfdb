@@ -139,17 +139,17 @@ def index_combo_one(key, variable, pos):
             return idx
 
 
-def pos_to_keys(var_name, shape, pos):
-    """
+# def pos_to_keys(var_name, shape, pos):
+#     """
 
-    """
-    ndims = len(shape)
-    if isinstance(pos, slice):
-        start = pos.start
-        stop = pos.stop
-        if start is None:
-            start = 0
-        if stop is None:
+#     """
+#     ndims = len(shape)
+#     if isinstance(pos, slice):
+#         start = pos.start
+#         stop = pos.stop
+#         if start is None:
+#             start = 0
+#         if stop is None:
 
 
 

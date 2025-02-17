@@ -10,9 +10,12 @@ import numpy as np
 import booklet
 from typing import Union
 import pathlib
+import msgspec
+import weakref
+import io
 
 # from . import utils, indexers
-import utils, indexers
+import utils, indexers, data_models
 
 ############################################
 ### Parameters
@@ -392,17 +395,22 @@ def file_summary(file):
 ### Classes
 
 
-class SysMeta:
+class Attributes:
     """
 
     """
-    def __init__(self, blt_file, sys_meta):
+    def __init__(self, blt_file, var_name, finalizers):
         """
 
         """
-        self.data = sys_meta
+        key = f'_{var_name}.attrs'
+        self.data = blt_file.get(key)
+        if self.data is None:
+            self.data = {}
+
         self._blt = blt_file
-        self._finalizer = utils.sys_meta_finalizer(sys_meta, blt_file)
+        self._var_name = var_name
+        finalizers.append(weakref.finalize(self, utils.attrs_finalizer, self._blt, self.data, var_name))
 
     def set(self, key, value):
         """
@@ -410,8 +418,6 @@ class SysMeta:
         """
         # TODO input checks
         self.data[key] = value
-        self._finalizer.detach()
-        self._finalizer = utils.sys_meta_finalizer(self.data, self._blt)
 
     def __setitem__(self, key, value):
         """
@@ -450,15 +456,13 @@ class SysMeta:
     # def pop(self, key, default=None):
     #     return self.data.pop(key, default)
 
-    def update(self, other=()):
-        self.data.update(other)
-        self._finalizer.detach()
-        self._finalizer = utils.sys_meta_finalizer(self.data, self._blt)
+    # def update(self, other=()):
+    #     self.data.update(other)
+    #     self._finalizer.detach()
+    #     self._finalizer = utils.sys_meta_finalizer(self.data, self._blt)
 
     def __delitem__(self, key):
         del self.data[key]
-        self._finalizer.detach()
-        self._finalizer = utils.sys_meta_finalizer(self.data, self._blt)
 
     def __contains__(self, key):
         return key in self.data
@@ -466,75 +470,74 @@ class SysMeta:
     def __iter__(self):
         return self.keys()
 
-    def sync(self):
-        self._finalizer()
+    # def sync(self):
+    #     utils.attrs_finalizer(self._blt, self.data, self._var_name)
 
-    def close(self):
-        self.sync()
+    # def close(self):
+    #     self._finalizer()
 
     def __repr__(self):
         return self.data.__repr__()
 
 
 
+# class Attributes:
+#     """
 
-class Attributes:
-    """
+#     """
+#     def __init__(self, attrs: h5py.AttributeManager):
+#         self._attrs = attrs
 
-    """
-    def __init__(self, attrs: h5py.AttributeManager):
-        self._attrs = attrs
+#     def get(self, key, default=None):
+#         return self._attrs.get(key, default)
 
-    def get(self, key, default=None):
-        return self._attrs.get(key, default)
+#     def __getitem__(self, key):
+#         return self._attrs[key]
 
-    def __getitem__(self, key):
-        return self._attrs[key]
+#     def __setitem__(self, key, value):
+#         self._attrs[key] = value
 
-    def __setitem__(self, key, value):
-        self._attrs[key] = value
+#     def clear(self):
+#         self._attrs.clear()
 
-    def clear(self):
-        self._attrs.clear()
+#     def keys(self):
+#         for key in self._attrs.keys():
+#             if key not in utils.ignore_attrs:
+#                 yield key
 
-    def keys(self):
-        for key in self._attrs.keys():
-            if key not in utils.ignore_attrs:
-                yield key
+#     def values(self):
+#         for key, value in self._attrs.items():
+#             if key not in utils.ignore_attrs:
+#                 yield value
 
-    def values(self):
-        for key, value in self._attrs.items():
-            if key not in utils.ignore_attrs:
-                yield value
+#     def items(self):
+#         for key, value in self._attrs.items():
+#             if key not in utils.ignore_attrs:
+#                 yield key, value
 
-    def items(self):
-        for key, value in self._attrs.items():
-            if key not in utils.ignore_attrs:
-                yield key, value
+#     def pop(self, key, default=None):
+#         return self._attrs.pop(key, default)
 
-    def pop(self, key, default=None):
-        return self._attrs.pop(key, default)
+#     def update(self, other=()):
+#         self._attrs.update(other)
 
-    def update(self, other=()):
-        self._attrs.update(other)
+#     def create(self, key, data, shape=None, dtype=None):
+#         self._attrs.create(key, data, shape, dtype)
 
-    def create(self, key, data, shape=None, dtype=None):
-        self._attrs.create(key, data, shape, dtype)
+#     def modify(self, key, value):
+#         self._attrs.modify(key, value)
 
-    def modify(self, key, value):
-        self._attrs.modify(key, value)
+#     def __delitem__(self, key):
+#         del self._attrs[key]
 
-    def __delitem__(self, key):
-        del self._attrs[key]
+#     def __contains__(self, key):
+#         return key in self._attrs
 
-    def __contains__(self, key):
-        return key in self._attrs
+#     def __iter__(self):
+#         return self._attrs.__iter__()
 
-    def __iter__(self):
-        return self._attrs.__iter__()
-
-    def __repr__(self):
-        return make_attrs_repr(self, name_indent, value_indent, 'Attributes')
+#     def __repr__(self):
+#         return make_attrs_repr(self, name_indent, value_indent, 'Attributes')
 
 
 class Encoding:
@@ -542,7 +545,7 @@ class Encoding:
 
     """
     def __init__(self, var_encoding):
-        self._encoding = var_encoding
+        self._encoding = msgspec.to_builtins(var_encoding)
         for key, val in var_encoding.items():
             setattr(self, key, val)
 
@@ -607,7 +610,7 @@ class Encoding:
     def encode(self, values):
         return utils.encode_data(np.asarray(values), **self._encoding)
 
-    def decode(self, values):
+    def decode(self, bytes_data):
         # results = utils.decode_data(values, **self._encoding)
 
         # if results.ndim == 0:
@@ -615,27 +618,23 @@ class Encoding:
         # else:
         #     return results
 
-        return utils.decode_data(np.asarray(values), **self._encoding)
+        return utils.decode_data(bytes_data, **self._encoding)
 
 
 class Variable:
     """
 
     """
-    def __init__(self, dataset, var_name):
+    def __init__(self, blt_file, var_name, sys_meta, finalizers):
         """
 
         """
-        self._dataset = dataset
-        # self.coords = dataset.sys_meta
-        # self.ndim = dataset.ndim
-        # self.dtype = dataset.dtype
-        # self.chunks = dataset.chunks
+        self._sys_meta = sys_meta
+        self._var
+        self._blt = blt_file
         self.name = var_name
-        # self.file = file
-        # setattr(file, self.name, self)
-        self.attrs = Attributes(dataset.attrs)
-        self.encoding = Encoding(self._get_var_sys_meta['encoding'])
+        self.attrs = Attributes(self._blt, var_name, finalizers)
+        self.encoding = Encoding(getattr(getattr(self._sys_meta, 'variables')[self.name], 'encoding'))
         self.loc = indexers.LocationIndexer(self)
 
     @property
@@ -643,27 +642,28 @@ class Variable:
         """
 
         """
-        return self._dataset.sys_meta['variables'][self.name]
+        return getattr(self._sys_meta, 'variables')[self.name]
 
     @property
     def shape(self):
-        return self._get_var_sys_meta['shape']
+        return getattr(self._get_var_sys_meta, 'shape')
 
     @property
     def coords(self):
-        return self._get_var_sys_meta['coords']
+        return getattr(self._get_var_sys_meta, 'coords')
 
     @property
     def ndim(self):
-        return len(self._get_var_sys_meta['coords'])
+        return len(getattr(self._get_var_sys_meta, 'coords'))
+
+    # @property
+    # def dtype(self):
+    #     # TODO: should be in the encoding data
+    #     return np.dtype(getattr(self._get_var_sys_meta, 'dtype_decoded'))
 
     @property
-    def dtype(self):
-        return np.dtype(self._get_var_sys_meta['dtype_decoded'])
-
-    @property
-    def chunks(self):
-        return self._get_var_sys_meta['chunks']
+    def chunk_shape(self):
+        return getattr(self._get_var_sys_meta, 'chunk_shape')
 
     # @property
     # def size(self):
@@ -677,9 +677,9 @@ class Variable:
     # def maxshape(self):
     #     return self._dataset.maxshape
 
-    @property
-    def fillvalue(self):
-        return self._get_var_sys_meta['fillvalue']
+    # @property
+    # def fillvalue(self):
+    #     return getattr(self._get_var_sys_meta, 'fillvalue')
 
     # def reshape(self, new_shape, axis=None):
     #     """ Reshape the dataset, or the specified axis.
@@ -697,6 +697,12 @@ class Variable:
     #     """
     #     self._dataset.resize(new_shape, axis)
 
+    def rechunker(self, target_chunk_shape, max_mem):
+        """
+        Generator to rechunk the variable into a new chunk shape.
+        """
+        pass
+
 
     def __getitem__(self, key):
         return self.encoding.decode(self._dataset[key])
@@ -707,15 +713,15 @@ class Variable:
     def iter_chunks(self, sel=None):
         return self._dataset.iter_chunks(sel)
 
-    def __bool__(self):
-        return self._dataset.__bool__()
+    # def __bool__(self):
+    #     return self._dataset.__bool__()
 
-    def len(self):
-        return self._dataset.len()
+    # def len(self):
+    #     return self._dataset.len()
 
     def sel(self, selection: dict, **file_kwargs):
         """
-
+        Return a Selection object
         """
         dims = np.array(self.coords)
 
@@ -771,6 +777,16 @@ class Coordinate(Variable):
     @property
     def data(self):
         return self[()]
+
+    def prepend(self, data=None, length=None):
+        """
+        Prepend data to the start of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the start.
+        """
+
+    def append(self, data=None, length=None):
+        """
+        Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the end.
+        """
 
 
     def copy(self, to_file=None, name: str=None, include_attrs=True, **kwargs):
@@ -891,42 +907,56 @@ class Dataset:
 
         fp = pathlib.Path(file_path)
         fp_exists = fp.exists()
-        self._blt = booklet.open(file_path, flag, **kwargs)
+        self._blt = booklet.open(file_path, flag, key_serializer='str', **kwargs)
 
         ## Set/Get system metadata
-        if not fp_exists and flag in ('n', 'c'):
+        if not fp_exists or flag in ('n', 'c'):
             # Checks
             if compression.lower() not in compression_options:
                 raise ValueError(f'compression must be one of {compression_options}.')
 
-            self.sys_meta = SysMeta(self._blt, dict(cfbooklet_type='Dataset', compression=compression, variables={}))
+            self._meta = data_models.SysMeta(cfbooklet_type='Dataset', compression=compression, variables={})
+            self._blt.set_metadata(msgspec.to_builtins(self._meta))
 
         else:
-            self.sys_meta = SysMeta(self._blt, self._blt.get_metadata())
+            self._meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
 
-        self.compression = self.sys_meta['compression']
+        self.compression = self._meta.compression
+        self._finalizers = []
+        self._finalizers.append(weakref.finalize(self, utils.dataset_finalizer, self._blt, self._meta))
 
+        self.attrs = Attributes(self._blt, '_', self._finalizers)
+
+        self._cache = {}
+
+
+    # @property
+    # def attrs(self):
+    #     """
+    #     Attributes of the dataset.
+    #     """
+    #     return Attributes(self._blt, '_')
 
     @property
     def variables(self):
         """
         Return a tuple of all the variables (coord and data variables).
         """
-        return tuple(self.sys_meta['variables'].keys())
+        return tuple(self._meta.variables.keys())
 
     @property
     def coords(self):
         """
         Return a tuple of all the coordinates.
         """
-        return tuple(k for k, v in self.sys_meta['variables'].items() if v['is_coord'])
+        return tuple(k for k, v in self._meta.variables.items() if v['is_coord'])
 
     @property
     def data_vars(self):
         """
         Return a tuple of all the data variables.
         """
-        return tuple(k for k, v in self.sys_meta['variables'].items() if not v['is_coord'])
+        return tuple(k for k, v in self._meta.variables.items() if not v['is_coord'])
 
 
     # def __bool__(self):
@@ -936,14 +966,14 @@ class Dataset:
     #     return self._file.__bool__()
 
     def __iter__(self):
-        for key in self.sys_meta['variables']:
+        for key in self._meta.variables:
             yield key
 
     def __len__(self):
-        return len(self.__iter__())
+        return len(self._meta.variables)
 
     def __contains__(self, key):
-        return key in self.__iter__()
+        return key in self._meta.variables
 
     def get(self, var_name):
         """
@@ -994,20 +1024,22 @@ class Dataset:
         """
 
         """
-        self.sys_meta.close()
-        self._blt.close()
+        for finalizer in reversed(self._finalizers):
+            finalizer()
 
         # self._file.close()
         # if self.lock_fileno is not None:
         #     fcntl.flock(self.lock_fileno, fcntl.LOCK_UN)
         #     os.close(self.lock_fileno)
 
-    def sync(self):
-        """
+    # def sync(self):
+    #     """
 
-        """
-        self.sys_meta.sync()
-        self._blt.sync()
+    #     """
+    #     old_meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
+    #     if old_meta != self._meta:
+    #         self._blt.set_metadata(msgspec.to_builtins(self._meta))
+    #     self._blt.sync()
 
 
     def __repr__(self):
@@ -1173,7 +1205,7 @@ class Dataset:
     #     return x1
 
 
-    def to_netcdf4(self, name: Union[str, pathlib.Path, io.BytesIO], compression: str='lzf', **file_kwargs):
+    def to_netcdf4(self, name: Union[str, pathlib.Path, io.BytesIO], compression: str='gzip', **file_kwargs):
         """
         Like copy, but must be a file path and will not be returned.
         """
@@ -1181,7 +1213,7 @@ class Dataset:
         file.close()
 
 
-    def copy(self, name: Union[str, pathlib.Path, io.BytesIO]=None, compression: str='lzf', **file_kwargs):
+    def copy(self, name: Union[str, pathlib.Path, io.BytesIO]=None, **file_kwargs):
         """
         Copy a file object. kwargs can be any parameter for File.
         """
