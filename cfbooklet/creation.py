@@ -7,8 +7,9 @@ Created on Thu Feb 13 17:08:09 2025
 """
 import numpy as np
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
+import msgspec
 
-import utils
+import utils, data_models, rechunker, support_classes as sc
 
 #################################################
 
@@ -17,69 +18,70 @@ class Coord:
     """
 
     """
-    def __init__(self, blt_file, sys_meta):
+    def __init__(self, blt_file, sys_meta, finalizers, var_cache):
         """
 
         """
+        self._blt = blt_file
+        self._sys_meta = sys_meta
+        self._finalizers = finalizers
+        self._var_cache = var_cache
 
 
     def generic(self, name: str, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None):
         """
         The generic method to create a coordinate.
         """
-        ## Check var name
-        if not utils.check_var_name(name):
-            raise ValueError(f'{name} is not a valid variable name.')
+        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset)
 
-        ## Check data, shape, and dtype
-        if isinstance(data, np.ndarray):
-            shape = data.shape
-            dtype_decoded = data.dtype
-        else:
-            if not isinstance(shape, tuple):
-                raise ValueError('If data is not passed, then shape must be passed.')
-            else:
-                if not all([isinstance(i, (int, np.integer)) for i in shape]):
-                    raise ValueError('shape must be a tuple of ints.')
-            if not isinstance(dtype_decoded, (str, np.dtype)):
-                raise ValueError('If data is not passed, then dtype_decoded must be passed.')
-            dtype_decoded = np.dtype(dtype_decoded)
+        ## Update sys_meta
+        if name in self._sys_meta.variables:
+            raise ValueError(f'Dataset already contains the variable {name}.')
 
-        if not isinstance(dtype_encoded, (str, np.dtype)):
-            dtype_encoded = dtype_decoded
+        var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), encoding=enc)
 
-        ## Fillvalue
-        kind = dtype_encoded.kind
-        if fillvalue is not None:
-            fillvalue_dtype = np.dtype(type(fillvalue))
+        self._sys_meta.variables[name] = var
 
-            if kind == 'u' and fillvalue_dtype.kind == 'i':
-                if fillvalue < 0:
-                    raise ValueError('The dtype_encoded is an unsigned integer, but the fillvalue is < 0.')
-                elif fillvalue_dtype.kind != kind:
-                    raise ValueError('The fillvalue dtype is not the same as the dtype_encoded dtype.')
-        else:
-            if kind == 'u':
-                fillvalue = 0
-            elif kind == 'f':
-                fillvalue = np.nan
-            elif kind == 'U':
-                fillvalue = ''
-            elif kind == 'i':
-                fillvalue = utils.fillvalue_dict[dtype_encoded.name]
-            elif kind == 'M':
-                fillvalue = np.datetime64('nat')
-            else:
-                raise TypeError('Unknown/unsupported data type.')
+        if data is not None:
+            utils.write_init_data(self._blt, name, var, data)
 
-        ## Scale and offset
-        if scale_factor is None and isinstance(add_offset, (int, float, np.number)):
-            scale_factor = 1
-        if isinstance(scale_factor, (int, float, np.number)) and add_offset is None:
-            add_offset = 0
+        ## Init Coordinate
+        coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
+        self._var_cache[name] = coord
 
-        if not isinstance(scale_factor, (int, float, np.number)) or isinstance(add_offset, (int, float, np.number)):
-            raise ValueError('sclae_factor and add_offset must be either ints or floats.')
+        return coord
+
+
+    def latitude(self, name: str, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, **kwargs):
+        """
+
+        """
+        encodings = utils.default_encodings['lat']
+        encodings.update(kwargs)
+
+        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
+
+        ## check sys_meta
+        if name in self.sys_meta.variables:
+            raise ValueError(f'Dataset already contains the variable {name}.')
+
+        var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), encoding=enc)
+
+        self._sys_meta.variables[name] = var
+
+        if data is not None:
+            utils.write_init_data(self._blt, name, var, data)
+
+        ## Init Coordinate
+        coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
+        self._var_cache[name] = coord
+
+        return coord
+
+
+
+
+
 
 
 

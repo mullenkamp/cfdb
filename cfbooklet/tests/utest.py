@@ -37,10 +37,24 @@ kwargs = {}
 name = 'coord1'
 
 data = np.array([2, 3, 4, 5, 6, 7], dtype='uint32')
+data = np.array([2, 3, 4, 5, 6, 7], dtype='int32')
 data = np.array([2, 3, 4, 5, 6, 7], dtype='float32')
 data = np.array([2, 3, 4, 5, 6, 7], dtype='str')
-data = np.array([2, 3, 4, 5, 6, 7], dtype='datetime64[h]')
+data = np.array([2, 3, 4, 5, 6, 7, np.datetime64('nat')], dtype='datetime64[h]')
 
+shape = None
+chunk_shape = (4,)
+fillvalue = None
+dtype_decoded = None
+dtype_encoded = None
+scale_factor = None
+add_offset = None
+
+data = None
+shape = (6, )
+chunk_shape = (4,)
+fillvalue = None
+dtype_decoded = 'int16'
 
 ###################################################
 ### Functions

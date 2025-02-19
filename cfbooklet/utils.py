@@ -12,6 +12,7 @@ import os
 import numpy as np
 import msgspec
 import re
+import copy
 # import xarray as xr
 # from time import time
 # from datetime import datetime
@@ -22,7 +23,7 @@ from typing import Set, Optional, Dict, Tuple, List, Union, Any
 # import numcodecs
 # import hdf5plugin
 
-import data_models
+import data_models, rechunker
 
 ########################################################
 ### Parmeters
@@ -46,10 +47,29 @@ fillvalue_dict = {'int8': -128, 'int16': -32768, 'int32': -2147483648, 'int64': 
 
 # ignore_attrs = ('DIMENSION_LIST', 'DIMENSION_LABELS', 'DIMENSION_SCALE', 'REFERENCE_LIST', 'CLASS', 'NAME', '_Netcdf4Coordinates', '_Netcdf4Dimid')
 
+var_chunk_key_str = '{var_name}!{dims}'
+
 attrs_key_str = '_{var_name}.attrs'
 
-var_regex = "^[a-zA-Z][a-z0-9_]*$"
-var_pattern = re.compile(var_regex)
+name_indent = 4
+value_indent = 20
+var_name_regex = "^[a-zA-Z][a-zA-Z0-9_]*$"
+var_name_pattern = re.compile(var_name_regex)
+
+default_encodings = {'lon': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
+                 'lat': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
+                 'altitude': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.001, 'dtype_decoded': 'float32'},
+                 'time': {'dtype_encoded': 'int64', 'fillvalue': -9223372036854775808, 'dtype_decoded': 'datetime64[s]'},
+                 'modified_date': {'dtype_encoded': 'int64', 'fillvalue': -9223372036854775808, 'dtype_decoded': 'datetime64[us]'},
+                 'band': {'dtype_decoded': 'uint8', 'dtype_encoded': 'uint8', 'fillvalue': 0, 'scale_factor': 1},
+                 # 'chunk_day': {'dtype_encoded': 'int32'},
+                 # 'chunk_date': {'fillvalue': -99999999, 'units': "days since 1970-01-01 00:00:00"},
+                 'censor_code': {'dtype_decoded': 'uint8', 'dtype_encoded': 'uint8', 'fillvalue': 0, 'scale_factor': 1},
+                 # 'bore_top_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
+                 # 'bore_bottom_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
+                 # 'bore_depth': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 0.1},
+                 # 'reference_level': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 1},
+                 }
 
 #########################################################
 ### Classes
@@ -213,7 +233,7 @@ def check_var_name(var_name):
     """
     if isinstance(var_name, str):
         if len(var_name) <= 256:
-            if var_pattern.match(var_name):
+            if var_name_pattern.match(var_name):
                 return True
     return False
 
@@ -240,11 +260,19 @@ def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int
             raise ValueError('If data is not passed, then dtype_decoded must be passed.')
         dtype_decoded = np.dtype(dtype_decoded)
 
+    if dtype_decoded.kind == 'M':
+        dtype_encoded = np.dtype('int64')
+
+    if isinstance(dtype_encoded, str):
+        dtype_encoded = np.dtype(dtype_encoded)
+
     if not isinstance(dtype_encoded, (str, np.dtype)):
         dtype_encoded = dtype_decoded
 
     ## Chunk shape
     if isinstance(chunk_shape, tuple):
+        if len(chunk_shape) != len(shape):
+            raise ValueError('shape and chunk_shape must have the same lengths.')
         if not all([isinstance(i, (int, np.integer)) for i in chunk_shape]):
             raise ValueError('chunk_shape must be a tuple of ints.')
     else:
@@ -258,8 +286,8 @@ def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int
         if kind == 'u' and fillvalue_dtype.kind == 'i':
             if fillvalue < 0:
                 raise ValueError('The dtype_encoded is an unsigned integer, but the fillvalue is < 0.')
-            elif fillvalue_dtype.kind != kind:
-                raise ValueError('The fillvalue dtype is not the same as the dtype_encoded dtype.')
+        elif fillvalue_dtype.kind != kind:
+            raise ValueError('The fillvalue dtype is not the same as the dtype_encoded dtype.')
     else:
         if kind == 'u':
             fillvalue = 0
@@ -280,29 +308,28 @@ def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int
     if isinstance(scale_factor, (int, float, np.number)) and add_offset is None:
         add_offset = 0
 
-    if not isinstance(scale_factor, (int, float, np.number)) or isinstance(add_offset, (int, float, np.number)):
-        raise ValueError('sclae_factor and add_offset must be either ints or floats.')
+    if isinstance(scale_factor, (int, float, np.number)) and kind not in ('f', 'u', 'i'):
+        raise ValueError('scale_factor and add_offset only apply to ints and floats.')
+
+    enc = data_models.Encoding(dtype_encoded=dtype_encoded.name, dtype_decoded=dtype_decoded.name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
+
+    return name, data, shape, chunk_shape, enc
 
 
+# def encode_datetime(data, units=None, calendar='gregorian'):
+#     """
 
+#     """
+#     if units is None:
+#         output = data.astype('datetime64[s]').astype('int64')
+#     else:
+#         if '1970-01-01' in units:
+#             time_unit = units.split()[0]
+#             output = data.astype(time_str_conversion[time_unit]).astype('int64')
+#         else:
+#             output = cftime.date2num(data.astype('datetime64[s]').tolist(), units, calendar)
 
-
-
-
-def encode_datetime(data, units=None, calendar='gregorian'):
-    """
-
-    """
-    if units is None:
-        output = data.astype('datetime64[s]').astype('int64')
-    else:
-        if '1970-01-01' in units:
-            time_unit = units.split()[0]
-            output = data.astype(time_str_conversion[time_unit]).astype('int64')
-        else:
-            output = cftime.date2num(data.astype('datetime64[s]').tolist(), units, calendar)
-
-    return output
+#     return output
 
 
 def decode_datetime(data, units=None, calendar='gregorian'):
@@ -321,22 +348,23 @@ def decode_datetime(data, units=None, calendar='gregorian'):
     return output
 
 
-def encode_data(data, dtype_encoded, missing_value, add_offset=0, scale_factor=None, units=None, calendar=None, **kwargs) -> bytes:
+def encode_data(data, dtype_encoded, fillvalue, add_offset=None, scale_factor=None) -> bytes:
     """
 
     """
     if 'datetime64' in data.dtype.name:
-        data = encode_datetime(data, units, calendar)
+        data = data.astype('int64')
 
     elif isinstance(scale_factor, (int, float, np.number)):
         # precision = int(np.abs(np.log10(val['scale_factor'])))
         data = np.round((data - add_offset)/scale_factor)
 
-        if isinstance(missing_value, (int, np.number)):
-            data[np.isnan(data)] = missing_value
+        if isinstance(fillvalue, (int, np.number)):
+            data[np.isnan(data)] = fillvalue
 
-    if (data.dtype.name != dtype_encoded) or (data.dtype.name == 'object'):
-        data = data.astype(dtype_encoded)
+    # if (data.dtype.name != dtype_encoded) or (data.dtype.name == 'object'):
+    #     data = data.astype(dtype_encoded)
+    data = data.astype(dtype_encoded)
 
     return data.tobytes()
 
@@ -477,117 +505,56 @@ def assign_dtype_decoded(encoding):
     return encoding
 
 
-# def get_encodings(files, group=None):
-#     """
-#     I should add checking across the files for conflicts at some point.
-#     """
-#     # file_encs = {}
-#     encs = {}
-#     for i, file1 in enumerate(files):
-#         file = open_file(file1, group)
-#         # file_encs[i] = {}
-#         if isinstance(file, xr.Dataset):
-#             ds_list = list(file.variables)
-#         else:
-#             ds_list = list(file.keys())
+def write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes):
+    """
 
-#         for name in ds_list:
-#             data = file[name]
-#             if isinstance(data, xr.DataArray):
-#                 encoding = get_encoding_data_from_xr(data)
-#             else:
-#                 encoding = get_encoding_data_from_attrs(data.attrs)
-#             enc = process_encoding(encoding, data.dtype)
-#             enc = assign_dtype_decoded(enc)
-#             # file_encs[i].update({name: enc})
+    """
+    dims = '.'.join(map(str, chunk_start_pos))
+    var_chunk_key = var_chunk_key_str.format(var_name=var_name, dims=dims)
 
-#             if name in encs:
-#                 # TODO: equality check for existing enc dists
-#                 new_enc = encs[name]
-#                 shared_items = [True for k in new_enc if (k in enc) and (new_enc[k] == enc[k])]
-#                 if not all(shared_items):
-#                     raise ValueError(f'Not all files have the same encoding for {name}.')
-#                 encs[name].update(enc)
-#             else:
-#                 encs[name] = enc
+    # var_name, dims = var_chunk_key.split('!')
+    # chunk_start_pos = tuple(map(int, dims.split('.')))
 
-#         # for name, enc in encs.items():
-#         #     enc = assign_dtype_decoded(enc)
-#         #     encs[name] = enc
-
-#         file.close()
-
-#     return encs
+    blt_file[var_chunk_key] = data_chunk_bytes
 
 
-# def get_attrs(files, group):
-#     """
+def write_init_data(blt_file, var_name, var_meta, data):
+    """
 
-#     """
-#     # file_attrs = {}
-#     global_attrs = {}
-#     attrs = {}
-#     for i, file1 in enumerate(files):
-#         with open_file(file1, group) as file:
-#             global_attrs.update(dict(file.attrs))
+    """
+    dtype_encoded = var_meta.encoding.dtype_encoded
+    fillvalue = var_meta.encoding.fillvalue
+    add_offset = var_meta.encoding.add_offset
+    scale_factor = var_meta.encoding.scale_factor
 
-#             if isinstance(file, xr.Dataset):
-#                 vars_list = list(file.variables)
-#             else:
-#                 vars_list = [name for name in file]
+    mem_arr1 = np.full(var_meta.chunk_shape, fill_value=fillvalue, dtype=dtype_encoded)
 
-#             for name in vars_list:
-#                 attr = {f: v for f, v in file[name].attrs.items() if (f not in enc_fields) and (f not in ignore_attrs)}
+    chunk_iter = rechunker.chunk_range(var_meta.start_chunk_pos, var_meta.shape, var_meta.chunk_shape, clip_ends=True)
+    for chunk in chunk_iter:
+        mem_arr2 = mem_arr1.copy()
+        mem_chunk = tuple(slice(0, s.stop - s.start) for s in chunk)
+        mem_arr2[mem_chunk] = data[chunk]
 
-#                 if name in attrs:
-#                     attrs[name].update(attr)
-#                 else:
-#                     attrs[name] = attr
+        chunk_start_pos = tuple(s.start for s in chunk)
+        data_chunk_bytes = encode_data(mem_arr2, dtype_encoded, fillvalue, add_offset, scale_factor)
 
-#     return attrs, global_attrs
+        write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes)
 
 
-# def is_scale(dataset):
-#     """
+def var_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file):
+    """
 
-#     """
-#     check = h5py.h5ds.is_scale(dataset._id)
+    """
+    ## Update sys_meta
+    if name in sys_meta.variables:
+        raise ValueError(f'Dataset already contains the variable {name}.')
 
-#     return check
+    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), encoding=enc)
 
+    sys_meta.variables[name] = var
 
-# def is_regular_index(arr_index):
-#     """
-
-#     """
-#     reg_bool = (np.sum(np.diff(arr_index)) == (len(arr_index) - 1)) or len(arr_index) == 1
-
-#     return reg_bool
-
-
-# def open_file(path, group=None):
-#     """
-
-#     """
-#     if isinstance(path, (str, pathlib.Path, io.IOBase)):
-#         try:
-#             f = h5py.File(path, 'r')
-#         except:
-#             f = xr.open_dataset(path, cache=False)
-#     elif isinstance(path, (h5py.File, xr.Dataset)):
-#         f = path
-#     elif isinstance(path, bytes):
-#         try:
-#             f = h5py.File(io.BytesIO(path), 'r')
-#         except:
-#             f = xr.open_dataset(io.BytesIO(path), cache=False)
-#     else:
-#         raise TypeError('path must be a str/pathlib path to an HDF5 file, an h5py.File, a bytes object of an HDF5 file, or an xarray Dataset.')
-
-#     if isinstance(group, str) and not isinstance(f, xr.Dataset):
-#         f = f[group]
-
-#     return f
+    if data is not None:
+        write_init_data(blt_file, name, var, data)
 
 
 def extend_coords(files, encodings, group):
@@ -877,7 +844,7 @@ def guess_chunk_time(shape, maxshape, dtype, time_index, chunk_max=3*2**20):
             # 1b. We're within 50% of the target chunk size, AND
             #  2. The chunk is smaller than the maximum chunk size
 
-            chunk_bytes = product(chunks)*typesize
+            chunk_bytes = math.prod(chunks)*typesize
 
             if (chunk_bytes < target_size or \
              abs(chunk_bytes - target_size)/target_size < 0.5):
@@ -1082,7 +1049,349 @@ def get_dtype_shape(data=None, dtype=None, shape=None):
     return dtype, shape
 
 
+def is_var_name(name):
+    """
 
+    """
+    res = var_name_pattern.search(name)
+    if res:
+        return True
+    else:
+        return False
+
+
+def format_value(value):
+    """
+
+    """
+    if isinstance(value, (int, np.integer)):
+        return str(value)
+    elif isinstance(value, (float, np.floating)):
+        return f'{value:.2f}'
+    else:
+        return value
+
+
+def append_summary(summary, summ_dict):
+    """
+
+    """
+    for key, value in summ_dict.items():
+        spacing = value_indent - len(key)
+        if spacing < 1:
+            spacing = 1
+
+        summary += f"""\n{key}""" + """ """ * spacing + value
+
+    return summary
+
+
+def data_variable_summary(ds):
+    """
+
+    """
+    if ds:
+        summ_dict = {'name': ds.name, 'dims order': '(' + ', '.join(ds.coords) + ')', 'chunk size': str(ds.chunks)}
+
+        summary = """<cfbooklet.DataVariable>"""
+
+        summary = append_summary(summary, summ_dict)
+
+        summary += """\nCoordinates:"""
+
+        for dim_name in ds.coords:
+            dim = ds.file[dim_name]
+            dtype_name = dim.encoding['dtype_decoded']
+            dim_len = dim.shape[0]
+            first_value = format_value(dim[0])
+            spacing = value_indent - name_indent - len(dim_name)
+            if spacing < 1:
+                spacing = 1
+            dim_str = f"""\n    {dim_name}""" + """ """ * spacing
+            dim_str += f"""({dim_len}) {dtype_name} {first_value} ..."""
+            summary += dim_str
+
+        attrs_summary = make_attrs_repr(ds.attrs, name_indent, value_indent, 'Attributes')
+        summary += """\n""" + attrs_summary
+
+    else:
+        summary = """DataVariable is closed"""
+
+    return summary
+
+
+def coordinate_summary(ds):
+    """
+
+    """
+    if ds:
+        name = ds.name
+        dim_len = ds.shape[0]
+        # dtype_name = ds.dtype.name
+        # dtype_decoded = ds.encoding['dtype_decoded']
+
+        first_value = format_value(ds.data[0])
+        last_value = format_value(ds.data[-1])
+
+        # summ_dict = {'name': name, 'dtype encoded': dtype_name, 'dtype decoded': dtype_decoded, 'chunk size': str(ds.chunks), 'dim length': str(dim_len), 'values': f"""{first_value} ... {last_value}"""}
+        summ_dict = {'name': name, 'chunk size': str(ds.chunks), 'dim length': str(dim_len), 'values': f"""{first_value} ... {last_value}"""}
+
+        summary = """<cfbooklet.Coordinate>"""
+
+        summary = append_summary(summary, summ_dict)
+
+        attrs_summary = make_attrs_repr(ds.attrs, name_indent, value_indent, 'Attributes')
+        summary += """\n""" + attrs_summary
+    else:
+        summary = """Coordinate is closed"""
+
+    return summary
+
+
+def make_attrs_repr(attrs, name_indent, value_indent, header):
+    summary = f"""{header}:"""
+    for key, value in attrs.items():
+        spacing = value_indent - name_indent - len(key)
+        if spacing < 1:
+            spacing = 1
+        line_str = f"""\n    {key}""" + """ """ * spacing + f"""{value}"""
+        summary += line_str
+
+    return summary
+
+
+# def create_h5py_data_variable(file, name: str, dims: (str, tuple, list), shape: (tuple, list), encoding: dict, data=None, **kwargs):
+#     """
+
+#     """
+#     dtype = encoding['dtype']
+
+#     ## Check if dims already exist and if the dim lengths match
+#     if isinstance(dims, str):
+#         dims = [dims]
+
+#     for i, dim in enumerate(dims):
+#         if dim not in file:
+#             raise ValueError(f'{dim} not in File')
+
+#         dim_len = file._file[dim].shape[0]
+#         if dim_len != shape[i]:
+#             raise ValueError(f'{dim} does not have the same length as the input data/shape dim.')
+
+#     ## Make chunks
+#     if 'chunks' not in kwargs:
+#         if 'maxshape' in kwargs:
+#             maxshape = kwargs['maxshape']
+#         else:
+#             maxshape = shape
+#         kwargs.setdefault('chunks', utils.guess_chunk(shape, maxshape, dtype))
+
+#     ## Create variable
+#     if data is None:
+#         ds = file._file.create_dataset(name, shape, dtype=dtype, track_order=True, **kwargs)
+#     else:
+#         ## Encode data before creating variable
+#         data = utils.encode_data(data, **encoding)
+
+#         ds = file._file.create_dataset(name, dtype=dtype, data=data, track_order=True, **kwargs)
+
+#     for i, dim in enumerate(dims):
+#         ds.dims[i].attach_scale(file._file[dim])
+#         ds.dims[i].label = dim
+
+#     return ds
+
+
+# def create_h5py_coordinate(file, name: str, data, shape: (tuple, list), encoding: dict, **kwargs):
+#     """
+
+#     """
+#     if len(shape) != 1:
+#         raise ValueError('The shape of a coordinate must be 1-D.')
+
+#     dtype = encoding['dtype']
+
+#     ## Make chunks
+#     if 'chunks' not in kwargs:
+#         if 'maxshape' in kwargs:
+#             maxshape = kwargs['maxshape']
+#         else:
+#             maxshape = shape
+#         kwargs.setdefault('chunks', utils.guess_chunk(shape, maxshape, dtype))
+
+#     ## Encode data before creating variable/coordinate
+#     # print(encoding)
+#     data = utils.encode_data(data, **encoding)
+
+#     # print(data)
+#     # print(dtype)
+
+#     ## Make Variable
+#     ds = file._file.create_dataset(name, dtype=dtype, data=data, track_order=True, **kwargs)
+
+#     ds.make_scale(name)
+#     ds.dims[0].label = name
+
+#     return ds
+
+
+# def copy_data_variable(to_file, from_variable, name, include_data=True, include_attrs=True, **kwargs):
+#     """
+
+#     """
+#     other1 = from_variable._dataset
+#     for k in ('chunks', 'compression',
+#               'compression_opts', 'scaleoffset', 'shuffle', 'fletcher32',
+#               'fillvalue'):
+#         kwargs.setdefault(k, getattr(other1, k))
+
+#     if 'compression' in other1.attrs:
+#         compression = other1.attrs['compression']
+#         kwargs.update(**utils.get_compressor(compression))
+#     else:
+#         compression = kwargs['compression']
+
+#     # TODO: more elegant way to pass these (dcpl to create_variable?)
+#     dcpl = other1.id.get_create_plist()
+#     kwargs.setdefault('track_times', dcpl.get_obj_track_times())
+#     # kwargs.setdefault('track_order', dcpl.get_attr_creation_order() > 0)
+
+#     # Special case: the maxshape property always exists, but if we pass it
+#     # to create_variable, the new variable will automatically get chunked
+#     # layout. So we copy it only if it is different from shape.
+#     if other1.maxshape != other1.shape:
+#         kwargs.setdefault('maxshape', other1.maxshape)
+
+#     encoding = from_variable.encoding._encoding.copy()
+#     shape = from_variable.shape
+
+#     ds0 = create_h5py_data_variable(to_file, name, tuple(dim.label for dim in other1.dims), shape, encoding, **kwargs)
+
+#     if include_data:
+#         # Directly copy chunks using write_direct_chunk
+#         for chunk in ds0.iter_chunks():
+#             chunk_starts = tuple(c.start for c in chunk)
+#             filter_mask, data = other1.id.read_direct_chunk(chunk_starts)
+#             ds0.id.write_direct_chunk(chunk_starts, data, filter_mask)
+
+#     ds = DataVariable(ds0, to_file, encoding)
+#     if include_attrs:
+#         ds.attrs.update(from_variable.attrs)
+
+#     return ds
+
+
+# def copy_coordinate(to_file, from_coordinate, name, include_attrs=True, **kwargs):
+#     """
+
+#     """
+#     other1 = from_coordinate._dataset
+#     for k in ('chunks', 'compression',
+#               'compression_opts', 'scaleoffset', 'shuffle', 'fletcher32',
+#               'fillvalue'):
+#         kwargs.setdefault(k, getattr(other1, k))
+
+#     if 'compression' in other1.attrs:
+#         compression = other1.attrs['compression']
+#         kwargs.update(**utils.get_compressor(compression))
+#     else:
+#         compression = kwargs['compression']
+
+#     # TODO: more elegant way to pass these (dcpl to create_variable?)
+#     dcpl = other1.id.get_create_plist()
+#     kwargs.setdefault('track_times', dcpl.get_obj_track_times())
+#     # kwargs.setdefault('track_order', dcpl.get_attr_creation_order() > 0)
+
+#     # Special case: the maxshape property always exists, but if we pass it
+#     # to create_variable, the new variable will automatically get chunked
+#     # layout. So we copy it only if it is different from shape.
+#     if other1.maxshape != other1.shape:
+#         kwargs.setdefault('maxshape', other1.maxshape)
+
+#     encoding = from_coordinate.encoding._encoding.copy()
+#     shape = from_coordinate.shape
+
+#     ds0 = create_h5py_coordinate(to_file, name, from_coordinate.data, shape, encoding, **kwargs)
+
+#     ds = Coordinate(ds0, to_file, encoding)
+#     if include_attrs:
+#         ds.attrs.update(from_coordinate.attrs)
+
+#     return ds
+
+
+def prepare_encodings_for_variables(dtype_encoded, dtype_decoded, scale_factor, add_offset, fillvalue, units, calendar):
+    """
+
+    """
+    encoding = {'dtype': dtype_encoded, 'dtype_encoded': dtype_encoded, 'missing_value': fillvalue, '_FillValue': fillvalue, 'add_offset': add_offset, 'scale_factor': scale_factor, 'units': units, 'calendar': calendar}
+    for key, value in copy.deepcopy(encoding).items():
+        if value is None:
+            del encoding[key]
+
+    if 'datetime64' in dtype_decoded:
+        if 'units' not in encoding:
+            encoding['units'] = 'seconds since 1970-01-01'
+        if 'calendar' not in encoding:
+            encoding['calendar'] = 'gregorian'
+        encoding['dtype'] = 'int64'
+
+    return encoding
+
+
+def file_summary(file):
+    """
+
+    """
+    if file:
+        file_path = pathlib.Path(file.filename)
+        if file_path.exists() and file_path.is_file():
+            file_size = file_path.stat().st_size*0.000001
+            file_size_str = """{file_size:.1f} MB""".format(file_size=file_size)
+        else:
+            file_size_str = """NA"""
+
+        summ_dict = {'file name': file_path.name, 'file size': file_size_str, 'writable': str(file.writable)}
+
+        summary = """<hdf5tools.File>"""
+
+        summary = append_summary(summary, summ_dict)
+
+        summary += """\nCoordinates:"""
+
+        for dim_name in file.coords:
+            dim = file[dim_name]
+            dtype_name = dim.encoding['dtype_decoded']
+            dim_len = dim.shape[0]
+            first_value = format_value(dim[0])
+            spacing = value_indent - name_indent - len(dim_name)
+            if spacing < 1:
+                spacing = 1
+            dim_str = f"""\n    {dim_name}""" + """ """ * spacing
+            dim_str += f"""({dim_len}) {dtype_name} {first_value} ..."""
+            summary += dim_str
+
+        summary += """\nData Variables:"""
+
+        for ds_name in file.data_vars:
+            ds = file[ds_name]
+            dtype_name = ds.encoding['dtype_decoded']
+            shape = ds.shape
+            dims = ', '.join(ds.coords)
+            first_value = format_value(ds[tuple(0 for i in range(len(shape)))])
+            spacing = value_indent - name_indent - len(ds_name)
+            if spacing < 1:
+                spacing = 1
+            ds_str = f"""\n    {ds_name}""" + """ """ * spacing
+            ds_str += f"""({dims}) {dtype_name} {first_value} ..."""
+            summary += ds_str
+
+        attrs_summary = make_attrs_repr(file.attrs, name_indent, value_indent, 'Attributes')
+        summary += """\n""" + attrs_summary
+    else:
+        summary = """File is closed"""
+
+    return summary
 
 
 

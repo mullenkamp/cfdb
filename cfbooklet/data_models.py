@@ -47,8 +47,8 @@ class Encoding(msgspec.Struct):
     fillvalue: Union[int, float, str]
     scale_factor: Union[float, int, None] = None
     add_offset: Union[float, int, None] = None
-    units: Union[str, None] = None
-    calendar: Union[str, None] = None
+    # units: Union[str, None] = None
+    # calendar: Union[str, None] = None
 
     # def encode(self, values):
     #     return utils.encode_data(np.asarray(values), **self._encoding)
@@ -63,6 +63,7 @@ class Variable(msgspec.Struct):
     """
     shape: Tuple[int, ...]
     chunk_shape: Tuple[int, ...]
+    start_chunk_pos: Tuple[int, ...]
     coords: Tuple[str, ...]
     encoding: Encoding
 
