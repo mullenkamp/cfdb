@@ -59,12 +59,16 @@ dtype_decoded = 'int16'
 ###################################################
 ### Functions
 
-
+d
 
 ###################################################
 ### Start
 
 self = Dataset(file_path, flag=flag)
+lat1 = self.create.coord.latitude(shape=shape)
+lat1 = self.create.coord.latitude(data=data, chunk_shape=chunk_shape)
+time1 = self.create.coord.time(shape=shape)
+altitude1 = self.create.coord.altitude(shape=shape)
 self.close()
 
 

@@ -14,14 +14,15 @@ import msgspec
 import weakref
 import io
 import copy
+import zstandard as zstd
 
 # from . import utils, indexers
-import utils, indexers, data_models, support_classes as sc
+import utils, indexers, data_models, support_classes as sc, creation
 
 ############################################
 ### Parameters
 
-compression_options = ('zstd', 'lz4', None)
+compression_options = ('zstd', 'lz4')
 default_n_buckets = 144013
 
 
@@ -63,12 +64,15 @@ class Dataset:
             self._meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
 
         self.compression = self._meta.compression
+        self._compressor = zstd.ZstdCompressor(level=1)
         self._finalizers = []
         self._finalizers.append(weakref.finalize(self, utils.dataset_finalizer, self._blt, self._meta))
 
         self.attrs = sc.Attributes(self._blt, '_', self._finalizers)
 
         self._var_cache = {}
+
+        self.create = creation.Creator(self._blt, self._meta, self._finalizers, self._var_cache, self._compressor)
 
 
     # @property
@@ -90,14 +94,14 @@ class Dataset:
         """
         Return a tuple of all the coordinates.
         """
-        return tuple(k for k, v in self._meta.variables.items() if v['is_coord'])
+        return tuple(k for k, v in self._meta.variables.items() if v.is_coord)
 
     @property
     def data_vars(self):
         """
         Return a tuple of all the data variables.
         """
-        return tuple(k for k, v in self._meta.variables.items() if not v['is_coord'])
+        return tuple(k for k, v in self._meta.variables.items() if not v.is_coord)
 
 
     # def __bool__(self):
@@ -131,7 +135,7 @@ class Dataset:
         return self.get(key)
 
     def __setitem__(self, key, value):
-        if isinstance(value, Variable):
+        if isinstance(value, sc.Variable):
             setattr(self, key, value)
         else:
             raise TypeError('Assigned value must be a Variable or Coordinate object.')
@@ -143,7 +147,7 @@ class Dataset:
 
             # Check if the object to delete is a coordinate
             # And if it is, check that no variables are attached to it
-            if isinstance(self[key], Coordinate):
+            if isinstance(self[key], sc.Coordinate):
                 for var_name in self.data_vars:
                     if key in self[var_name].coords:
                         raise ValueError(f'{key} is a coordinate of {var_name}. You must delete all variables associated with a coordinate before you can delete the coordinate.')
@@ -354,99 +358,99 @@ class Dataset:
         file.close()
 
 
-    def copy(self, name: Union[str, pathlib.Path, io.BytesIO]=None, **file_kwargs):
-        """
-        Copy a file object. kwargs can be any parameter for File.
-        """
-        # kwargs.setdefault('mode', 'w')
-        file = File(name, mode='w', compression=compression, **file_kwargs)
+    # def copy(self, name: Union[str, pathlib.Path, io.BytesIO]=None, **file_kwargs):
+    #     """
+    #     Copy a file object. kwargs can be any parameter for File.
+    #     """
+    #     # kwargs.setdefault('mode', 'w')
+    #     file = File(name, mode='w', compression=compression, **file_kwargs)
 
-        ## Create coordinates
-        for dim_name in self.coords:
-            dim = self[dim_name]
-            _ = copy_coordinate(file, dim, dim_name)
+    #     ## Create coordinates
+    #     for dim_name in self.coords:
+    #         dim = self[dim_name]
+    #         _ = copy_coordinate(file, dim, dim_name)
 
-        ## Create variables
-        for ds_name in self.data_vars:
-            ds = self[ds_name]
-            _ = copy_data_variable(file, ds, ds_name)
+    #     ## Create variables
+    #     for ds_name in self.data_vars:
+    #         ds = self[ds_name]
+    #         _ = copy_data_variable(file, ds, ds_name)
 
-        return file
-
-
-    def create_coordinate(self, name, data, dtype_encoded=None, dtype_decoded=None, scale_factor=None, add_offset=None, fillvalue=None, units=None, calendar=None, **kwargs):
-        """
-
-        """
-        if 'compression' not in kwargs:
-            compression = self.compression
-            compressor = utils.get_compressor(compression)
-            kwargs.update({**compressor})
-        else:
-            compression = kwargs['compression']
-
-        data = np.asarray(data)
-
-        dtype_decoded, shape = utils.get_dtype_shape(data, dtype=dtype_decoded, shape=None)
-
-        if dtype_encoded is None:
-            dtype_encoded = dtype_decoded
-
-        encoding = prepare_encodings_for_variables(dtype_encoded, dtype_decoded, scale_factor, add_offset, fillvalue, units, calendar)
-
-        coordinate = create_h5py_coordinate(self, name, data, shape, encoding, **kwargs)
-        dim = Coordinate(coordinate, self, encoding)
-        dim.encoding['compression'] = str(compression)
-
-        return dim
+    #     return file
 
 
-    def create_data_variable(self, name: str, dims: (str, tuple, list), shape: (tuple, list)=None, data=None, dtype_encoded=None, dtype_decoded=None, scale_factor=None, add_offset=None, fillvalue=None, units=None, calendar=None, **kwargs):
-        """
-        Add auto_encode option to determine the scale and offset automatically from the desired dtype? No, but provide the tool to allow the user to do it beforehand if they want.
-        """
-        if 'compression' not in kwargs:
-            compression = self.compression
-            compressor = utils.get_compressor(compression)
-            kwargs.update({**compressor})
-        else:
-            compression = kwargs['compression']
+    # def create_coordinate(self, name, data, dtype_encoded=None, dtype_decoded=None, scale_factor=None, add_offset=None, fillvalue=None, units=None, calendar=None, **kwargs):
+    #     """
 
-        if data is not None:
-            data = np.asarray(data)
+    #     """
+    #     if 'compression' not in kwargs:
+    #         compression = self.compression
+    #         compressor = utils.get_compressor(compression)
+    #         kwargs.update({**compressor})
+    #     else:
+    #         compression = kwargs['compression']
 
-        dtype_decoded, shape = utils.get_dtype_shape(data, dtype_decoded, shape)
+    #     data = np.asarray(data)
 
-        if dtype_encoded is None:
-            dtype_encoded = dtype_decoded
+    #     dtype_decoded, shape = utils.get_dtype_shape(data, dtype=dtype_decoded, shape=None)
 
-        encoding = prepare_encodings_for_variables(dtype_encoded, dtype_decoded, scale_factor, add_offset, fillvalue, units, calendar)
+    #     if dtype_encoded is None:
+    #         dtype_encoded = dtype_decoded
 
-        ds0 = create_h5py_data_variable(self, name, dims, shape, encoding, data, **kwargs)
-        ds = DataVariable(ds0, self, encoding)
-        ds.encoding['compression'] = str(compression)
+    #     encoding = prepare_encodings_for_variables(dtype_encoded, dtype_decoded, scale_factor, add_offset, fillvalue, units, calendar)
 
-        return ds
+    #     coordinate = create_h5py_coordinate(self, name, data, shape, encoding, **kwargs)
+    #     dim = Coordinate(coordinate, self, encoding)
+    #     dim.encoding['compression'] = str(compression)
+
+    #     return dim
 
 
-    def create_data_variable_like(self, from_data_var: DataVariable, name: str, include_data: bool=False, include_attrs: bool=False, **kwargs):
-        """ Create a variable similar to `other`.
+    # def create_data_variable(self, name: str, dims: (str, tuple, list), shape: (tuple, list)=None, data=None, dtype_encoded=None, dtype_decoded=None, scale_factor=None, add_offset=None, fillvalue=None, units=None, calendar=None, **kwargs):
+    #     """
+    #     Add auto_encode option to determine the scale and offset automatically from the desired dtype? No, but provide the tool to allow the user to do it beforehand if they want.
+    #     """
+    #     if 'compression' not in kwargs:
+    #         compression = self.compression
+    #         compressor = utils.get_compressor(compression)
+    #         kwargs.update({**compressor})
+    #     else:
+    #         compression = kwargs['compression']
 
-        name
-            Name of the variable (absolute or relative).  Provide None to make
-            an anonymous variable.
-        from_variable
-            The variable which the new variable should mimic. All properties, such
-            as shape, dtype, chunking, ... will be taken from it, but no data
-            or attributes are being copied.
+    #     if data is not None:
+    #         data = np.asarray(data)
 
-        Any variable keywords (see create_variable) may be provided, including
-        shape and dtype, in which case the provided values take precedence over
-        those from `other`.
-        """
-        ds = copy_data_variable(self, from_data_var, name, include_data, include_attrs, **kwargs)
+    #     dtype_decoded, shape = utils.get_dtype_shape(data, dtype_decoded, shape)
 
-        return ds
+    #     if dtype_encoded is None:
+    #         dtype_encoded = dtype_decoded
+
+    #     encoding = prepare_encodings_for_variables(dtype_encoded, dtype_decoded, scale_factor, add_offset, fillvalue, units, calendar)
+
+    #     ds0 = create_h5py_data_variable(self, name, dims, shape, encoding, data, **kwargs)
+    #     ds = DataVariable(ds0, self, encoding)
+    #     ds.encoding['compression'] = str(compression)
+
+    #     return ds
+
+
+    # def create_data_variable_like(self, from_data_var: DataVariable, name: str, include_data: bool=False, include_attrs: bool=False, **kwargs):
+    #     """ Create a variable similar to `other`.
+
+    #     name
+    #         Name of the variable (absolute or relative).  Provide None to make
+    #         an anonymous variable.
+    #     from_variable
+    #         The variable which the new variable should mimic. All properties, such
+    #         as shape, dtype, chunking, ... will be taken from it, but no data
+    #         or attributes are being copied.
+
+    #     Any variable keywords (see create_variable) may be provided, including
+    #     shape and dtype, in which case the provided values take precedence over
+    #     those from `other`.
+    #     """
+    #     ds = copy_data_variable(self, from_data_var, name, include_data, include_attrs, **kwargs)
+
+    #     return ds
 
 
 

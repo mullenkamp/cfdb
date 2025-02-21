@@ -73,13 +73,11 @@ class Attributes:
     def items(self):
         return self.data.items()
 
-    # def pop(self, key, default=None):
-    #     return self.data.pop(key, default)
+    def pop(self, key, default=None):
+        return self.data.pop(key, default)
 
-    # def update(self, other=()):
-    #     self.data.update(other)
-    #     self._finalizer.detach()
-    #     self._finalizer = utils.sys_meta_finalizer(self.data, self._blt)
+    def update(self, other=()):
+        self.data.update(other)
 
     def __delitem__(self, key):
         del self.data[key]
@@ -105,8 +103,9 @@ class Encoding:
 
     """
     def __init__(self, var_encoding):
-        self._encoding = msgspec.to_builtins(var_encoding)
-        for key, val in var_encoding.items():
+        # self._encoding = msgspec.to_builtins(var_encoding)
+        self._encoding = var_encoding
+        for key, val in self._encoding.items():
             setattr(self, key, val)
 
     # def get(self, key, default=None):
@@ -190,13 +189,17 @@ class Variable:
 
         """
         self._sys_meta = sys_meta
-        self._var
         self._blt = blt_file
         self.name = var_name
         self.attrs = Attributes(self._blt, var_name, finalizers)
-        self.encoding = Encoding(self._sys_meta.variables[self.name].encoding)
+        self.encoding = msgspec.to_builtins(self._sys_meta.variables[self.name].encoding)
+        self._encoding = Encoding(self.encoding)
         self.loc = indexers.LocationIndexer(self)
         self._finalizers = finalizers
+
+        ## Assign all the encodings - should I do this?
+        # for name, val in self._encoding_dict.items():
+        #     setattr(self, name, val)
 
     # @property
     # def attrs(self):
@@ -270,10 +273,10 @@ class Variable:
 
 
     def __getitem__(self, key):
-        return self.encoding.decode(self._dataset[key])
+        return self._encoding.decode(self._dataset[key])
 
     def __setitem__(self, key, value):
-        self._dataset[key] = self.encoding.encode(value)
+        self._dataset[key] = self._encoding.encode(value)
 
     def iter_chunks(self, sel=None):
         return self._dataset.iter_chunks(sel)

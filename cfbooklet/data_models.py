@@ -44,7 +44,8 @@ class Encoding(msgspec.Struct):
     """
     dtype_encoded: str
     dtype_decoded: str
-    fillvalue: Union[int, float, str]
+    fillvalue_encoded: Union[int, float, str, None]
+    fillvalue_decoded: Union[int, float, str, None]
     scale_factor: Union[float, int, None] = None
     add_offset: Union[float, int, None] = None
     # units: Union[str, None] = None
@@ -65,6 +66,7 @@ class Variable(msgspec.Struct):
     chunk_shape: Tuple[int, ...]
     start_chunk_pos: Tuple[int, ...]
     coords: Tuple[str, ...]
+    is_coord: bool
     encoding: Encoding
 
 

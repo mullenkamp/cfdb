@@ -58,6 +58,7 @@ var_name_pattern = re.compile(var_name_regex)
 
 default_encodings = {'lon': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
                  'lat': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
+                 'height': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.001, 'dtype_decoded': 'float32'},
                  'altitude': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.001, 'dtype_decoded': 'float32'},
                  'time': {'dtype_encoded': 'int64', 'fillvalue': -9223372036854775808, 'dtype_decoded': 'datetime64[s]'},
                  'modified_date': {'dtype_encoded': 'int64', 'fillvalue': -9223372036854775808, 'dtype_decoded': 'datetime64[us]'},
@@ -70,6 +71,64 @@ default_encodings = {'lon': {'dtype_encoded': 'int32', 'fillvalue': -2147483648,
                  # 'bore_depth': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 0.1},
                  # 'reference_level': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 1},
                  }
+
+# base_attrs = {'station_id': {'cf_role': "timeseries_id", 'description': 'The unique ID associated with the geometry for a single result.'},
+#               'lat': {'standard_name': "latitude", 'units': "degrees_north"},
+#               'lon': {'standard_name': "longitude", 'units': "degrees_east"},
+#               'altitude': {'standard_name': 'surface_altitude', 'long_name': 'height above the geoid to the lower boundary of the atmosphere', 'units': 'm'},
+#               'geometry': {'long_name': 'The hexadecimal encoding of the Well-Known Binary (WKB) geometry', 'crs_EPSG': 4326},
+#               'station_geometry': {'long_name': 'The hexadecimal encoding of the Well-Known Binary (WKB) station geometry', 'crs_EPSG': 4326},
+#               'height': {'standard_name': 'height', 'long_name': 'vertical distance above the surface', 'units': 'm', 'positive': 'up'},
+#               'time': {'standard_name': 'time', 'long_name': 'start_time'}, 'name': {'long_name': 'station name'},
+#               'ref': {'long_name': 'station reference id given by the owner'}, 'modified_date': {'long_name': 'last modified date'},
+#               'band': {'long_name': 'band number'},
+#               'chunk_date': {'long_name': 'chunking date'},
+#               'chunk_day': {'long_name': 'chunking day', 'description': 'The chunk day is the number of days after 1970-01-01. Can be negative for days before 1970-01-01 with a minimum of -106751, which is 1677-09-22 (minimum possible date). The maximum value is 106751.'},
+#               'chunk_hash': {'long_name': 'chunk hash', 'description': 'The unique hash of the results parameter for comparison purposes.'},
+#               'chunk_id': {'long_name': 'chunk id', 'description': 'The unique id of the results chunk associated with the specific station.'},
+#               'censor_code': {'long_name': 'data censor code', 'standard_name': 'status_flag', 'flag_values': '0 1 2 3 4 5', 'flag_meanings': 'greater_than less_than not_censored non-detect present_but_not_quantified unknown'},
+#               'bore_top_of_screen': {'long_name': 'bore top of screen', 'description': 'The depth to the top of the screen from the reference level.', 'units': 'm', 'positive': 'down'},
+#               'bore_bottom_of_screen': {'long_name': 'bore bottom of screen', 'description': 'The depth to the bottom of the screen from the reference level.', 'units': 'm', 'positive': 'down'},
+#               'bore_depth': {'long_name': 'bore depth', 'description': 'The depth of the bore from the reference level.', 'units': 'm', 'positive': 'down'},
+#               'alt_name': {'long_name': 'Alternative name', 'description': 'The alternative name for the station'},
+#               'reference_level': {'long_name': 'The bore reference level', 'description': 'The bore reference level for measurements.', 'units': 'mm', 'positive': 'up'}
+#               }
+
+default_attrs = dict(
+    lat={
+        'long_name': 'latitude',
+        'units': 'degrees_north',
+        'standard_name': 'latitude',
+        'axis': 'Y',
+        },
+    lon={
+        'long_name': 'longitude',
+        'units': 'degrees_east',
+        'standard_name': 'longitude',
+        'axis': 'X',
+        },
+    height={
+        'long_name': 'height',
+        'units': 'm',
+        'standard_name': 'height',
+        'positive': 'up',
+        'axis': 'Z',
+        },
+    altitude={
+        'long_name': 'altitude',
+        'units': 'm',
+        'standard_name': 'altitude',
+        'positive': 'up',
+        'axis': 'Z',
+        },
+    time={
+        'long_name': 'time',
+        'units': 'seconds since 1970-01-01 00:00:00',
+        'standard_name': 'time',
+        'calendar': 'proleptic_gregorian',
+        'axis': 'T',
+        },
+    )
 
 #########################################################
 ### Classes
@@ -158,8 +217,11 @@ def dataset_finalizer(blt_file, sys_meta):
 
     """
     old_meta_data = blt_file.get_metadata()
-    old_meta = msgspec.convert(old_meta_data, data_models.SysMeta)
-    if old_meta != sys_meta:
+    if old_meta_data is not None:
+        old_meta = msgspec.convert(old_meta_data, data_models.SysMeta)
+        if old_meta != sys_meta:
+            blt_file.set_metadata(msgspec.to_builtins(sys_meta))
+    else:
         blt_file.set_metadata(msgspec.to_builtins(sys_meta))
 
     # if old_meta_data is not None:
@@ -177,11 +239,15 @@ def attrs_finalizer(blt_file, attrs, var_name):
     if attrs:
         key = attrs_key_str.format(var_name=var_name)
         old_attrs = blt_file.get(key)
-        if old_attrs != attrs:
-            blt_file.set(key, attrs)
+        if old_attrs is not None:
+            old_attrs = msgspec.json.decode(old_attrs)
+            if old_attrs != attrs:
+                blt_file.set(key, msgspec.json.encode(attrs))
+        else:
+            blt_file.set(key, msgspec.json.encode(attrs))
 
 
-def compute_scale_and_offset(min_value: (int, float, np.number), max_value: (int, float, np.number), dtype: np.dtype):
+def compute_scale_and_offset(min_value: Union[int, float, np.number], max_value: Union[int, float, np.number], dtype: Union[np.dtype, str]):
     """
     Computes the scale (slope) and offset for a dataset using a min value, max value, and the required np.dtype. It leaves one value at the lower extreme to use for the nan fillvalue.
     These are the min values set asside for the fillvalue (up to 64 bits).
@@ -205,18 +271,27 @@ def compute_scale_and_offset(min_value: (int, float, np.number), max_value: (int
     -------
     scale, offset as floats
     """
+    if isinstance(dtype, str):
+        dtype = np.dtype(dtype)
     bits = dtype.itemsize * 8
     data_range = max_value - min_value
+    target_range = 2**bits - 2
+    slope = data_range / target_range
+
     if bits < 64:
-        target_range = 2**bits - 2
         target_min = -(2**(bits - 1) - 1)
-        slope = data_range / target_range
     else:
-        data_power = int(math.log10(data_range))
-        target_range = 2**bits
-        target_power = int(math.log10(target_range))
-        target_min = -10**(target_power - 1)
-        slope = 10**-(target_power - data_power)
+        target_min = -(2**(bits - 1) - 1000)
+    # if bits < 64:
+    #     target_range = 2**bits - 2
+    #     target_min = -(2**(bits - 1) - 1)
+    #     slope = data_range / target_range
+    # else:
+    #     data_power = int(math.log10(data_range))
+    #     target_range = 2**bits
+    #     target_power = int(math.log10(target_range))
+    #     target_min = -10**(target_power - 1)
+    #     slope = 10**-(target_power - data_power)
 
     # Correction if the dtype is unsigned
     if dtype.kind == 'u':
@@ -292,15 +367,31 @@ def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int
         if kind == 'u':
             fillvalue = 0
         elif kind == 'f':
-            fillvalue = np.nan
+            fillvalue = None
         elif kind == 'U':
             fillvalue = ''
         elif kind == 'i':
             fillvalue = fillvalue_dict[dtype_encoded.name]
         elif kind == 'M':
-            fillvalue = np.datetime64('nat')
+            fillvalue = None
         else:
             raise TypeError('Unknown/unsupported data type.')
+
+    ## Fillvalue decoded
+    kind = dtype_decoded.kind
+
+    if kind == 'u':
+        fillvalue_decoded = 0
+    elif kind == 'f':
+        fillvalue_decoded = None
+    elif kind == 'U':
+        fillvalue_decoded = ''
+    elif kind == 'i':
+        fillvalue_decoded = fillvalue_dict[dtype_encoded.name]
+    elif kind == 'M':
+        fillvalue_decoded = None
+    else:
+        raise TypeError('Unknown/unsupported data type.')
 
     ## Scale and offset
     if scale_factor is None and isinstance(add_offset, (int, float, np.number)):
@@ -308,10 +399,10 @@ def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int
     if isinstance(scale_factor, (int, float, np.number)) and add_offset is None:
         add_offset = 0
 
-    if isinstance(scale_factor, (int, float, np.number)) and kind not in ('f', 'u', 'i'):
-        raise ValueError('scale_factor and add_offset only apply to ints and floats.')
+    if isinstance(scale_factor, (int, float, np.number)) and kind not in ('f'):
+        raise ValueError('scale_factor and add_offset only apply to floats.')
 
-    enc = data_models.Encoding(dtype_encoded=dtype_encoded.name, dtype_decoded=dtype_decoded.name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
+    enc = data_models.Encoding(dtype_encoded=dtype_encoded.name, dtype_decoded=dtype_decoded.name, fillvalue_encoded=fillvalue, fillvalue_decoded=fillvalue_decoded, scale_factor=scale_factor, add_offset=add_offset)
 
     return name, data, shape, chunk_shape, enc
 
@@ -348,7 +439,7 @@ def decode_datetime(data, units=None, calendar='gregorian'):
     return output
 
 
-def encode_data(data, dtype_encoded, fillvalue, add_offset=None, scale_factor=None) -> bytes:
+def encode_data(data, dtype_encoded, fillvalue, add_offset, scale_factor, compressor) -> bytes:
     """
 
     """
@@ -359,14 +450,15 @@ def encode_data(data, dtype_encoded, fillvalue, add_offset=None, scale_factor=No
         # precision = int(np.abs(np.log10(val['scale_factor'])))
         data = np.round((data - add_offset)/scale_factor)
 
-        if isinstance(fillvalue, (int, np.number)):
-            data[np.isnan(data)] = fillvalue
+    if isinstance(fillvalue, (int, np.number)):
+        data[np.isnan(data)] = fillvalue
 
     # if (data.dtype.name != dtype_encoded) or (data.dtype.name == 'object'):
     #     data = data.astype(dtype_encoded)
+    # print(data)
     data = data.astype(dtype_encoded)
 
-    return data.tobytes()
+    return compressor.compress(data.tobytes())
 
 
 def decode_data(data: bytes, dtype_encoded, dtype_decoded, missing_value, add_offset=0, scale_factor=None, units=None, calendar=None, **kwargs) -> np.ndarray:
@@ -518,16 +610,18 @@ def write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes):
     blt_file[var_chunk_key] = data_chunk_bytes
 
 
-def write_init_data(blt_file, var_name, var_meta, data):
+def write_init_data(blt_file, var_name, var_meta, data, compressor):
     """
 
     """
-    dtype_encoded = var_meta.encoding.dtype_encoded
-    fillvalue = var_meta.encoding.fillvalue
+    dtype_decoded = np.dtype(var_meta.encoding.dtype_decoded)
+    fillvalue_decoded = dtype_decoded.type(var_meta.encoding.fillvalue_decoded)
+    dtype_encoded = np.dtype(var_meta.encoding.dtype_encoded)
+    fillvalue_encoded = dtype_decoded.type(var_meta.encoding.fillvalue_encoded)
     add_offset = var_meta.encoding.add_offset
     scale_factor = var_meta.encoding.scale_factor
 
-    mem_arr1 = np.full(var_meta.chunk_shape, fill_value=fillvalue, dtype=dtype_encoded)
+    mem_arr1 = np.full(var_meta.chunk_shape, fill_value=fillvalue_decoded, dtype=dtype_decoded)
 
     chunk_iter = rechunker.chunk_range(var_meta.start_chunk_pos, var_meta.shape, var_meta.chunk_shape, clip_ends=True)
     for chunk in chunk_iter:
@@ -536,12 +630,13 @@ def write_init_data(blt_file, var_name, var_meta, data):
         mem_arr2[mem_chunk] = data[chunk]
 
         chunk_start_pos = tuple(s.start for s in chunk)
-        data_chunk_bytes = encode_data(mem_arr2, dtype_encoded, fillvalue, add_offset, scale_factor)
+        # print(mem_arr2)
+        data_chunk_bytes = encode_data(mem_arr2, dtype_encoded, fillvalue_encoded, add_offset, scale_factor, compressor)
 
         write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes)
 
 
-def var_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file):
+def var_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file, is_coord, compressor):
     """
 
     """
@@ -549,12 +644,12 @@ def var_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file):
     if name in sys_meta.variables:
         raise ValueError(f'Dataset already contains the variable {name}.')
 
-    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), encoding=enc)
+    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), is_coord=is_coord, encoding=enc)
 
     sys_meta.variables[name] = var
 
     if data is not None:
-        write_init_data(blt_file, name, var, data)
+        write_init_data(blt_file, name, var, data, compressor)
 
 
 def extend_coords(files, encodings, group):
