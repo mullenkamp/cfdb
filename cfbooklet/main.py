@@ -50,6 +50,7 @@ class Dataset:
         fp = pathlib.Path(file_path)
         fp_exists = fp.exists()
         self._blt = booklet.open(file_path, flag, key_serializer='str', **kwargs)
+        self.writable = self._blt.writable
 
         ## Set/Get system metadata
         if not fp_exists or flag in ('n', 'c'):
@@ -72,7 +73,8 @@ class Dataset:
 
         self._var_cache = {}
 
-        self.create = creation.Creator(self._blt, self._meta, self._finalizers, self._var_cache, self._compressor)
+        if self.writable:
+            self.create = creation.Creator(self._blt, self._meta, self._finalizers, self._var_cache, self._compressor)
 
 
     # @property
@@ -124,11 +126,13 @@ class Dataset:
         """
 
         """
-        if isinstance(var_name, str):
-            pass
-
-        else:
+        if not isinstance(var_name, str):
             raise TypeError('var_name must be a string.')
+
+        if var_name not in self._var_cache:
+            raise ValueError(f'The Variable {var_name} does not exist.')
+
+        return self._var_cache[var_name]
 
 
     def __getitem__(self, key):

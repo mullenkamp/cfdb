@@ -36,7 +36,7 @@ class Coord:
         name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset)
 
         ## Var init processes
-        utils.var_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, True, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -58,7 +58,7 @@ class Coord:
         name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
 
         ## Var init processes
-        utils.var_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, True, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -82,7 +82,7 @@ class Coord:
         name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
 
         ## Var init processes
-        utils.var_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, True, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -105,7 +105,7 @@ class Coord:
         name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
 
         ## Var init processes
-        utils.var_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, True, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -128,7 +128,7 @@ class Coord:
         name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
 
         ## Var init processes
-        utils.var_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, True, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -151,7 +151,7 @@ class Coord:
         name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
 
         ## Var init processes
-        utils.var_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, True, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -174,10 +174,35 @@ class DataVar:
     """
 
     """
-    def __init__(self, blt_file, sys_meta):
+    def __init__(self, blt_file, sys_meta, finalizers, var_cache, compressor):
         """
 
         """
+        self._blt = blt_file
+        self._sys_meta = sys_meta
+        self._finalizers = finalizers
+        self._var_cache = var_cache
+        self._compressor = compressor
+
+
+    def generic(self, name: str, coords: Tuple[str], shape: Tuple[int], chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None):
+        """
+        The generic method to create a coordinate.
+        """
+        ## Check base inputs
+        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, None, shape, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset)
+
+        ## Check coords
+        utils.check_coords(coords, shape, self._sys_meta)
+
+        ## Var init processes
+        utils.data_var_init(name, coords, shape, chunk_shape, enc, self._sys_meta)
+
+        ## Init Coordinate
+        data_var = sc.DataVar(self._blt, name, self._sys_meta, self._finalizers)
+        self._var_cache[name] = data_var
+
+        return data_var
 
 
 
@@ -196,6 +221,7 @@ class Creator:
 
         """
         self.coord = Coord(blt_file, sys_meta, finalizers, var_cache, compressor)
+        self.data_var = DataVar(blt_file, sys_meta, finalizers, var_cache, compressor)
 
 
 

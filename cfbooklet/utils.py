@@ -636,7 +636,7 @@ def write_init_data(blt_file, var_name, var_meta, data, compressor):
         write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes)
 
 
-def var_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file, is_coord, compressor):
+def coord_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file, compressor):
     """
 
     """
@@ -644,12 +644,53 @@ def var_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file, is_coord, 
     if name in sys_meta.variables:
         raise ValueError(f'Dataset already contains the variable {name}.')
 
-    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), is_coord=is_coord, encoding=enc)
+    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), is_coord=True, encoding=enc)
 
     sys_meta.variables[name] = var
 
     if data is not None:
         write_init_data(blt_file, name, var, data, compressor)
+
+
+def check_coords(coords, shape, sys_meta):
+    """
+
+    """
+    # exist_coords = set(sys_meta.variables.keys())
+    # new_coords = set(coords)
+    # diff_coords = new_coords.difference(exist_coords)
+
+    # if diff_coords:
+    #     raise ValueError(f'{diff_coords} does not exist. Create the coord(s) before creating the data variable.')
+
+    if len(coords) != len(shape):
+        raise ValueError(f'The coords length ({len(coords)}) != the shape length ({len(shape)})')
+
+    for coord, size in zip(coords, shape):
+        if coord not in sys_meta.variables:
+            raise ValueError(f'{coord} does not exist. Create the coord before creating the data variable.')
+
+        exist_coord = sys_meta.variables[coord]
+
+        if not exist_coord.is_coord:
+            raise TypeError(f'{coord} must be a coord. This is a data variable.')
+
+        if size != exist_coord.shape[0]:
+            raise ValueError(f'The {coord} shape length ({size}) != existing coord length ({exist_coord.shape[0]})')
+
+
+
+def data_var_init(name, coords, shape, chunk_shape, enc, sys_meta):
+    """
+
+    """
+    ## Update sys_meta
+    if name in sys_meta.variables:
+        raise ValueError(f'Dataset already contains the variable {name}.')
+
+    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=coords, is_coord=False, encoding=enc)
+
+    sys_meta.variables[name] = var
 
 
 def extend_coords(files, encodings, group):
