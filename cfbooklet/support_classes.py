@@ -356,6 +356,10 @@ class Coordinate(Variable):
         Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the end.
         """
 
+    @property
+    def step(self):
+        return getattr(self._get_var_sys_meta, 'step')
+
 
     # def copy(self, to_file=None, name: str=None, include_attrs=True, **kwargs):
     #     """

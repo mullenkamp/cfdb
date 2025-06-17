@@ -71,7 +71,7 @@ class Dataset:
 
         self.attrs = sc.Attributes(self._blt, '_', self._finalizers)
 
-        self._var_cache = {}
+        self._var_cache = weakref.WeakValueDictionary()
 
         if self.writable:
             self.create = creation.Creator(self._blt, self._meta, self._finalizers, self._var_cache, self._compressor)

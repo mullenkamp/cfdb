@@ -23,7 +23,7 @@ from typing import Set, Optional, Dict, Tuple, List, Union, Any
 ### Models
 
 
-class CFBookletTypes(enum.Enum):
+class Type(enum.Enum):
     """
 
     """
@@ -68,14 +68,16 @@ class Variable(msgspec.Struct):
     coords: Tuple[str, ...]
     is_coord: bool
     encoding: Encoding
+    step: Union[float, int, None] = None
 
 
 class SysMeta(msgspec.Struct):
     """
 
     """
-    cfbooklet_type: CFBookletTypes
+    object_type: Type
     compression: Compression
+    compression_level: int
     variables: Dict[str, Variable] = {}
 
     # def __post_init__(self):

@@ -18,55 +18,16 @@
 
 ## Development
 
-### Setup environment
+### Coordinate variables
+Must be 1D. 
+They should have an "ordered" parameter (bool) that defined whether the coord should always be ordered. Int, float, and datetime should default to True. Only string and category dtypes should default to False.
+There should be a "regular" parameter (bool) with an associated "step" parameter (int or float). It should work similarly to np.arange. Only ints, floats, and datetimes can use this. 
+~~Should I add a "unique" parameter (bool)? Maybe I should just enforce this normally?~~ It should enforce uniqueness in the coords.
+There can be a groupby method datasets that would use the rechunker. The rechunker would have the groupby dims set to 1 and the other dims set to the full length.
 
-We use [Hatch](https://hatch.pypa.io/latest/install/) to manage the development environment and production build. Ensure it's installed on your system.
-
-### Run unit tests
-
-You can run all the tests with:
-
-```bash
-hatch run test
-```
-
-### Format the code
-
-Execute the following command to apply linting and check typing:
-
-```bash
-hatch run lint
-```
-
-### Publish a new version
-
-You can bump the version, create a commit and associated tag with one command:
-
-```bash
-hatch version patch
-```
-
-```bash
-hatch version minor
-```
-
-```bash
-hatch version major
-```
-
-Your default Git text editor will open so you can add information about the release.
-
-When you push the tag on GitHub, the workflow will automatically publish it on PyPi and a GitHub release will be created as draft.
-
-## Serve the documentation
-
-You can serve the Mkdocs documentation with:
-
-```bash
-hatch run docs-serve
-```
-
-It'll automatically watch for changes in your code.
+#### Multi-dimensional coords
+It is possible to create a composite index from multiple 1D coords. But it seems best to implement this type of thing on top of sqlite (or something equivalent). 
+Keeping each coord 1D makes implementations quite a bit simpler. 
 
 ## License
 

@@ -38,9 +38,9 @@ name = 'coord1'
 
 data = np.array([2, 3, 4, 5, 6, 7], dtype='uint32')
 data = np.array([2, 3, 4, 5, 6, 7], dtype='int32')
-data = np.array([2, 3, 4, 5, 6, 7], dtype='float32')
+data = np.array([0.2, 0.3, 0.4, 0.5, 0.6, 0.7], dtype='float32')
 data = np.array([2, 3, 4, 5, 6, 7], dtype='str')
-data = np.array([2, 3, 4, 5, 6, 7, np.datetime64('nat')], dtype='datetime64[h]')
+data = np.array([2, 3, 4, 5, 6, 7], dtype='datetime64[D]')
 
 shape = None
 chunk_shape = (4,)
@@ -66,7 +66,7 @@ d
 
 self = Dataset(file_path, flag=flag)
 lat1 = self.create.coord.latitude(shape=shape)
-lat1 = self.create.coord.latitude(data=data, chunk_shape=chunk_shape)
+lat1 = self.create.coord.latitude(data=data, chunk_shape=chunk_shape, step=True)
 time1 = self.create.coord.time(shape=shape)
 altitude1 = self.create.coord.altitude(shape=shape)
 self.close()

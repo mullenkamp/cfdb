@@ -212,6 +212,25 @@ default_attrs = dict(
 ### Functions
 
 
+def min_max_dates_per_bit_len(n_bits):
+    """
+
+    """
+    n_bits_options = (16, 32, 64)
+    if n_bits not in n_bits_options:
+        raise ValueError(f'n_bits must be one of {n_bits_options}')
+
+    freq_codes = ('D', 'h', 'm', 's')
+    res_dict = {}
+    for code in freq_codes:
+        int_len = int(2**n_bits*.5)
+        min_date = np.datetime64(-int_len + 1, code).astype(str)
+        max_date = np.datetime64(int_len - 1, code).astype(str)
+        res_dict[code] = (min_date, max_date)
+
+    return res_dict
+
+
 def dataset_finalizer(blt_file, sys_meta):
     """
 
@@ -224,11 +243,6 @@ def dataset_finalizer(blt_file, sys_meta):
     else:
         blt_file.set_metadata(msgspec.to_builtins(sys_meta))
 
-    # if old_meta_data is not None:
-    #     old_meta = msgspec.convert(old_meta_data, data_models.SysMeta)
-
-    #     if old_meta != sys_meta:
-    #         blt_file.set_metadata(msgspec.to_builtins(sys_meta))
     blt_file.close()
 
 
@@ -313,7 +327,7 @@ def check_var_name(var_name):
     return False
 
 
-def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None):
+def parse_var_inputs(is_coord: bool, name: str, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool=False):
     """
     Function to process the inputs to a variable creation function.
     """
@@ -323,8 +337,52 @@ def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int
 
     ## Check data, shape, and dtype
     if isinstance(data, np.ndarray):
-        shape = data.shape
         dtype_decoded = data.dtype
+        shape = data.shape
+
+        ## Coords are more stringent
+        if is_coord:
+            if len(shape) > 1:
+                raise ValueError('Coordinates must be 1D.')
+
+            if len(np.unique(data)) < shape[0]:
+                raise ValueError('The data for coords must be unique.')
+
+            if dtype_decoded.kind in ('f', 'u', 'i', 'M'):
+                data.sort()
+                if step:
+                    diff = np.diff(data)
+                    if isinstance(step, bool):
+                        if dtype_decoded == 'f':
+                            step = float(np.round(diff[0], 5))
+                            if not np.allclose(step, diff):
+                                raise ValueError('step is set to True, but the data does not seem to be regular.')
+                            # data = np.linspace(data[0], data[-1], len(diff) + 1, dtype=dtype_decoded)
+                        else:
+                            step = int(diff[0])
+
+                            if not np.all(np.equal(step, diff)):
+                                raise ValueError('step is set to True, but the data does not seem to be regular.')
+                    elif isinstance(step, (float, np.floating)):
+                        if step <= 0:
+                            raise ValueError('step must be greater than 0.')
+                        if not np.allclose(step, diff):
+                            raise ValueError('step does not seem to be the interval of the data.')
+                        step = float(round(step, 5))
+                    elif isinstance(step, (int, np.integer)):
+                        if step <= 0:
+                            raise ValueError('step must be greater than 0.')
+                        if not np.all(np.equal(step, diff)):
+                            raise ValueError('step is set to True, but the data does not seem to be regular.')
+                        step = int(step)
+                    else:
+                        raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
+                else:
+                    step = None
+            else:
+                step = None
+        else:
+            step = None
     else:
         if not isinstance(shape, tuple):
             raise ValueError('If data is not passed, then shape must be passed.')
@@ -333,7 +391,26 @@ def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int
                 raise ValueError('shape must be a tuple of ints.')
         if not isinstance(dtype_decoded, (str, np.dtype)):
             raise ValueError('If data is not passed, then dtype_decoded must be passed.')
+
         dtype_decoded = np.dtype(dtype_decoded)
+
+        if is_coord:
+            if dtype_decoded.kind in ('u', 'i') and isinstance(step, (float, np.floating)):
+                if not step.is_integer():
+                    raise ValueError('If the dtype_decoded is an integer, then step must be an integer.')
+                else:
+                    step = int(step)
+            elif isinstance(step, bool):
+                if step:
+                    raise TypeError('If data is not passed, then step cannot be set to True')
+                else:
+                    step = None
+            elif isinstance(step, np.floating):
+                step = float(round(step, 5))
+            else:
+                raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
+        else:
+            step = None
 
     if dtype_decoded.kind == 'M':
         dtype_encoded = np.dtype('int64')
@@ -341,7 +418,7 @@ def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int
     if isinstance(dtype_encoded, str):
         dtype_encoded = np.dtype(dtype_encoded)
 
-    if not isinstance(dtype_encoded, (str, np.dtype)):
+    elif not isinstance(dtype_encoded, np.dtype):
         dtype_encoded = dtype_decoded
 
     ## Chunk shape
@@ -404,7 +481,7 @@ def parse_var_inputs(name: str, data: np.ndarray | None = None, shape: Tuple[int
 
     enc = data_models.Encoding(dtype_encoded=dtype_encoded.name, dtype_decoded=dtype_decoded.name, fillvalue_encoded=fillvalue, fillvalue_decoded=fillvalue_decoded, scale_factor=scale_factor, add_offset=add_offset)
 
-    return name, data, shape, chunk_shape, enc
+    return name, data, shape, chunk_shape, enc, step
 
 
 # def encode_datetime(data, units=None, calendar='gregorian'):
@@ -636,7 +713,7 @@ def write_init_data(blt_file, var_name, var_meta, data, compressor):
         write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes)
 
 
-def coord_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file, compressor):
+def coord_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file, compressor, step):
     """
 
     """
@@ -644,7 +721,7 @@ def coord_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file, compress
     if name in sys_meta.variables:
         raise ValueError(f'Dataset already contains the variable {name}.')
 
-    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), is_coord=True, encoding=enc)
+    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), is_coord=True, encoding=enc, step=step)
 
     sys_meta.variables[name] = var
 

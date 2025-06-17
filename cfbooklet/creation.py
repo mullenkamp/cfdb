@@ -29,14 +29,14 @@ class Coord:
         self._compressor = compressor
 
 
-    def generic(self, name: str, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None):
+    def generic(self, name: str, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool=False):
         """
         The generic method to create a coordinate.
         """
-        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset)
+        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset, step)
 
         ## Var init processes
-        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor, step)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -45,7 +45,7 @@ class Coord:
         return coord
 
 
-    def latitude(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, **kwargs):
+    def latitude(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, **kwargs):
         """
 
         """
@@ -55,10 +55,10 @@ class Coord:
         if not isinstance(name, str):
             name = 'latitude'
 
-        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
+        name, data, shape, chunk_shape, enc, step = utils.parse_var_inputs(True, name, data, shape, chunk_shape, step=step, **encodings)
 
         ## Var init processes
-        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor, step)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -69,7 +69,7 @@ class Coord:
         return coord
 
 
-    def longitude(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, **kwargs):
+    def longitude(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, **kwargs):
         """
 
         """
@@ -79,10 +79,10 @@ class Coord:
         if not isinstance(name, str):
             name = 'longitude'
 
-        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
+        name, data, shape, chunk_shape, enc, step = utils.parse_var_inputs(True, name, data, shape, chunk_shape, step=step, **encodings)
 
         ## Var init processes
-        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor, step)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -92,7 +92,7 @@ class Coord:
 
         return coord
 
-    def time(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, **kwargs):
+    def time(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, **kwargs):
         """
 
         """
@@ -102,10 +102,10 @@ class Coord:
         if not isinstance(name, str):
             name = 'time'
 
-        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
+        name, data, shape, chunk_shape, enc, step = utils.parse_var_inputs(True, name, data, shape, chunk_shape, step=step, **encodings)
 
         ## Var init processes
-        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor, step)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -115,7 +115,7 @@ class Coord:
 
         return coord
 
-    def height(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, **kwargs):
+    def height(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, **kwargs):
         """
 
         """
@@ -125,10 +125,10 @@ class Coord:
         if not isinstance(name, str):
             name = 'height'
 
-        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
+        name, data, shape, chunk_shape, enc, step = utils.parse_var_inputs(True, name, data, shape, chunk_shape, step=step, **encodings)
 
         ## Var init processes
-        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor, step)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
@@ -138,7 +138,7 @@ class Coord:
 
         return coord
 
-    def altitude(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, **kwargs):
+    def altitude(self, name: str | None=None, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, **kwargs):
         """
 
         """
@@ -148,10 +148,10 @@ class Coord:
         if not isinstance(name, str):
             name = 'altitude'
 
-        name, data, shape, chunk_shape, enc = utils.parse_var_inputs(name, data, shape, chunk_shape, **encodings)
+        name, data, shape, chunk_shape, enc, step = utils.parse_var_inputs(True, name, data, shape, chunk_shape, step=step, **encodings)
 
         ## Var init processes
-        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor)
+        utils.coord_init(name, data, shape, chunk_shape, enc, self._sys_meta, self._blt, self._compressor, step)
 
         ## Init Coordinate
         coord = sc.Coordinate(self._blt, name, self._sys_meta, self._finalizers)
