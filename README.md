@@ -1,18 +1,18 @@
-# cfbooklet
+# cfdb
 
 <p align="center">
     <em>CF conventions multi-dimensional array storage on top of Booklet</em>
 </p>
 
-[![build](https://github.com/mullenkamp/cfbooklet/workflows/Build/badge.svg)](https://github.com/mullenkamp/cfbooklet/actions)
-[![codecov](https://codecov.io/gh/mullenkamp/cfbooklet/branch/master/graph/badge.svg)](https://codecov.io/gh/mullenkamp/cfbooklet)
-[![PyPI version](https://badge.fury.io/py/cfbooklet.svg)](https://badge.fury.io/py/cfbooklet)
+[![build](https://github.com/mullenkamp/cfdb/workflows/Build/badge.svg)](https://github.com/mullenkamp/cfdb/actions)
+[![codecov](https://codecov.io/gh/mullenkamp/cfdb/branch/master/graph/badge.svg)](https://codecov.io/gh/mullenkamp/cfdb)
+[![PyPI version](https://badge.fury.io/py/cfdb.svg)](https://badge.fury.io/py/cfdb)
 
 ---
 
-**Documentation**: <a href="https://mullenkamp.github.io/cfbooklet/" target="_blank">https://mullenkamp.github.io/cfbooklet/</a>
+**Documentation**: <a href="https://mullenkamp.github.io/cfdb/" target="_blank">https://mullenkamp.github.io/cfdb/</a>
 
-**Source Code**: <a href="https://github.com/mullenkamp/cfbooklet" target="_blank">https://github.com/mullenkamp/cfbooklet</a>
+**Source Code**: <a href="https://github.com/mullenkamp/cfdb" target="_blank">https://github.com/mullenkamp/cfbdb</a>
 
 ---
 
