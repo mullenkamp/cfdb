@@ -30,7 +30,7 @@ class Type(enum.Enum):
     Dataset = 'Dataset'
 
 
-class Compression(enum.Enum):
+class Compressor(enum.Enum):
     """
 
     """
@@ -38,24 +38,24 @@ class Compression(enum.Enum):
     lz4 = 'lz4'
 
 
-class Encoding(msgspec.Struct):
-    """
+# class Encoding(msgspec.Struct):
+#     """
 
-    """
-    dtype_encoded: str
-    dtype_decoded: str
-    fillvalue_encoded: Union[int, float, str, None]
-    fillvalue_decoded: Union[int, float, str, None]
-    scale_factor: Union[float, int, None] = None
-    add_offset: Union[float, int, None] = None
-    # units: Union[str, None] = None
-    # calendar: Union[str, None] = None
+#     """
+#     dtype_encoded: str
+#     dtype_decoded: str
+#     fillvalue: Union[int, None] = None
+#     # fillvalue_decoded: Union[int, None]
+#     scale_factor: Union[float, int, None] = None
+#     add_offset: Union[float, int, None] = None
+#     # units: Union[str, None] = None
+#     # calendar: Union[str, None] = None
 
-    # def encode(self, values):
-    #     return utils.encode_data(np.asarray(values), **self._encoding)
+#     # def encode(self, values):
+#     #     return utils.encode_data(np.asarray(values), **self._encoding)
 
-    # def decode(self, bytes_data):
-    #     return utils.decode_data(bytes_data, **self._encoding)
+#     # def decode(self, bytes_data):
+#     #     return utils.decode_data(bytes_data, **self._encoding)
 
 
 class Variable(msgspec.Struct):
@@ -64,11 +64,17 @@ class Variable(msgspec.Struct):
     """
     shape: Tuple[int, ...]
     chunk_shape: Tuple[int, ...]
-    start_chunk_pos: Tuple[int, ...]
+    origin_pos: Tuple[int, ...]
     coords: Tuple[str, ...]
     is_coord: bool
-    encoding: Encoding
+    # encoding: Encoding
+    dtype_encoded: str
+    dtype_decoded: str
+    fillvalue: Union[int, None] = None
+    scale_factor: Union[float, int, None] = None
+    add_offset: Union[float, int, None] = None
     step: Union[float, int, None] = None
+    auto_increment: bool = False
 
 
 class SysMeta(msgspec.Struct):
@@ -76,7 +82,7 @@ class SysMeta(msgspec.Struct):
 
     """
     object_type: Type
-    compression: Compression
+    compression: Compressor
     compression_level: int
     variables: Dict[str, Variable] = {}
 

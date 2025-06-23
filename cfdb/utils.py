@@ -19,6 +19,9 @@ import copy
 import cftime
 import math
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
+# import zstandard as zstd
+# import lz4
+
 # import dateutil.parser as dparser
 # import numcodecs
 # import hdf5plugin
@@ -56,16 +59,16 @@ value_indent = 20
 var_name_regex = "^[a-zA-Z][a-zA-Z0-9_]*$"
 var_name_pattern = re.compile(var_name_regex)
 
-default_encodings = {'lon': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
-                 'lat': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
-                 'height': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.001, 'dtype_decoded': 'float32'},
-                 'altitude': {'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.001, 'dtype_decoded': 'float32'},
-                 'time': {'dtype_encoded': 'int64', 'fillvalue': -9223372036854775808, 'dtype_decoded': 'datetime64[s]'},
-                 'modified_date': {'dtype_encoded': 'int64', 'fillvalue': -9223372036854775808, 'dtype_decoded': 'datetime64[us]'},
-                 'band': {'dtype_decoded': 'uint8', 'dtype_encoded': 'uint8', 'fillvalue': 0, 'scale_factor': 1},
+default_params = {'lon': {'name': 'longitude', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
+                 'lat': {'name': 'latitude', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
+                 'height': {'name': 'height', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.001, 'dtype_decoded': 'float32'},
+                 'altitude': {'name': 'altitude', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.001, 'dtype_decoded': 'float32'},
+                 'time': {'name': 'time', 'dtype_encoded': 'datetime64[s]', 'dtype_decoded': 'datetime64[s]'},
+                 'modified_date': {'name': 'modified_date', 'dtype_encoded': 'datetime64[us]', 'dtype_decoded': 'datetime64[us]'},
+                 'band': {'name': 'band', 'dtype_decoded': 'uint8', 'dtype_encoded': 'uint8', 'fillvalue': 0},
                  # 'chunk_day': {'dtype_encoded': 'int32'},
                  # 'chunk_date': {'fillvalue': -99999999, 'units': "days since 1970-01-01 00:00:00"},
-                 'censor_code': {'dtype_decoded': 'uint8', 'dtype_encoded': 'uint8', 'fillvalue': 0, 'scale_factor': 1},
+                 'censor_code': {'name': 'censor_code', 'dtype_decoded': 'uint8', 'dtype_encoded': 'uint8', 'fillvalue': 0},
                  # 'bore_top_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_bottom_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_depth': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 0.1},
@@ -132,6 +135,8 @@ default_attrs = dict(
 
 #########################################################
 ### Classes
+
+
 
 
 # class ChunkIterator:
@@ -210,6 +215,9 @@ default_attrs = dict(
 
 #########################################################
 ### Functions
+
+
+# def make_compressor(
 
 
 def min_max_dates_per_bit_len(n_bits):
@@ -327,7 +335,353 @@ def check_var_name(var_name):
     return False
 
 
-def parse_var_inputs(is_coord: bool, name: str, data: np.ndarray | None = None, shape: Tuple[int] | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool=False):
+def coord_data_step_check(data: np.ndarray, dtype_decoded: np.dtype, step: int | float | bool = False):
+    """
+
+    """
+    # diff = np.diff(data)
+    if isinstance(step, bool):
+        diff = np.diff(data)
+        if dtype_decoded == 'f':
+            step = float(np.round(diff[0], 5))
+            if not np.allclose(step, diff):
+                raise ValueError('step is set to True, but the data does not seem to be regular.')
+            # data = np.linspace(data[0], data[-1], len(diff) + 1, dtype=dtype_decoded)
+        else:
+            step = int(diff[0])
+
+            if not np.all(np.equal(step, diff)):
+                raise ValueError('step is set to True, but the data does not seem to be regular.')
+    elif isinstance(step, (float, np.floating)):
+        if step <= 0:
+            raise ValueError('step must be greater than 0.')
+        # if not np.allclose(step, diff):
+        #     raise ValueError('step does not seem to be the interval of the data.')
+        step = float(round(step, 5))
+        # num = round((data[-1] - data[0])/step, 5)
+        # if not num.is_integer():
+        #     raise ValueError('The step is not a multiple of the difference between the first and last values of the data.')
+
+        # data = np.linspace(data[0], data[-1], int(num) + 1, dtype=dtype_decoded)
+    elif isinstance(step, (int, np.integer)):
+        if step <= 0:
+            raise ValueError('step must be greater than 0.')
+        # if not np.all(np.equal(step, diff)):
+        #     raise ValueError('step is set to True, but the data does not seem to be regular.')
+        step = int(step)
+
+        # data = np.linspace(data[0], data[-1], int(num) + 1, dtype=dtype_decoded)
+    else:
+        raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
+
+    num = round((data[-1] - data[0])/step, 5)
+    if not num.is_integer():
+        raise ValueError('The step is not a multiple of the difference between the first and last values of the data.')
+
+    return step, int(num)
+
+
+def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype_decoded, shape):
+    """
+
+    """
+    # dtype_decoded = data.dtype
+    # shape = data.shape
+
+    if len(shape) > 1:
+        raise ValueError('Coordinates must be 1D.')
+
+    if len(np.unique(data)) < shape[0]:
+        raise ValueError('The data for coords must be unique.')
+
+    if dtype_decoded.kind in ('f', 'u', 'i', 'M'):
+        data.sort()
+        if step:
+            step, num = coord_data_step_check(data, dtype_decoded, step)
+            # data = np.linspace(data[0], data[-1], num + 1, dtype=dtype_decoded)
+        else:
+            step = None
+    else:
+        step = None
+
+    return step
+
+
+def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype_decoded: np.dtype = None, source_step: int | float | None = None):
+    """
+
+    """
+    # new_shape = new_data.shape
+    new_dtype_decoded = new_data.dtype
+
+    if source_dtype_decoded != new_dtype_decoded:
+        raise TypeError('The data dtype does not match the originally assigned dtype.')
+
+    source_len = len(source_data)
+
+    if source_len > 0:
+        if source_dtype_decoded.kind != 'U':
+            last = source_data[-1]
+
+            if not np.all(last > new_data):
+                raise ValueError('Appending requires that all values are greater than the existing values.')
+
+            new_data.sort()
+            if source_step:
+                new_step, new_num = coord_data_step_check(new_data, source_dtype_decoded, source_step)
+
+            #     new_data = np.linspace(source_data[0], new_data[-1], len(source_data) + new_num + 1, dtype=source_dtype_decoded)
+            # else:
+            #     new_data = np.append(source_data, new_data)
+
+        else:
+            s1 = set(source_data)
+            s1.update(set(new_data))
+            if len(s1) != (len(source_data) + len(new_data)):
+                raise ValueError('The data for coords must be unique.')
+
+            # new_data = np.append(source_data, new_data)
+
+    else:
+        new_step = init_coord_data_checks(new_data, source_step)
+
+    return new_data, (source_len,)
+
+
+def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype_decoded: np.dtype = None, source_step: int | float | None = None):
+    """
+
+    """
+    # new_shape = new_data.shape
+    new_dtype_decoded = new_data.dtype
+
+    if source_dtype_decoded != new_dtype_decoded:
+        raise TypeError('The data dtype does not match the originally assigned dtype.')
+
+    if len(source_data) > 0:
+        if source_dtype_decoded.kind != 'U':
+            first = source_data[0]
+
+            if not np.all(first > new_data):
+                raise ValueError('Prepending requires that all values are less than the existing values.')
+
+            new_data.sort()
+            if source_step:
+                new_step, new_num = coord_data_step_check(new_data, source_dtype_decoded, source_step)
+
+                new_data = np.linspace(new_step[0], source_data[-1], len(source_data) + new_num + 1, dtype=source_dtype_decoded)
+            else:
+                new_data = np.insert(source_data, 0, new_data)
+        else:
+            s1 = set(source_data)
+            s1.update(set(new_data))
+            if len(s1) != (len(source_data) + len(new_data)):
+                raise ValueError('The data for coords must be unique.')
+
+            new_data = np.insert(source_data, 0, new_data)
+
+    else:
+        new_data, new_step = init_coord_data_checks(new_data, source_step)
+
+    return new_data
+
+
+# def coord_data_checks(data: np.ndarray, step: int | float | bool = False, source_data: np.ndarray = None, source_dtype_decoded: np.dtype = None, source_step: int | float | None = None):
+#     """
+
+#     """
+#     shape = data.shape
+#     dtype_decoded = data.dtype
+
+#     if dtype_decoded is not None:
+#         if source_dtype_decoded != dtype_decoded:
+#             raise TypeError('The data dtype does not match the originally assigned dtype.')
+
+#     if source_data:
+#         s1 = set(source_data)
+#         s1.update(set(data))
+#         if len(s1) != (len(source_data) + len(data)):
+#             raise ValueError('The data for coords must be unique.')
+#     elif len(np.unique(data)) < shape[0]:
+#         raise ValueError('The data for coords must be unique.')
+
+#     if dtype_decoded.kind in ('f', 'u', 'i', 'M'):
+#         data.sort()
+#         if step:
+#             diff = np.diff(data)
+#             if isinstance(step, bool):
+#                 if dtype_decoded == 'f':
+#                     step = float(np.round(diff[0], 5))
+#                     if not np.allclose(step, diff):
+#                         raise ValueError('step is set to True, but the data does not seem to be regular.')
+#                     # data = np.linspace(data[0], data[-1], len(diff) + 1, dtype=dtype_decoded)
+#                 else:
+#                     step = int(diff[0])
+
+#                     if not np.all(np.equal(step, diff)):
+#                         raise ValueError('step is set to True, but the data does not seem to be regular.')
+#             elif isinstance(step, (float, np.floating)):
+#                 if step <= 0:
+#                     raise ValueError('step must be greater than 0.')
+#                 # if not np.allclose(step, diff):
+#                 #     raise ValueError('step does not seem to be the interval of the data.')
+#                 step = float(round(step, 5))
+#                 num = round((data[-1] - data[0])/step, 5)
+#                 if not num.is_integer():
+#                     raise ValueError('The step is not a multiple of the dirrefernce between the first and last values of the data.')
+
+#                 data = np.linspace(data[0], data[-1], int(num) + 1, dtype=dtype_decoded)
+#             elif isinstance(step, (int, np.integer)):
+#                 if step <= 0:
+#                     raise ValueError('step must be greater than 0.')
+#                 # if not np.all(np.equal(step, diff)):
+#                 #     raise ValueError('step is set to True, but the data does not seem to be regular.')
+#                 step = int(step)
+#                 num = round((data[-1] - data[0])/step, 5)
+#                 if not num.is_integer():
+#                     raise ValueError('The step is not a multiple of the dirrefernce between the first and last values of the data.')
+
+#                 data = np.linspace(data[0], data[-1], int(num) + 1, dtype=dtype_decoded)
+#             else:
+#                 raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
+#         else:
+#             step = None
+#     else:
+#         step = None
+
+#     return data, step
+
+
+def parse_dtype_encoding(dtype_decoded, dtype_encoded):
+    """
+
+    """
+    if dtype_decoded.kind == 'M':
+        dtype_encoded = np.dtype('int64')
+
+    if isinstance(dtype_encoded, str):
+        dtype_encoded = np.dtype(dtype_encoded)
+
+    elif not isinstance(dtype_encoded, np.dtype):
+        dtype_encoded = dtype_decoded
+
+    return dtype_encoded
+
+
+def parse_fillvalue(fillvalue, dtype_encoded):
+    """
+
+    """
+    ## Fillvalue
+    kind = dtype_encoded.kind
+    if fillvalue is not None:
+        fillvalue_dtype = np.dtype(type(fillvalue))
+
+        if kind == 'u' and fillvalue_dtype.kind == 'i':
+            if fillvalue < 0:
+                raise ValueError('The dtype_encoded is an unsigned integer, but the fillvalue is < 0.')
+        elif fillvalue_dtype.kind != kind:
+            raise ValueError('The fillvalue dtype is not the same as the dtype_encoded dtype.')
+    else:
+        if kind == 'u':
+            fillvalue = 0
+        elif kind == 'f':
+            fillvalue = None
+        elif kind == 'U':
+            fillvalue = ''
+        elif kind == 'i':
+            fillvalue = fillvalue_dict[dtype_encoded.name]
+        elif kind == 'M':
+            fillvalue = None
+        else:
+            raise TypeError('Unknown/unsupported data type.')
+
+    return fillvalue
+
+
+def parse_scale_offset(scale_factor, add_offset, dtype_decoded):
+    """
+
+    """
+    ## Scale and offset
+    if scale_factor is None and isinstance(add_offset, (int, float, np.number)):
+        scale_factor = 1
+    # if isinstance(scale_factor, (int, float, np.number)) and add_offset is None:
+    #     add_offset = 0
+
+    if isinstance(scale_factor, (int, float, np.number)) and dtype_decoded.kind != 'f':
+        raise ValueError('scale_factor and add_offset only apply to floats.')
+
+    return scale_factor, add_offset
+
+
+def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool = False):
+    """
+
+    """
+    ## Check var name
+    if not check_var_name(name):
+        raise ValueError(f'{name} is not a valid variable name.')
+
+    ## Check data, shape, dtype, and step
+    if isinstance(data, np.ndarray):
+        dtype_decoded = data.dtype
+        shape = data.shape
+
+        step = init_coord_data_checks(data, step, dtype_decoded, shape)
+
+    else:
+        dtype_decoded = np.dtype(dtype_decoded)
+
+        if dtype_decoded.kind in ('u', 'i') and isinstance(step, (float, np.floating)):
+            if not step.is_integer():
+                raise ValueError('If the dtype_decoded is an integer, then step must be an integer.')
+            else:
+                step = int(step)
+        elif isinstance(step, bool):
+            if step:
+                raise TypeError('If data is not passed, then step cannot be set to True')
+            else:
+                step = None
+        elif isinstance(step, np.floating):
+            step = float(round(step, 5))
+        else:
+            raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
+
+        shape = (0,)
+
+    ## Guess the chunk_shape from the dtype
+    if isinstance(chunk_shape, tuple):
+        if not all([isinstance(c, int) for c in chunk_shape]):
+            raise TypeError('chunk_shape must be a tuple of ints.')
+    else:
+        chunk_shape = guess_chunk((1000000,), dtype_decoded, 2**20)
+
+    ## dtype encoding
+    dtype_encoded = parse_dtype_encoding(dtype_decoded, dtype_encoded)
+
+    ## fillvalue
+    fillvalue = parse_fillvalue(fillvalue, dtype_encoded)
+
+    ## Scale and offset
+    scale_factor, add_offset = parse_scale_offset(scale_factor, add_offset, dtype_decoded)
+
+    ## Save metadata
+    if dtype_encoded.kind == 'U':
+        dtype_decoded_name = dtype_decoded.descr[0][1]
+        dtype_encoded_name = dtype_encoded.descr[0][1]
+    else:
+        dtype_decoded_name = dtype_decoded.name
+        dtype_encoded_name = dtype_encoded.name
+
+    # enc = data_models.Encoding(dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
+
+    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, origin_pos=(0,), coords=(name,), is_coord=True, step=step, dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
+
+    return name, var
+
+
+def parse_var_inputs(is_coord: bool, name: str, data: np.ndarray | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool = False):
     """
     Function to process the inputs to a variable creation function.
     """
@@ -342,45 +696,7 @@ def parse_var_inputs(is_coord: bool, name: str, data: np.ndarray | None = None, 
 
         ## Coords are more stringent
         if is_coord:
-            if len(shape) > 1:
-                raise ValueError('Coordinates must be 1D.')
-
-            if len(np.unique(data)) < shape[0]:
-                raise ValueError('The data for coords must be unique.')
-
-            if dtype_decoded.kind in ('f', 'u', 'i', 'M'):
-                data.sort()
-                if step:
-                    diff = np.diff(data)
-                    if isinstance(step, bool):
-                        if dtype_decoded == 'f':
-                            step = float(np.round(diff[0], 5))
-                            if not np.allclose(step, diff):
-                                raise ValueError('step is set to True, but the data does not seem to be regular.')
-                            # data = np.linspace(data[0], data[-1], len(diff) + 1, dtype=dtype_decoded)
-                        else:
-                            step = int(diff[0])
-
-                            if not np.all(np.equal(step, diff)):
-                                raise ValueError('step is set to True, but the data does not seem to be regular.')
-                    elif isinstance(step, (float, np.floating)):
-                        if step <= 0:
-                            raise ValueError('step must be greater than 0.')
-                        if not np.allclose(step, diff):
-                            raise ValueError('step does not seem to be the interval of the data.')
-                        step = float(round(step, 5))
-                    elif isinstance(step, (int, np.integer)):
-                        if step <= 0:
-                            raise ValueError('step must be greater than 0.')
-                        if not np.all(np.equal(step, diff)):
-                            raise ValueError('step is set to True, but the data does not seem to be regular.')
-                        step = int(step)
-                    else:
-                        raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
-                else:
-                    step = None
-            else:
-                step = None
+            data, step = init_coord_data_checks(data, step, dtype_decoded, shape)
         else:
             step = None
     else:
@@ -428,7 +744,7 @@ def parse_var_inputs(is_coord: bool, name: str, data: np.ndarray | None = None, 
         if not all([isinstance(i, (int, np.integer)) for i in chunk_shape]):
             raise ValueError('chunk_shape must be a tuple of ints.')
     else:
-        chunk_shape = guess_chunk(shape, shape, dtype_encoded)
+        chunk_shape = guess_chunk(shape, dtype_encoded)
 
     ## Fillvalue
     kind = dtype_encoded.kind
@@ -455,20 +771,20 @@ def parse_var_inputs(is_coord: bool, name: str, data: np.ndarray | None = None, 
             raise TypeError('Unknown/unsupported data type.')
 
     ## Fillvalue decoded
-    kind = dtype_decoded.kind
+    # kind = dtype_decoded.kind
 
-    if kind == 'u':
-        fillvalue_decoded = 0
-    elif kind == 'f':
-        fillvalue_decoded = None
-    elif kind == 'U':
-        fillvalue_decoded = ''
-    elif kind == 'i':
-        fillvalue_decoded = fillvalue_dict[dtype_encoded.name]
-    elif kind == 'M':
-        fillvalue_decoded = None
-    else:
-        raise TypeError('Unknown/unsupported data type.')
+    # if kind == 'u':
+    #     fillvalue_decoded = 0
+    # elif kind == 'f':
+    #     fillvalue_decoded = None
+    # elif kind == 'U':
+    #     fillvalue_decoded = ''
+    # elif kind == 'i':
+    #     fillvalue_decoded = fillvalue_dict[dtype_encoded.name]
+    # elif kind == 'M':
+    #     fillvalue_decoded = None
+    # else:
+    #     raise TypeError('Unknown/unsupported data type.')
 
     ## Scale and offset
     if scale_factor is None and isinstance(add_offset, (int, float, np.number)):
@@ -479,7 +795,12 @@ def parse_var_inputs(is_coord: bool, name: str, data: np.ndarray | None = None, 
     if isinstance(scale_factor, (int, float, np.number)) and kind not in ('f'):
         raise ValueError('scale_factor and add_offset only apply to floats.')
 
-    enc = data_models.Encoding(dtype_encoded=dtype_encoded.name, dtype_decoded=dtype_decoded.name, fillvalue_encoded=fillvalue, fillvalue_decoded=fillvalue_decoded, scale_factor=scale_factor, add_offset=add_offset)
+    if kind == 'U':
+        dtype_name = dtype_decoded.descr[0][1]
+    else:
+        dtype_name = dtype_decoded.name
+
+    enc = data_models.Encoding(dtype_encoded=dtype_encoded.name, dtype_decoded=dtype_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
 
     return name, data, shape, chunk_shape, enc, step
 
@@ -516,53 +837,53 @@ def decode_datetime(data, units=None, calendar='gregorian'):
     return output
 
 
-def encode_data(data, dtype_encoded, fillvalue, add_offset, scale_factor, compressor) -> bytes:
-    """
+# def encode_data(data, dtype_encoded, fillvalue, add_offset, scale_factor, compressor) -> bytes:
+#     """
 
-    """
-    if 'datetime64' in data.dtype.name:
-        data = data.astype('int64')
+#     """
+#     if 'datetime64' in data.dtype.name:
+#         data = data.astype('int64')
 
-    elif isinstance(scale_factor, (int, float, np.number)):
-        # precision = int(np.abs(np.log10(val['scale_factor'])))
-        data = np.round((data - add_offset)/scale_factor)
+#     elif isinstance(scale_factor, (int, float, np.number)):
+#         # precision = int(np.abs(np.log10(val['scale_factor'])))
+#         data = np.round((data - add_offset)/scale_factor)
 
-    if isinstance(fillvalue, (int, np.number)):
-        data[np.isnan(data)] = fillvalue
+#     if isinstance(fillvalue, (int, np.number)):
+#         data[np.isnan(data)] = fillvalue
 
-    # if (data.dtype.name != dtype_encoded) or (data.dtype.name == 'object'):
-    #     data = data.astype(dtype_encoded)
-    # print(data)
-    data = data.astype(dtype_encoded)
+#     # if (data.dtype.name != dtype_encoded) or (data.dtype.name == 'object'):
+#     #     data = data.astype(dtype_encoded)
+#     # print(data)
+#     data = data.astype(dtype_encoded)
 
-    return compressor.compress(data.tobytes())
+#     return compressor.compress(data.tobytes())
 
 
-def decode_data(data: bytes, dtype_encoded, dtype_decoded, missing_value, add_offset=0, scale_factor=None, units=None, calendar=None, **kwargs) -> np.ndarray:
-    """
+# def decode_data(data: bytes, dtype_encoded, dtype_decoded, missing_value, add_offset=0, scale_factor=None, units=None, calendar=None, **kwargs) -> np.ndarray:
+#     """
 
-    """
-    data = np.frombuffer(data, dtype=dtype_encoded)
+#     """
+#     data = np.frombuffer(data, dtype=dtype_encoded)
 
-    if isinstance(calendar, str):
-        data = decode_datetime(data, units, calendar)
+#     if isinstance(calendar, str):
+#         data = decode_datetime(data, units, calendar)
 
-    elif isinstance(scale_factor, (int, float, np.number)):
-        data = data.astype(dtype_decoded)
+#     elif isinstance(scale_factor, (int, float, np.number)):
+#         data = data.astype(dtype_decoded)
 
-        if isinstance(missing_value, (int, np.number)):
-            if isinstance(data, np.number):
-                if data == missing_value:
-                    data = np.nan
-            else:
-                data[data == missing_value] = np.nan
+#         if isinstance(missing_value, (int, np.number)):
+#             if isinstance(data, np.number):
+#                 if data == missing_value:
+#                     data = np.nan
+#             else:
+#                 data[data == missing_value] = np.nan
 
-        data = (data * scale_factor) + add_offset
+#         data = (data * scale_factor) + add_offset
 
-    elif (data.dtype.name != dtype_decoded) or (data.dtype.name == 'object'):
-        data = data.astype(dtype_decoded)
+#     elif (data.dtype.name != dtype_decoded) or (data.dtype.name == 'object'):
+#         data = data.astype(dtype_decoded)
 
-    return data
+#     return data
 
 
 # def get_encoding_data_from_attrs(attrs):
@@ -650,41 +971,51 @@ def decode_data(data: bytes, dtype_encoded, dtype_decoded, missing_value, add_of
 #     return encoding
 
 
-def assign_dtype_decoded(encoding):
-    """
+# def assign_dtype_decoded(encoding):
+#     """
 
-    """
-    if encoding['dtype'] == 'object':
-        encoding['dtype_decoded'] = encoding['dtype']
-    elif ('calendar' in encoding) and ('units' in encoding):
-        encoding['dtype_decoded'] = 'datetime64[s]'
+#     """
+#     if encoding['dtype'] == 'object':
+#         encoding['dtype_decoded'] = encoding['dtype']
+#     elif ('calendar' in encoding) and ('units' in encoding):
+#         encoding['dtype_decoded'] = 'datetime64[s]'
 
-    if 'scale_factor' in encoding:
+#     if 'scale_factor' in encoding:
 
-        # if isinstance(encoding['scale_factor'], (int, np.integer)):
-        #     encoding['dtype_decoded'] = np.dtype('float32')
-        if np.dtype(encoding['dtype']).itemsize > 2:
-            encoding['dtype_decoded'] = 'float64'
-        else:
-            encoding['dtype_decoded'] = 'float32'
+#         # if isinstance(encoding['scale_factor'], (int, np.integer)):
+#         #     encoding['dtype_decoded'] = np.dtype('float32')
+#         if np.dtype(encoding['dtype']).itemsize > 2:
+#             encoding['dtype_decoded'] = 'float64'
+#         else:
+#             encoding['dtype_decoded'] = 'float32'
 
-    if 'dtype_decoded' not in encoding:
-        encoding['dtype_decoded'] = encoding['dtype']
+#     if 'dtype_decoded' not in encoding:
+#         encoding['dtype_decoded'] = encoding['dtype']
 
-    return encoding
+#     return encoding
 
 
-def write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes):
+def make_var_chunk_key(var_name, chunk_start_pos):
     """
 
     """
     dims = '.'.join(map(str, chunk_start_pos))
     var_chunk_key = var_chunk_key_str.format(var_name=var_name, dims=dims)
 
-    # var_name, dims = var_chunk_key.split('!')
-    # chunk_start_pos = tuple(map(int, dims.split('.')))
+    return var_chunk_key
 
-    blt_file[var_chunk_key] = data_chunk_bytes
+
+# def write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes):
+#     """
+
+#     """
+#     dims = '.'.join(map(str, chunk_start_pos))
+#     var_chunk_key = var_chunk_key_str.format(var_name=var_name, dims=dims)
+
+#     # var_name, dims = var_chunk_key.split('!')
+#     # chunk_start_pos = tuple(map(int, dims.split('.')))
+
+#     blt_file[var_chunk_key] = data_chunk_bytes
 
 
 def write_init_data(blt_file, var_name, var_meta, data, compressor):
@@ -692,16 +1023,16 @@ def write_init_data(blt_file, var_name, var_meta, data, compressor):
 
     """
     dtype_decoded = np.dtype(var_meta.encoding.dtype_decoded)
-    fillvalue_decoded = dtype_decoded.type(var_meta.encoding.fillvalue_decoded)
+    fillvalue = dtype_decoded.type(var_meta.encoding.fillvalue)
     dtype_encoded = np.dtype(var_meta.encoding.dtype_encoded)
-    fillvalue_encoded = dtype_decoded.type(var_meta.encoding.fillvalue_encoded)
     add_offset = var_meta.encoding.add_offset
     scale_factor = var_meta.encoding.scale_factor
 
-    mem_arr1 = np.full(var_meta.chunk_shape, fill_value=fillvalue_decoded, dtype=dtype_decoded)
+    mem_arr1 = np.full(var_meta.chunk_shape, fill_value=fillvalue, dtype=dtype_encoded)
 
-    chunk_iter = rechunker.chunk_range(var_meta.start_chunk_pos, var_meta.shape, var_meta.chunk_shape, clip_ends=True)
+    chunk_iter = rechunker.chunk_range(var_meta.origin_pos, var_meta.shape, var_meta.chunk_shape, clip_ends=True)
     for chunk in chunk_iter:
+        # print(chunk)
         mem_arr2 = mem_arr1.copy()
         mem_chunk = tuple(slice(0, s.stop - s.start) for s in chunk)
         mem_arr2[mem_chunk] = data[chunk]
@@ -713,20 +1044,20 @@ def write_init_data(blt_file, var_name, var_meta, data, compressor):
         write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes)
 
 
-def coord_init(name, data, shape, chunk_shape, enc, sys_meta, blt_file, compressor, step):
-    """
+# def coord_init(name, shape, chunk_shape, enc, sys_meta, step):
+#     """
 
-    """
-    ## Update sys_meta
-    if name in sys_meta.variables:
-        raise ValueError(f'Dataset already contains the variable {name}.')
+#     """
+#     ## Update sys_meta
+#     if name in sys_meta.variables:
+#         raise ValueError(f'Dataset already contains the variable {name}.')
 
-    var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, start_chunk_pos=(0,), coords=(name,), is_coord=True, encoding=enc, step=step)
+#     var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, origin_pos=(0,), coords=(name,), is_coord=True, encoding=enc, step=step)
 
-    sys_meta.variables[name] = var
+#     sys_meta.variables[name] = var
 
-    if data is not None:
-        write_init_data(blt_file, name, var, data, compressor)
+#     # if data is not None:
+#     #     write_init_data(blt_file, name, var, data, compressor)
 
 
 def check_coords(coords, shape, sys_meta):
@@ -948,7 +1279,7 @@ def filter_coords(coords_dict, selection, encodings):
         coords_dict[coord] = new_coord_data
 
 
-def guess_chunk(shape, maxshape, dtype, chunk_max=2**21):
+def guess_chunk(shape, dtype, chunk_max=2**21):
     """ Guess an appropriate chunk layout for a dataset, given its shape and
     the size of each element in bytes.  Will allocate chunks only as large
     as MAX_SIZE.  Chunks are generally close to some power-of-2 fraction of
@@ -959,18 +1290,7 @@ def guess_chunk(shape, maxshape, dtype, chunk_max=2**21):
 
     if ndims > 0:
 
-        # For unlimited dimensions we have to guess 1024
-        shape1 = []
-        for i, x in enumerate(maxshape):
-            if x is None:
-                if shape[i] > 1024:
-                    shape1.append(shape[i])
-                else:
-                    shape1.append(1024)
-            else:
-                shape1.append(x)
-
-        shape = tuple(shape1)
+        shape = tuple(shape)
 
         # ndims = len(shape)
         # if ndims == 0:
@@ -1017,60 +1337,129 @@ def guess_chunk(shape, maxshape, dtype, chunk_max=2**21):
         return None
 
 
-def guess_chunk_time(shape, maxshape, dtype, time_index, chunk_max=3*2**20):
-    """ Guess an appropriate chunk layout for a dataset, given its shape and
-    the size of each element in bytes.  Will allocate chunks only as large
-    as MAX_SIZE.  Chunks are generally close to some power-of-2 fraction of
-    each axis, slightly favoring bigger values for the last index.
-    Undocumented and subject to change without warning.
-    """
-    ndims = len(shape)
+# def guess_chunk_hdf5(shape, maxshape, dtype, chunk_max=2**21):
+#     """ Guess an appropriate chunk layout for a dataset, given its shape and
+#     the size of each element in bytes.  Will allocate chunks only as large
+#     as MAX_SIZE.  Chunks are generally close to some power-of-2 fraction of
+#     each axis, slightly favoring bigger values for the last index.
+#     Undocumented and subject to change without warning.
+#     """
+#     ndims = len(shape)
 
-    if ndims > 0:
+#     if ndims > 0:
 
-        # For unlimited dimensions we have to guess 1024
-        shape1 = []
-        for i, x in enumerate(maxshape):
-            if x is None:
-                if shape[i] > 1024:
-                    shape1.append(shape[i])
-                else:
-                    shape1.append(1024)
-            else:
-                shape1.append(x)
+#         # For unlimited dimensions we have to guess 1024
+#         shape1 = []
+#         for i, x in enumerate(maxshape):
+#             if x is None:
+#                 if shape[i] > 1024:
+#                     shape1.append(shape[i])
+#                 else:
+#                     shape1.append(1024)
+#             else:
+#                 shape1.append(x)
 
-        shape = tuple(shape1)
+#         shape = tuple(shape1)
 
-        chunks = np.array(shape, dtype='=f8')
-        if not np.all(np.isfinite(chunks)):
-            raise ValueError("Illegal value in chunk tuple")
+#         # ndims = len(shape)
+#         # if ndims == 0:
+#         #     raise ValueError("Chunks not allowed for scalar datasets.")
 
-        # Determine the optimal chunk size in bytes using a PyTables expression.
-        # This is kept as a float.
-        typesize = np.dtype(dtype).itemsize
+#         chunks = np.array(shape, dtype='=f8')
+#         if not np.all(np.isfinite(chunks)):
+#             raise ValueError("Illegal value in chunk tuple")
 
-        target_size = chunk_max
+#         # Determine the optimal chunk size in bytes using a PyTables expression.
+#         # This is kept as a float.
+#         typesize = np.dtype(dtype).itemsize
+#         # dset_size = np.prod(chunks)*typesize
+#         # target_size = CHUNK_BASE * (2**np.log10(dset_size/(1024.*1024)))
 
-        while True:
-            # Repeatedly loop over the axes, dividing them by 2.  Stop when:
-            # 1a. We're smaller than the target chunk size, OR
-            # 1b. We're within 50% of the target chunk size, AND
-            #  2. The chunk is smaller than the maximum chunk size
+#         # if target_size > CHUNK_MAX:
+#         #     target_size = CHUNK_MAX
+#         # elif target_size < CHUNK_MIN:
+#         #     target_size = CHUNK_MIN
 
-            chunk_bytes = math.prod(chunks)*typesize
+#         target_size = chunk_max
 
-            if (chunk_bytes < target_size or \
-             abs(chunk_bytes - target_size)/target_size < 0.5):
-                break
+#         idx = 0
+#         while True:
+#             # Repeatedly loop over the axes, dividing them by 2.  Stop when:
+#             # 1a. We're smaller than the target chunk size, OR
+#             # 1b. We're within 50% of the target chunk size, AND
+#             #  2. The chunk is smaller than the maximum chunk size
 
-            if chunks[time_index] == 1:
-                break
+#             chunk_bytes = math.prod(chunks)*typesize
 
-            chunks[time_index] = np.ceil(chunks[time_index] / 2.0)
+#             if (chunk_bytes < target_size or \
+#              abs(chunk_bytes - target_size)/target_size < 0.5):
+#                 break
 
-        return tuple(int(x) for x in chunks)
-    else:
-        return None
+#             if math.prod(chunks) == 1:
+#                 break
+
+#             chunks[idx%ndims] = math.ceil(chunks[idx%ndims] / 2.0)
+#             idx += 1
+
+#         return tuple(int(x) for x in chunks)
+#     else:
+#         return None
+
+
+# def guess_chunk_time(shape, maxshape, dtype, time_index, chunk_max=3*2**20):
+#     """ Guess an appropriate chunk layout for a dataset, given its shape and
+#     the size of each element in bytes.  Will allocate chunks only as large
+#     as MAX_SIZE.  Chunks are generally close to some power-of-2 fraction of
+#     each axis, slightly favoring bigger values for the last index.
+#     Undocumented and subject to change without warning.
+#     """
+#     ndims = len(shape)
+
+#     if ndims > 0:
+
+#         # For unlimited dimensions we have to guess 1024
+#         shape1 = []
+#         for i, x in enumerate(maxshape):
+#             if x is None:
+#                 if shape[i] > 1024:
+#                     shape1.append(shape[i])
+#                 else:
+#                     shape1.append(1024)
+#             else:
+#                 shape1.append(x)
+
+#         shape = tuple(shape1)
+
+#         chunks = np.array(shape, dtype='=f8')
+#         if not np.all(np.isfinite(chunks)):
+#             raise ValueError("Illegal value in chunk tuple")
+
+#         # Determine the optimal chunk size in bytes using a PyTables expression.
+#         # This is kept as a float.
+#         typesize = np.dtype(dtype).itemsize
+
+#         target_size = chunk_max
+
+#         while True:
+#             # Repeatedly loop over the axes, dividing them by 2.  Stop when:
+#             # 1a. We're smaller than the target chunk size, OR
+#             # 1b. We're within 50% of the target chunk size, AND
+#             #  2. The chunk is smaller than the maximum chunk size
+
+#             chunk_bytes = math.prod(chunks)*typesize
+
+#             if (chunk_bytes < target_size or \
+#              abs(chunk_bytes - target_size)/target_size < 0.5):
+#                 break
+
+#             if chunks[time_index] == 1:
+#                 break
+
+#             chunks[time_index] = np.ceil(chunks[time_index] / 2.0)
+
+#         return tuple(int(x) for x in chunks)
+#     else:
+#         return None
 
 
 def cartesian(arrays, out=None):

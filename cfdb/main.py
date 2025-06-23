@@ -14,10 +14,9 @@ import msgspec
 import weakref
 import io
 import copy
-import zstandard as zstd
 
 # from . import utils, indexers
-import utils, indexers, data_models, support_classes as sc, creation
+import utils, indexers, data_models, creation, support_classes as sc
 
 ############################################
 ### Parameters
@@ -40,7 +39,7 @@ class Dataset:
     """
 
     """
-    def __init__(self, file_path: Union[str, pathlib.Path], flag: str = "r", compression='zstd', **kwargs):
+    def __init__(self, file_path: Union[str, pathlib.Path], flag: str = "r", compression='zstd', compression_level=1, **kwargs):
         """
         Compression can be either zstd, lz4, or None. But there's no point in using None.
         """
@@ -58,14 +57,16 @@ class Dataset:
             if compression.lower() not in compression_options:
                 raise ValueError(f'compression must be one of {compression_options}.')
 
-            self._meta = data_models.SysMeta(cfbooklet_type='Dataset', compression=compression, variables={})
+            self._meta = data_models.SysMeta(object_type='Dataset', compression=compression, compression_level=compression_level, variables={})
             self._blt.set_metadata(msgspec.to_builtins(self._meta))
 
         else:
             self._meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
 
         self.compression = self._meta.compression
-        self._compressor = zstd.ZstdCompressor(level=1)
+        self.compression_level = self._meta.compression_level
+        self._compressor = sc.Compressor(self.compression, self.compression_level)
+
         self._finalizers = []
         self._finalizers.append(weakref.finalize(self, utils.dataset_finalizer, self._blt, self._meta))
 

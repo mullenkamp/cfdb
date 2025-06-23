@@ -27,7 +27,7 @@ max_mem = 160 * itemsize
 
 dtype = 'int32'
 
-cache_path = pathlib.Path('/home/mike/data/cache/cfbooklet')
+cache_path = pathlib.Path('/home/mike/data/cache/cfdb')
 
 file_path = cache_path.joinpath('test1.blt')
 flag = 'n'
@@ -52,7 +52,7 @@ add_offset = None
 
 data = None
 shape = (6, )
-chunk_shape = (4,)
+chunk_shape = (40,)
 fillvalue = None
 dtype_decoded = 'int16'
 
@@ -65,7 +65,7 @@ d
 ### Start
 
 self = Dataset(file_path, flag=flag)
-lat1 = self.create.coord.latitude(shape=shape)
+lat1 = self.create.coord.latitude()
 lat1 = self.create.coord.latitude(data=data, chunk_shape=chunk_shape, step=True)
 time1 = self.create.coord.time(shape=shape)
 altitude1 = self.create.coord.altitude(shape=shape)

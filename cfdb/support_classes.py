@@ -8,11 +8,23 @@ Created on Wed Feb 19 14:05:23 2025
 import numpy as np
 import weakref
 import msgspec
+import lz4.frame
+import zstandard as zstd
 
 import utils, indexers
 
 ###################################################
 ### Classes
+
+
+class Categorical:
+    """
+    This class and dtype should be similar to the pandas categorical dtype. Preferably, all string arrays should be cat dtypes. In the CF conventions, this is equivelant to `flags <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#flags>`_. The CF conventions of assigning the attrs flag_values and flag_meanings should be used for compatability.
+    As in the CF conventions, two python lists can be used (one int in increasing order from 0 as the index, and the other as the string values). The string values would have no sorted order. They would be assigned the int index as they are assigned.
+    This class should replace the fixed-length numpy unicode class.
+    At the moment, I don't want to implement this until I've got the rest of the package implemented.
+    """
+    # TODO
 
 
 class Attributes:
@@ -98,15 +110,69 @@ class Attributes:
         return self.data.__repr__()
 
 
+class Compressor:
+    """
+
+    """
+    def __init__(self, compression, compression_level):
+        """
+
+        """
+        self.compression = compression
+        self.compression_level = compression_level
+
+        if compression == 'lz4':
+            self.compress = self._lz4_compress
+            self.decompress = self._lz4_decompress
+        elif compression == 'zstd':
+            self._cctx = zstd.ZstdCompressor(level=compression_level)
+            self._dctx = zstd.ZstdDecompressor()
+            self.compress = self._zstd_compress
+            self.decompress = self._zstd_decompress
+        else:
+            raise ValueError('compression must be either lz4 or zstd')
+
+    def _lz4_compress(self, data: bytes):
+        """
+
+        """
+        return lz4.frame.compress(data, compression_level=self.compression_level)
+
+    def _lz4_decompress(self, data: bytes):
+        """
+
+        """
+        return lz4.frame.decompress(data)
+
+    def _zstd_compress(self, data: bytes):
+        """
+
+        """
+        return self._cctx.compress(data)
+
+    def _zstd_decompress(self, data: bytes):
+        """
+
+        """
+        return self._dctx.decompress(data)
+
+
 class Encoding:
     """
 
     """
-    def __init__(self, var_encoding):
+    def __init__(self, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset, compressor):
         # self._encoding = msgspec.to_builtins(var_encoding)
-        self._encoding = var_encoding
-        for key, val in self._encoding.items():
-            setattr(self, key, val)
+        # self._encoding = var_encoding
+        self.compressor = compressor
+        self.chunk_shape = chunk_shape
+        self.dtype_decoded = dtype_decoded
+        self.dtype_encoded = dtype_encoded
+        self.fillvalue = fillvalue
+        self.scale_factor = scale_factor
+        self.add_offset = add_offset
+        # for key, val in self._encoding.items():
+        #     setattr(self, key, val)
 
     # def get(self, key, default=None):
     #     return self._encoding.get(key, default)
@@ -166,34 +232,71 @@ class Encoding:
     # def __repr__(self):
     #     return make_attrs_repr(self, name_indent, value_indent, 'Encodings')
 
-    def encode(self, values):
-        return utils.encode_data(np.asarray(values), **self._encoding)
+    def encode(self, data: np.ndarray):
+        if data.dtype != self.dtype_decoded:
+            raise TypeError('The data dtype does not match the assigned dtype_decoded.')
 
-    def decode(self, bytes_data):
-        # results = utils.decode_data(values, **self._encoding)
+        if self.dtype_encoded != self.dtype_decoded:
 
-        # if results.ndim == 0:
-        #     return results[()]
-        # else:
-        #     return results
+            # if data.dtype.kind == 'M':
+            #     data = data.astype(self.dtype_encoded)
 
-        return utils.decode_data(bytes_data, **self._encoding)
+            if isinstance(self.add_offset, (int, float)):
+                data = data - self.add_offset
+
+            if isinstance(self.scale_factor, (int, float)):
+                # precision = int(np.abs(np.log10(val['scale_factor'])))
+                data = data/self.scale_factor
+
+            if isinstance(self.fillvalue, int) and (self.dtype_decoded.kind == 'f'):
+                data[np.isnan(data)] = self.fillvalue
+
+            data = data.astype(self.dtype_encoded)
+
+        return self.compressor.compress(data.tobytes())
+
+
+    def decode(self, data: bytes):
+        data = np.frombuffer(self.compressor.decompress(data), dtype=self.dtype_encoded).reshape(self.chunk_shape)
+
+        if self.dtype_encoded != self.dtype_decoded:
+            data = data.astype(self.dtype_decoded)
+
+            if isinstance(self.fillvalue, int) and (self.dtype_decoded.kind == 'f'):
+                data[np.isclose(data, self.fillvalue)] = np.nan
+
+            if isinstance(self.scale_factor, (int, float)):
+                data = data * self.scale_factor
+
+            if isinstance(self.add_offset, (int, float)):
+                data = data + self.add_offset
+
+        return data
 
 
 class Variable:
     """
 
     """
-    def __init__(self, blt_file, var_name, sys_meta, finalizers):
+    def __init__(self, var_name, blt_file, sys_meta, compressor, finalizers):
         """
 
         """
-        self._sys_meta = sys_meta
+        self._var_meta = sys_meta.variables[var_name]
         self._blt = blt_file
         self.name = var_name
         self.attrs = Attributes(self._blt, var_name, finalizers)
-        self.encoding = msgspec.to_builtins(self._sys_meta.variables[self.name].encoding)
-        self._encoding = Encoding(self.encoding)
+        # self.encoding = msgspec.to_builtins(self._sys_meta.variables[self.name].encoding)
+        self.chunk_shape = self._var_meta.chunk_shape
+        self.dtype_decoded = self._var_meta.dtype_decoded
+        self.dtype_encoded = self._var_meta.dtype_encoded
+        self.fillvalue = self._var_meta.fillvalue
+        self.scale_factor = self._var_meta.scale_factor
+        self.add_offset = self._var_meta.add_offset
+        self.coords = self._var_meta.coords
+        self.ndim = len(self.coords)
+
+        self._encoding = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, compressor)
         self.loc = indexers.LocationIndexer(self)
         self._finalizers = finalizers
 
@@ -205,33 +308,33 @@ class Variable:
     # def attrs(self):
     #     return Attributes(self._blt, self.name, self._finalizers)
 
-    @property
-    def _get_var_sys_meta(self):
-        """
+    # @property
+    # def _get_var_sys_meta(self):
+    #     """
 
-        """
-        return getattr(self._sys_meta, 'variables')[self.name]
+    #     """
+    #     return getattr(self._sys_meta, 'variables')[self.name]
 
     @property
     def shape(self):
-        return getattr(self._get_var_sys_meta, 'shape')
+        return getattr(self._var_meta, 'shape')
 
-    @property
-    def coords(self):
-        return getattr(self._get_var_sys_meta, 'coords')
+    # @property
+    # def coords(self):
+    #     return getattr(self._get_var_sys_meta, 'coords')
 
-    @property
-    def ndim(self):
-        return len(getattr(self._get_var_sys_meta, 'coords'))
+    # @property
+    # def ndim(self):
+    #     return len(getattr(self._get_var_sys_meta, 'coords'))
 
     # @property
     # def dtype(self):
     #     # TODO: should be in the encoding data
     #     return np.dtype(getattr(self._get_var_sys_meta, 'dtype_decoded'))
 
-    @property
-    def chunk_shape(self):
-        return getattr(self._get_var_sys_meta, 'chunk_shape')
+    # @property
+    # def chunk_shape(self):
+    #     return getattr(self._get_var_sys_meta, 'chunk_shape')
 
     # @property
     # def size(self):
@@ -264,6 +367,8 @@ class Variable:
     #     fixed.
     #     """
     #     self._dataset.resize(new_shape, axis)
+
+
 
     def rechunker(self, target_chunk_shape, max_mem):
         """
@@ -346,19 +451,35 @@ class Coordinate(Variable):
     def data(self):
         return self[()]
 
-    def prepend(self, data=None, length=None):
+    def prepend(self, data):
         """
         Prepend data to the start of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the start.
         """
 
-    def append(self, data=None, length=None):
+
+    def append(self, data):
         """
         Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the end.
         """
+        new_data, start_write_pos = utils.append_coord_data_checks(data, self.data, self.dtype_decoded, self.step)
+
+
+
+    def resize(self, start, end):
+        """
+        Resize a coordinate. If step is an int or float, then resizing can add or truncate the length. If step is None, then the coordinate can only have the length truncated.
+        If the coordinate length is reduced, then all data variables associated with the coordinate will have their data truncated.
+        """
+
 
     @property
     def step(self):
-        return getattr(self._get_var_sys_meta, 'step')
+        return getattr(self._var_meta, 'step')
+
+    @property
+    def auto_increment(self):
+        return getattr(self._var_meta, 'auto_increment')
+
 
 
     # def copy(self, to_file=None, name: str=None, include_attrs=True, **kwargs):
