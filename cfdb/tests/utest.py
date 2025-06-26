@@ -35,12 +35,16 @@ compression='zstd'
 kwargs = {}
 
 name = 'coord1'
+name = 'air_temp'
 
 data = np.array([2, 3, 4, 5, 6, 7], dtype='uint32')
 data = np.array([2, 3, 4, 5, 6, 7], dtype='int32')
-data = np.array([0.2, 0.3, 0.4, 0.5, 0.6, 0.7], dtype='float32')
+new_data = np.arange(8, 12, dtype='int32')
+old_data = np.array([0.2, 0.3, 0.4, 0.5, 0.6, 0.7], dtype='float32')
+new_data = np.linspace(0.8, 1.2, 5, dtype='float32')
+data = new_data
 data = np.array([2, 3, 4, 5, 6, 7], dtype='str')
-data = np.array([2, 3, 4, 5, 6, 7], dtype='datetime64[D]')
+data_time = np.array([2, 3, 4, 5, 6, 7], dtype='datetime64[D]')
 
 shape = None
 chunk_shape = (4,)
@@ -50,11 +54,19 @@ dtype_encoded = None
 scale_factor = None
 add_offset = None
 
-data = None
+# data = None
 shape = (6, )
 chunk_shape = (40,)
 fillvalue = None
 dtype_decoded = 'int16'
+
+coords = ('latitude', 'time')
+dtype_decoded = 'float32'
+dtype_encoded = 'int32'
+chunk_shape = (20, 30)
+fillvalue = None
+scale_factor = None
+add_offset = None
 
 ###################################################
 ### Functions
@@ -69,8 +81,31 @@ lat1 = self.create.coord.latitude()
 lat1 = self.create.coord.latitude(data=data, chunk_shape=chunk_shape, step=True)
 time1 = self.create.coord.time(shape=shape)
 altitude1 = self.create.coord.altitude(shape=shape)
-self.close()
+self1.close()
 
+
+
+self1 = Dataset(file_path, flag=flag)
+self = self1.create.coord.latitude(chunk_shape=(8,))
+self = self1.create.coord.latitude(data=old_data, chunk_shape=(8,))
+# self.data = old_data
+self.append(old_data)
+self.append(new_data)
+self.prepend(old_data)
+
+self = self1.create.coord.longitude(data=data)
+self = self1.create.coord.time(data=data_time, dtype_decoded=data_time.dtype, dtype_encoded='int32')
+
+
+self1 = Dataset(file_path, flag=flag)
+lat_coord = self1.create.coord.latitude(data=old_data, chunk_shape=(8,))
+time_coord = self1.create.coord.time(data=data_time, dtype_decoded=data_time.dtype, dtype_encoded='int32')
+
+sys_meta = self._sys_meta
+
+self = self1.create.data_var.generic(name, coords, dtype_decoded, dtype_encoded)
+
+self1.close()
 
 
 ###################################################

@@ -10,8 +10,9 @@ import weakref
 import msgspec
 import lz4.frame
 import zstandard as zstd
+import math
 
-import utils, indexers
+import utils, indexers, rechunker
 
 ###################################################
 ### Classes
@@ -232,8 +233,25 @@ class Encoding:
     # def __repr__(self):
     #     return make_attrs_repr(self, name_indent, value_indent, 'Encodings')
 
-    def encode(self, data: np.ndarray):
-        if data.dtype != self.dtype_decoded:
+
+    def to_bytes(self, encoded_array: np.ndarray) -> bytes:
+        """
+        from encoded array to bytes
+        """
+        return self.compressor.compress(encoded_array.tobytes())
+
+    def from_bytes(self, data: bytes, count=-1, offset=0) -> np.ndarray:
+        """
+        from bytes to encoded array. The count and offset are from the np.frombuffer function.
+        """
+        b1 = self.compressor.decompress(data)
+        encoded_array = np.frombuffer(b1, dtype=self.dtype_encoded, count=count, offset=offset).reshape(self.chunk_shape)
+
+        return encoded_array
+
+
+    def encode(self, array: np.ndarray):
+        if array.dtype != self.dtype_decoded:
             raise TypeError('The data dtype does not match the assigned dtype_decoded.')
 
         if self.dtype_encoded != self.dtype_decoded:
@@ -242,36 +260,37 @@ class Encoding:
             #     data = data.astype(self.dtype_encoded)
 
             if isinstance(self.add_offset, (int, float)):
-                data = data - self.add_offset
+                array = array - self.add_offset
 
             if isinstance(self.scale_factor, (int, float)):
                 # precision = int(np.abs(np.log10(val['scale_factor'])))
-                data = data/self.scale_factor
+                array = array/self.scale_factor
 
             if isinstance(self.fillvalue, int) and (self.dtype_decoded.kind == 'f'):
-                data[np.isnan(data)] = self.fillvalue
+                array[np.isnan(array)] = self.fillvalue
 
-            data = data.astype(self.dtype_encoded)
+            array = array.astype(self.dtype_encoded)
 
-        return self.compressor.compress(data.tobytes())
+        return array
 
 
-    def decode(self, data: bytes):
-        data = np.frombuffer(self.compressor.decompress(data), dtype=self.dtype_encoded).reshape(self.chunk_shape)
-
+    def decode(self, array: np.ndarray):
+        """
+        encoded array into decode array
+        """
         if self.dtype_encoded != self.dtype_decoded:
-            data = data.astype(self.dtype_decoded)
+            array = array.astype(self.dtype_decoded)
 
             if isinstance(self.fillvalue, int) and (self.dtype_decoded.kind == 'f'):
-                data[np.isclose(data, self.fillvalue)] = np.nan
+                array[np.isclose(array, self.fillvalue)] = np.nan
 
             if isinstance(self.scale_factor, (int, float)):
-                data = data * self.scale_factor
+                array = array * self.scale_factor
 
             if isinstance(self.add_offset, (int, float)):
-                data = data + self.add_offset
+                array = array + self.add_offset
 
-        return data
+        return array
 
 
 class Variable:
@@ -282,21 +301,24 @@ class Variable:
         """
 
         """
+        self._sys_meta = sys_meta
         self._var_meta = sys_meta.variables[var_name]
         self._blt = blt_file
         self.name = var_name
         self.attrs = Attributes(self._blt, var_name, finalizers)
         # self.encoding = msgspec.to_builtins(self._sys_meta.variables[self.name].encoding)
         self.chunk_shape = self._var_meta.chunk_shape
-        self.dtype_decoded = self._var_meta.dtype_decoded
-        self.dtype_encoded = self._var_meta.dtype_encoded
+        # self.origin_pos = self._var_meta.origin_pos
+        self.dtype_decoded = np.dtype(self._var_meta.dtype_decoded)
+        self.dtype_encoded = np.dtype(self._var_meta.dtype_encoded)
         self.fillvalue = self._var_meta.fillvalue
         self.scale_factor = self._var_meta.scale_factor
         self.add_offset = self._var_meta.add_offset
-        self.coords = self._var_meta.coords
-        self.ndim = len(self.coords)
+        if hasattr(self._var_meta, 'coords'):
+            self.coords = self._var_meta.coords
+            self.ndim = len(self.coords)
 
-        self._encoding = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, compressor)
+        self._encoder = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, compressor)
         self.loc = indexers.LocationIndexer(self)
         self._finalizers = finalizers
 
@@ -315,17 +337,33 @@ class Variable:
     #     """
     #     return getattr(self._sys_meta, 'variables')[self.name]
 
-    @property
-    def shape(self):
-        return getattr(self._var_meta, 'shape')
-
     # @property
     # def coords(self):
-    #     return getattr(self._get_var_sys_meta, 'coords')
+    #     return getattr(self._var_meta, 'coords')
 
     # @property
     # def ndim(self):
-    #     return len(getattr(self._get_var_sys_meta, 'coords'))
+    #     return len(getattr(self._var_meta, 'coords'))
+
+    # @property
+    # def chunk_shape(self):
+    #     return getattr(self._var_meta, 'chunk_shape')
+
+    # @property
+    # def dtype_decoded(self):
+    #     return np.dtype(getattr(self._var_meta, 'dtype_decoded'))
+
+    # @property
+    # def dtype_encoded(self):
+    #     return np.dtype(getattr(self._var_meta, 'dtype_encoded'))
+
+    # @property
+    # def scale_factor(self):
+    #     return getattr(self._var_meta, 'scale_factor')
+
+    # @property
+    # def add_offset(self):
+    #     return getattr(self._var_meta, 'add_offset')
 
     # @property
     # def dtype(self):
@@ -350,7 +388,7 @@ class Variable:
 
     # @property
     # def fillvalue(self):
-    #     return getattr(self._get_var_sys_meta, 'fillvalue')
+    #     return getattr(self._var_meta, 'fillvalue')
 
     # def reshape(self, new_shape, axis=None):
     #     """ Reshape the dataset, or the specified axis.
@@ -369,6 +407,33 @@ class Variable:
     #     self._dataset.resize(new_shape, axis)
 
 
+    def _make_blank_decoded_array(self, sel, coord_origin_poss):
+        """
+
+        """
+        new_shape = indexers.determine_final_array_shape(sel, coord_origin_poss, self.shape)
+
+        if self.dtype_decoded.kind == 'f':
+            fillvalue = np.nan
+        else:
+            fillvalue = self.fillvalue
+
+        return np.full(new_shape, fillvalue, self.dtype_decoded)
+
+
+    def _make_blank_encoded_array(self, sel, coord_origin_poss):
+        """
+
+        """
+        new_shape = indexers.determine_final_array_shape(sel, coord_origin_poss, self.shape)
+
+        if self.dtype_encoded.kind == 'f':
+            fillvalue = np.nan
+        else:
+            fillvalue = self.fillvalue
+
+        return np.full(new_shape, fillvalue, self.dtype_encoded)
+
 
     def rechunker(self, target_chunk_shape, max_mem):
         """
@@ -377,14 +442,82 @@ class Variable:
         pass
 
 
-    def __getitem__(self, key):
-        return self._encoding.decode(self._dataset[key])
+    def __getitem__(self, sel):
+        return self.get(sel)
 
     def __setitem__(self, key, value):
-        self._dataset[key] = self._encoding.encode(value)
+        self._dataset[key] = self._encoder.encode(value)
 
     def iter_chunks(self, sel=None):
-        return self._dataset.iter_chunks(sel)
+        """
+
+        """
+        coord_origins = self.get_coord_origins()
+
+        blank = self._make_blank_decoded_array(sel, coord_origins)
+
+        slices = indexers.index_combo_all(sel, coord_origins, self.shape)
+        for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
+            # print(target_chunk, source_chunk, blt_key)
+            b1 = self._blt.get(blt_key)
+            if b1 is None:
+                blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
+                yield target_chunk, blank[blank_slices]
+            else:
+                data = self._encoder.decode(self._encoder.from_bytes(b1))
+                yield target_chunk, data[source_chunk]
+
+
+    def get(self, sel=None):
+        """
+
+        """
+        coord_origins = self.get_coord_origins()
+
+        target = self._make_blank_decoded_array(sel, coord_origins)
+
+        for target_chunk, data in self.iter_chunks(sel):
+            target[target_chunk] = data
+
+        return target
+
+
+    def get_chunk(self, sel, decoded=True, missing_none=False):
+        """
+
+        """
+        coord_origins = self.get_coord_origins()
+        slices = indexers.index_combo_all(sel, coord_origins, self.shape)
+        starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(self.chunk_shape, slices))
+        blt_key = utils.make_var_chunk_key(self.name, starts_chunk)
+        b1 = self._blt.get(blt_key)
+        if missing_none and b1 is None:
+            return None
+        elif b1 is None:
+            if decoded:
+                return self._make_blank_decoded_array(sel, coord_origins)
+            else:
+                return self._make_blank_encoded_array(sel, coord_origins)
+        else:
+            encoded_data = self._encoder.from_bytes(b1)
+            if decoded:
+                return self._encoder.decode(encoded_data)
+            else:
+                return encoded_data
+
+
+    def get_coord_origins(self):
+        """
+
+        """
+        if hasattr(self, 'coords'):
+            coord_origins = tuple(self._sys_meta.variables[coord].origin_pos for coord in self.coords)
+        else:
+            coord_origins = (self.origin_pos,)
+
+        return coord_origins
+
+
 
     # def __bool__(self):
     #     return self._dataset.__bool__()
@@ -449,20 +582,86 @@ class Coordinate(Variable):
     """
     @property
     def data(self):
-        return self[()]
+        if not hasattr(self, '_data'):
+            self._data = self.get()
+
+        return self._data
+
+
+    def _add_updated_data(self, chunk_start, chunk_stop, new_origin_pos, updated_data):
+        """
+
+        """
+        chunk_len = self.chunk_shape[0]
+
+        mem_arr1 = np.full(self.chunk_shape, fill_value=self.fillvalue, dtype=self.dtype_encoded)
+
+        # print(chunk_start)
+
+        chunk_iter = rechunker.chunk_range(chunk_start, chunk_stop, self.chunk_shape, clip_ends=True)
+        for chunk in chunk_iter:
+            chunk = chunk[0] # Because coords are always 1D
+            # print(chunk)
+
+            chunk_start_pos = chunk.start
+            chunk_stop_pos = chunk.stop
+
+            chunk_origin = (chunk_start_pos//chunk_len) * chunk_len
+            mem_chunk_start_pos = chunk_start_pos - chunk_origin
+            mem_chunk_stop_pos = chunk_stop_pos - chunk_origin
+            mem_chunk_slice = slice(mem_chunk_start_pos, mem_chunk_stop_pos)
+
+            coord_start_pos = chunk_start_pos - new_origin_pos
+            coord_stop_pos = chunk_stop_pos - new_origin_pos
+            coord_chunk_slice = slice(coord_start_pos, coord_stop_pos)
+
+            # print(updated_data[coord_chunk_slice])
+
+            mem_arr2 = mem_arr1.copy()
+            mem_arr2[mem_chunk_slice] = self._encoder.encode(updated_data[coord_chunk_slice])
+
+            key = utils.make_var_chunk_key(self.name, (chunk_origin,))
+            # print(key)
+
+            self._blt[key] = self._encoder.to_bytes(mem_arr2)
+
+        self._data = updated_data
+
 
     def prepend(self, data):
         """
         Prepend data to the start of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the start.
         """
+        updated_data = utils.prepend_coord_data_checks(data, self.data, self.dtype_decoded, self.step)
+
+        data_diff = updated_data.size - self.data.size
+
+        new_origin_pos = self.origin_pos - data_diff
+        chunk_stop = (updated_data.size + new_origin_pos,)
+
+        chunk_start = (new_origin_pos,)
+        # chunk_stop = shape
+
+        self._add_updated_data(chunk_start, chunk_stop, new_origin_pos, updated_data)
+
+        self._var_meta.origin_pos = new_origin_pos
+        self._var_meta.shape = updated_data.shape
 
 
     def append(self, data):
         """
         Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the end.
         """
-        new_data, start_write_pos = utils.append_coord_data_checks(data, self.data, self.dtype_decoded, self.step)
+        updated_data = utils.append_coord_data_checks(data, self.data, self.dtype_decoded, self.step)
 
+        shape = (updated_data.size,)
+
+        chunk_start = (self.origin_pos,)
+        chunk_stop = shape
+
+        self._add_updated_data(chunk_start, chunk_stop, self.origin_pos, updated_data)
+
+        self._var_meta.shape = shape
 
 
     def resize(self, start, end):
@@ -479,6 +678,14 @@ class Coordinate(Variable):
     @property
     def auto_increment(self):
         return getattr(self._var_meta, 'auto_increment')
+
+    @property
+    def origin_pos(self):
+        return getattr(self._var_meta, 'origin_pos')
+
+    @property
+    def shape(self):
+        return getattr(self._var_meta, 'shape')
 
 
 
@@ -581,6 +788,15 @@ class DataVariable(Variable):
 
         """
         return utils.data_variable_summary(self)
+
+
+    # @property
+    # def coords(self):
+    #     return getattr(self._var_meta, 'coords')
+
+    @property
+    def shape(self):
+        return tuple(self._sys_meta.variables[coord_name].shape[0] for coord_name in self.coords)
 
 
 

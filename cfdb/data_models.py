@@ -58,21 +58,31 @@ class Compressor(enum.Enum):
 #     #     return utils.decode_data(bytes_data, **self._encoding)
 
 
-class Variable(msgspec.Struct):
+class DataVariable(msgspec.Struct, tag='data_var'):
     """
 
     """
-    shape: Tuple[int, ...]
     chunk_shape: Tuple[int, ...]
-    origin_pos: Tuple[int, ...]
     coords: Tuple[str, ...]
-    is_coord: bool
-    # encoding: Encoding
     dtype_encoded: str
     dtype_decoded: str
     fillvalue: Union[int, None] = None
     scale_factor: Union[float, int, None] = None
     add_offset: Union[float, int, None] = None
+
+
+class CoordinateVariable(msgspec.Struct, tag='coord'):
+    """
+
+    """
+    shape: Tuple[int, ...]
+    chunk_shape: Tuple[int, ...]
+    dtype_encoded: str
+    dtype_decoded: str
+    fillvalue: Union[int, None] = None
+    scale_factor: Union[float, int, None] = None
+    add_offset: Union[float, int, None] = None
+    origin_pos: Union[int, None] = None
     step: Union[float, int, None] = None
     auto_increment: bool = False
 
@@ -84,7 +94,7 @@ class SysMeta(msgspec.Struct):
     object_type: Type
     compression: Compressor
     compression_level: int
-    variables: Dict[str, Variable] = {}
+    variables: Dict[str, Union[DataVariable, CoordinateVariable]] = {}
 
     # def __post_init__(self):
 
