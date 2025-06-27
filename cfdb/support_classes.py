@@ -297,15 +297,16 @@ class Variable:
     """
 
     """
-    def __init__(self, var_name, blt_file, sys_meta, compressor, finalizers):
+    def __init__(self, var_name, dataset):
         """
 
         """
-        self._sys_meta = sys_meta
-        self._var_meta = sys_meta.variables[var_name]
-        self._blt = blt_file
+        self._dataset = dataset
+        self._sys_meta = dataset._sys_meta
+        self._var_meta = dataset._sys_meta.variables[var_name]
+        self._blt = dataset._blt
         self.name = var_name
-        self.attrs = Attributes(self._blt, var_name, finalizers)
+        self.attrs = Attributes(self._blt, var_name, dataset._finalizers)
         # self.encoding = msgspec.to_builtins(self._sys_meta.variables[self.name].encoding)
         self.chunk_shape = self._var_meta.chunk_shape
         # self.origin_pos = self._var_meta.origin_pos
@@ -315,12 +316,15 @@ class Variable:
         self.scale_factor = self._var_meta.scale_factor
         self.add_offset = self._var_meta.add_offset
         if hasattr(self._var_meta, 'coords'):
-            self.coords = self._var_meta.coords
-            self.ndim = len(self.coords)
+            self.coord_names = self._var_meta.coords
+            self.ndims = len(self.coord_names)
+        else:
+            self.coord_names = (var_name,)
+            self.ndims = 1
 
-        self._encoder = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, compressor)
+        self._encoder = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, dataset._compressor)
         self.loc = indexers.LocationIndexer(self)
-        self._finalizers = finalizers
+        self._finalizers = dataset._finalizers
 
         ## Assign all the encodings - should I do this?
         # for name, val in self._encoding_dict.items():
@@ -445,8 +449,26 @@ class Variable:
     def __getitem__(self, sel):
         return self.get(sel)
 
-    def __setitem__(self, key, value):
-        self._dataset[key] = self._encoder.encode(value)
+    # def __setitem__(self, sel, data):
+    #     """
+
+    #     """
+    #     coord_origins = self.get_coord_origins()
+
+    #     blank = self._make_blank_encoded_array(None, coord_origins)
+
+    #     slices = utils.check_sel_input_data(sel, data, coord_origins, self.shape)
+    #     for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
+    #         b1 = self._blt.get(blt_key)
+    #         if b1 is None:
+    #             # blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
+    #             new_data = blank.copy()
+    #         else:
+    #             new_data = self._encoder.from_bytes(b1)
+
+    #         new_data[source_chunk] = self._encoder.encode(data[target_chunk])
+    #         self._blt.set(blt_key, self._encoder.to_bytes(new_data))
+
 
     def iter_chunks(self, sel=None):
         """
@@ -511,12 +533,16 @@ class Variable:
 
         """
         if hasattr(self, 'coords'):
-            coord_origins = tuple(self._sys_meta.variables[coord].origin_pos for coord in self.coords)
+            coord_origins = tuple(self._sys_meta.variables[coord].origin_pos for coord in self.coord_names)
         else:
             coord_origins = (self.origin_pos,)
 
         return coord_origins
 
+
+    @property
+    def coords(self):
+        return tuple(self._dataset[coord_name] for coord_name in self.coord_names)
 
 
     # def __bool__(self):
@@ -623,7 +649,7 @@ class Coordinate(Variable):
             key = utils.make_var_chunk_key(self.name, (chunk_origin,))
             # print(key)
 
-            self._blt[key] = self._encoder.to_bytes(mem_arr2)
+            self._blt.set(key, self._encoder.to_bytes(mem_arr2))
 
         self._data = updated_data
 
@@ -733,6 +759,26 @@ class DataVariable(Variable):
     """
 
     """
+    def __setitem__(self, sel, data):
+        """
+
+        """
+        coord_origins = self.get_coord_origins()
+
+        blank = self._make_blank_encoded_array(None, coord_origins)
+
+        slices = utils.check_sel_input_data(sel, data, coord_origins, self.shape)
+        for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
+            b1 = self._blt.get(blt_key)
+            if b1 is None:
+                # blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
+                new_data = blank.copy()
+            else:
+                new_data = self._encoder.from_bytes(b1)
+
+            new_data[source_chunk] = self._encoder.encode(data[target_chunk])
+            self._blt.set(blt_key, self._encoder.to_bytes(new_data))
+
     # def to_pandas(self):
     #     """
 
@@ -796,7 +842,11 @@ class DataVariable(Variable):
 
     @property
     def shape(self):
-        return tuple(self._sys_meta.variables[coord_name].shape[0] for coord_name in self.coords)
+        return tuple(self._sys_meta.variables[coord_name].shape[0] for coord_name in self.coord_names)
+
+    @property
+    def coords(self):
+        return tuple(self._dataset[coord_name] for coord_name in self.coord_names)
 
 
 

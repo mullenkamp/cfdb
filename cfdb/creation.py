@@ -18,22 +18,22 @@ class Coord:
     """
 
     """
-    def __init__(self, blt_file, sys_meta, finalizers, var_cache, compressor):
+    def __init__(self, dataset):
         """
 
         """
-        self._blt = blt_file
-        self._sys_meta = sys_meta
-        self._finalizers = finalizers
-        self._var_cache = var_cache
-        self._compressor = compressor
+        self._dataset = dataset
+        # self._sys_meta = sys_meta
+        # self._finalizers = finalizers
+        # self._var_cache = var_cache
+        # self._compressor = compressor
 
 
     def generic(self, name: str, data: np.ndarray | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, chunk_shape: Tuple[int] | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool=False):
         """
         The generic method to create a coordinate.
         """
-        if name in self._sys_meta.variables:
+        if name in self._dataset._sys_meta.variables:
             raise ValueError(f"Dataset already contains the variable {name}.")
 
         # print(params)
@@ -41,17 +41,17 @@ class Coord:
         name, var = utils.parse_coord_inputs(name, data, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset, step=step)
 
         ## Var init process
-        self._sys_meta.variables[name] = var
+        self._dataset._sys_meta.variables[name] = var
 
         ## Init Coordinate
-        coord = sc.Coordinate(name, self._blt, self._sys_meta, self._compressor, self._finalizers)
+        coord = sc.Coordinate(self, name, self._dataset)
         # coord.attrs.update(utils.default_attrs['lat'])
 
         ## Add data if it has been passed
         if isinstance(data, np.ndarray):
             coord.append(data)
 
-        self._var_cache[name] = coord
+        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -63,7 +63,7 @@ class Coord:
         params = utils.default_params['lat']
         params.update(kwargs)
 
-        if params['name'] in self._sys_meta.variables:
+        if params['name'] in self._dataset._sys_meta.variables:
             raise ValueError(f"Dataset already contains the variable {params['name']}.")
 
         # print(params)
@@ -71,17 +71,17 @@ class Coord:
         name, var = utils.parse_coord_inputs(data=data, step=step, **params)
 
         ## Var init process
-        self._sys_meta.variables[name] = var
+        self._dataset._sys_meta.variables[name] = var
 
         ## Init Coordinate
-        coord = sc.Coordinate(name, self._blt, self._sys_meta, self._compressor, self._finalizers)
+        coord = sc.Coordinate(name, self._dataset)
         coord.attrs.update(utils.default_attrs['lat'])
 
         ## Add data if it has been passed
         if isinstance(data, np.ndarray):
             coord.append(data)
 
-        self._var_cache[name] = coord
+        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -93,23 +93,23 @@ class Coord:
         params = utils.default_params['lon']
         params.update(kwargs)
 
-        if params['name'] in self._sys_meta.variables:
+        if params['name'] in self._dataset._sys_meta.variables:
             raise ValueError(f"Dataset already contains the variable {params['name']}.")
 
         name, var = utils.parse_coord_inputs(data=data, step=step, **params)
 
         ## Var init process
-        self._sys_meta.variables[name] = var
+        self._dataset._sys_meta.variables[name] = var
 
         ## Init Coordinate
-        coord = sc.Coordinate(name, self._blt, self._sys_meta, self._compressor, self._finalizers)
+        coord = sc.Coordinate(name, self._dataset)
         coord.attrs.update(utils.default_attrs['lon'])
 
         ## Add data if it has been passed
         if isinstance(data, np.ndarray):
             coord.append(data)
 
-        self._var_cache[name] = coord
+        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -121,23 +121,23 @@ class Coord:
         params = utils.default_params['time']
         params.update(kwargs)
 
-        if params['name'] in self._sys_meta.variables:
+        if params['name'] in self._dataset._sys_meta.variables:
             raise ValueError(f"Dataset already contains the variable {params['name']}.")
 
         name, var = utils.parse_coord_inputs(data=data, step=step, **params)
 
         ## Var init process
-        self._sys_meta.variables[name] = var
+        self._dataset._sys_meta.variables[name] = var
 
         ## Init Coordinate
-        coord = sc.Coordinate(name, self._blt, self._sys_meta, self._compressor, self._finalizers)
+        coord = sc.Coordinate(name, self._dataset)
         coord.attrs.update(utils.default_attrs['time'])
 
         ## Add data if it has been passed
         if isinstance(data, np.ndarray):
             coord.append(data)
 
-        self._var_cache[name] = coord
+        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -149,23 +149,23 @@ class Coord:
         params = utils.default_params['height']
         params.update(kwargs)
 
-        if params['name'] in self._sys_meta.variables:
+        if params['name'] in self._dataset._sys_meta.variables:
             raise ValueError(f"Dataset already contains the variable {params['name']}.")
 
         name, var = utils.parse_coord_inputs(data=data, step=step, **params)
 
         ## Var init process
-        self._sys_meta.variables[name] = var
+        self._dataset._sys_meta.variables[name] = var
 
         ## Init Coordinate
-        coord = sc.Coordinate(name, self._blt, self._sys_meta, self._compressor, self._finalizers)
+        coord = sc.Coordinate(name, self._dataset)
         coord.attrs.update(utils.default_attrs['height'])
 
         ## Add data if it has been passed
         if isinstance(data, np.ndarray):
             coord.append(data)
 
-        self._var_cache[name] = coord
+        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -177,23 +177,23 @@ class Coord:
         params = utils.default_params['altitude']
         params.update(kwargs)
 
-        if params['name'] in self._sys_meta.variables:
+        if params['name'] in self._dataset._sys_meta.variables:
             raise ValueError(f"Dataset already contains the variable {params['name']}.")
 
         name, var = utils.parse_coord_inputs(data=data, step=step, **params)
 
         ## Var init process
-        self._sys_meta.variables[name] = var
+        self._dataset._sys_meta.variables[name] = var
 
         ## Init Coordinate
-        coord = sc.Coordinate(name, self._blt, self._sys_meta, self._compressor, self._finalizers)
+        coord = sc.Coordinate(name, self._dataset)
         coord.attrs.update(utils.default_attrs['altitude'])
 
         ## Add data if it has been passed
         if isinstance(data, np.ndarray):
             coord.append(data)
 
-        self._var_cache[name] = coord
+        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -202,15 +202,15 @@ class DataVar:
     """
 
     """
-    def __init__(self, blt_file, sys_meta, finalizers, var_cache, compressor):
+    def __init__(self, dataset):
         """
 
         """
-        self._blt = blt_file
-        self._sys_meta = sys_meta
-        self._finalizers = finalizers
-        self._var_cache = var_cache
-        self._compressor = compressor
+        self._dataset = dataset
+        # self._sys_meta = sys_meta
+        # self._finalizers = finalizers
+        # self._var_cache = var_cache
+        # self._compressor = compressor
 
 
     def generic(self, name: str, coords: Tuple[str], dtype_decoded: str | np.dtype, dtype_encoded: str | np.dtype | None = None, chunk_shape: Tuple[int] | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None):
@@ -218,15 +218,15 @@ class DataVar:
         The generic method to create a Data Variable.
         """
         ## Check base inputs
-        name, var = utils.parse_var_inputs(self._sys_meta, name, coords, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset)
+        name, var = utils.parse_var_inputs(self._dataset._sys_meta, name, coords, dtype_decoded, dtype_encoded, chunk_shape, fillvalue, scale_factor, add_offset)
 
         ## Var init process
-        self._sys_meta.variables[name] = var
+        self._dataset._sys_meta.variables[name] = var
 
         ## Init Data var
-        data_var = sc.DataVariable(name, self._blt, self._sys_meta, self._compressor, self._finalizers)
+        data_var = sc.DataVariable(name, self._dataset)
 
-        self._var_cache[name] = data_var
+        self._dataset._var_cache[name] = data_var
 
         return data_var
 
@@ -242,12 +242,12 @@ class Creator:
     """
 
     """
-    def __init__(self, blt_file, sys_meta, finalizers, var_cache, compressor):
+    def __init__(self, dataset):
         """
 
         """
-        self.coord = Coord(blt_file, sys_meta, finalizers, var_cache, compressor)
-        self.data_var = DataVar(blt_file, sys_meta, finalizers, var_cache, compressor)
+        self.coord = Coord(dataset)
+        self.data_var = DataVar(dataset)
 
 
 

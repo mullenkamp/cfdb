@@ -57,25 +57,25 @@ class Dataset:
             if compression.lower() not in compression_options:
                 raise ValueError(f'compression must be one of {compression_options}.')
 
-            self._meta = data_models.SysMeta(object_type='Dataset', compression=compression, compression_level=compression_level, variables={})
-            self._blt.set_metadata(msgspec.to_builtins(self._meta))
+            self._sys_meta = data_models.SysMeta(object_type='Dataset', compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
+            self._blt.set_metadata(msgspec.to_builtins(self._sys_meta))
 
         else:
-            self._meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
+            self._sys_meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
 
-        self.compression = self._meta.compression
-        self.compression_level = self._meta.compression_level
+        self.compression = self._sys_meta.compression.value
+        self.compression_level = self._sys_meta.compression_level
         self._compressor = sc.Compressor(self.compression, self.compression_level)
 
         self._finalizers = []
-        self._finalizers.append(weakref.finalize(self, utils.dataset_finalizer, self._blt, self._meta))
+        self._finalizers.append(weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta))
 
         self.attrs = sc.Attributes(self._blt, '_', self._finalizers)
 
         self._var_cache = weakref.WeakValueDictionary()
 
         if self.writable:
-            self.create = creation.Creator(self._blt, self._meta, self._finalizers, self._var_cache, self._compressor)
+            self.create = creation.Creator(self)
 
 
     # @property
@@ -90,21 +90,21 @@ class Dataset:
         """
         Return a tuple of all the variables (coord and data variables).
         """
-        return tuple(self._meta.variables.keys())
+        return tuple(self._sys_meta.variables.keys())
 
     @property
     def coords(self):
         """
         Return a tuple of all the coordinates.
         """
-        return tuple(k for k, v in self._meta.variables.items() if v.is_coord)
+        return tuple(k for k, v in self._sys_meta.variables.items() if v.is_coord)
 
     @property
     def data_vars(self):
         """
         Return a tuple of all the data variables.
         """
-        return tuple(k for k, v in self._meta.variables.items() if not v.is_coord)
+        return tuple(k for k, v in self._sys_meta.variables.items() if not v.is_coord)
 
 
     # def __bool__(self):
@@ -114,14 +114,14 @@ class Dataset:
     #     return self._file.__bool__()
 
     def __iter__(self):
-        for key in self._meta.variables:
+        for key in self._sys_meta.variables:
             yield key
 
     def __len__(self):
-        return len(self._meta.variables)
+        return len(self._sys_meta.variables)
 
     def __contains__(self, key):
-        return key in self._meta.variables
+        return key in self._sys_meta.variables
 
     def get(self, var_name):
         """
@@ -130,10 +130,19 @@ class Dataset:
         if not isinstance(var_name, str):
             raise TypeError('var_name must be a string.')
 
-        if var_name not in self._var_cache:
+        if var_name not in self._sys_meta.variables:
             raise ValueError(f'The Variable {var_name} does not exist.')
 
+        if var_name not in self._var_cache:
+            var_meta = self._sys_meta.variables[var_name]
+            if isinstance(var_meta, data_models.DataVariable):
+                var = sc.DataVariable(var_name, self)
+            else:
+                var = sc.Coordinate(var_name, self)
+            self._var_cache[var_name] = var
+
         return self._var_cache[var_name]
+
 
 
     def __getitem__(self, key):

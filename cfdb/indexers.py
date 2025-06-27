@@ -25,7 +25,28 @@ sup.filter(FutureWarning)
 ### Helper functions
 
 
-def loc_index_slice(slice_obj, dim_data):
+def loc_index_numeric(key, coord_data):
+    """
+
+    """
+    label_idx = np.searchsorted(coord_data, key)
+
+    return int(label_idx)
+
+
+def loc_index_str(key, coord_data):
+    """
+
+    """
+    if coord_data.dtype.kind == 'M':
+        key = np.datetime64(key)
+
+    label_idx = np.searchsorted(coord_data, key)
+
+    return int(label_idx)
+
+
+def loc_index_slice(slice_obj, coord_data):
     """
 
     """
@@ -36,101 +57,87 @@ def loc_index_slice(slice_obj, dim_data):
     if start is None:
         start_idx = None
     else:
-        try:
-            # start_idx = np.nonzero(dim_data == start)[0][0]
-            start_idx = np.searchsorted(dim_data, start)
-        except TypeError:
-            try:
-                start_time = np.datetime64(start)
-                start_idx = np.searchsorted(dim_data, start_time)
-            except TypeError:
-                raise ValueError(f'{start} not in coordinate.')
+        if isinstance(start, str):
+            start_idx = loc_index_str(start, coord_data)
+        else:
+            start_idx = loc_index_numeric(start, coord_data)
 
     ## stop_idx should include the stop label as per pandas
     if stop is None:
         stop_idx = None
     else:
-        try:
-            stop_idx = np.searchsorted(dim_data, start) + 1
-        except TypeError:
-            try:
-                stop_time = np.datetime64(stop)
-                stop_idx = np.searchsorted(dim_data, stop_time) + 1
-            except TypeError:
-                raise ValueError(f'{stop} not in coordinate.')
+        if isinstance(start, str):
+            stop_idx = loc_index_str(stop, coord_data)
+        else:
+            stop_idx = loc_index_numeric(stop, coord_data)
 
     if (stop_idx is not None) and (start_idx is not None):
-        if start_idx > stop_idx:
-            raise ValueError(f'start index at {start_idx} is after stop index at {stop_idx}.')
+        if start_idx >= stop_idx:
+            raise ValueError(f'start index at {start_idx} is equal to or greater than the stop index at {stop_idx}.')
 
     return slice(start_idx, stop_idx)
 
 
-def loc_index_label(label, dim_data):
-    """
+# def loc_index_array(values, dim_data):
+#     """
 
-    """
-    try:
-        label_idx = np.searchsorted(dim_data, label)
-    except TypeError:
-        try:
-            label_time = np.datetime64(label)
-            label_idx = np.searchsorted(dim_data, label_time)
-        except TypeError:
-            raise ValueError(f'{label} not in coordinate.')
+#     """
+#     values = np.asarray(values)
 
-    return label_idx
+#     val_len = len(values)
+#     if val_len == 0:
+#         raise ValueError('The array is empty...')
+#     elif val_len == 1:
+#         index = loc_index_label(values[0], dim_data)
 
+#     ## check if regular
+#     index = loc_index_slice(slice(values[0], values[-1]), dim_data)
 
-def loc_index_array(values, dim_data):
-    """
+#     return index
 
-    """
-    values = np.asarray(values)
-
-    val_len = len(values)
-    if val_len == 0:
-        raise ValueError('The array is empty...')
-    elif val_len == 1:
-        index = loc_index_label(values[0], dim_data)
-
-    ## check if regular
-    index = loc_index_slice(slice(values[0], values[-1]), dim_data)
-
-    return index
 
 
 @sup
-def loc_index_combo_one(key, dim_data):
+def loc_index_combo_one(key, coord_data):
     """
 
     """
-    if isinstance(key, (int, float, str)):
-        label_idx = loc_index_label(key, dim_data)
-
-        return label_idx
+    if isinstance(key, str):
+        index_idx = loc_index_str(key, coord_data)
 
     elif isinstance(key, slice):
-        slice_idx = loc_index_slice(key, dim_data)
-
-        return slice_idx
+        index_idx = loc_index_slice(key, coord_data)
 
     elif key is None:
-         return slice(None, None)
+        index_idx = None
 
-    elif isinstance(key, (list, np.ndarray)):
-        key = np.asarray(key)
+    else:
+        index_idx = loc_index_numeric(key, coord_data)
 
-        if key.dtype.name == 'bool':
-            if len(key) != len(dim_data):
-                raise ValueError('If the input is a bool array, then it must be the same length as the coordinate.')
+    return index_idx
 
-            return key
+
+def loc_index_combo_all(key, coords):
+    """
+
+    """
+    if isinstance(key, str):
+        idx = loc_index_str(key, coords[0].data)
+    elif isinstance(key, slice):
+        idx = loc_index_slice(key, coords[0].data)
+    elif key is None:
+        idx = None
+    elif isinstance(key, tuple):
+        key_len = len(key)
+        if key_len == 0:
+            idx = None
         else:
-            idx = loc_index_array(key, dim_data)
+            idx = tuple(loc_index_combo_one(key1, coords[pos].data) for pos, key1 in enumerate(key))
 
-            return idx
+    else:
+        idx = loc_index_numeric(key, coords[0].data)
 
+    return idx
 
 # def pos_to_keys(var_name, shape, pos):
 #     """
@@ -159,8 +166,6 @@ def slice_int(key, coord_origin_poss, var_shape, pos):
     if key > var_shape[pos]:
         raise ValueError('key is larger than the coord length.')
 
-    # slices = [slice(co, cs) for co, cs in zip(coord_origin_poss, coord_sizes)]
-
     slice1 = slice(key + coord_origin_poss[pos], key + coord_origin_poss[pos] + 1)
 
     return slice1
@@ -183,6 +188,10 @@ def slice_slice(key, coord_origin_poss, var_shape, pos):
         stop = var_shape[pos] + coord_origin_poss[pos]
 
     # slices = [slice(co, cs) for co, cs in zip(coord_origin_poss, coord_sizes)]
+
+    # TODO - Should I leave this test in here? Or should this be allowed?
+    if start == stop:
+        raise ValueError('The start and stop for the slice is the same, which will produce 0 output.')
 
     slice1 = slice(start, stop)
 
@@ -207,12 +216,12 @@ def index_combo_one(key, coord_origin_poss, var_shape, pos):
     """
 
     """
-    if isinstance(key, int):
-        slice1 = slice_int(key, coord_origin_poss, var_shape, pos)
-    elif isinstance(key, slice):
+    if isinstance(key, slice):
         slice1 = slice_slice(key, coord_origin_poss, var_shape, pos)
+    elif isinstance(key, int):
+        slice1 = slice_int(key, coord_origin_poss, var_shape, pos)
     elif key is None:
-        slice1 = slice_none(key, coord_origin_poss, var_shape, pos)
+        slice1 = slice_none(coord_origin_poss, var_shape, pos)
     else:
         raise TypeError('key must be an int, slice of ints, or None.')
 
@@ -308,11 +317,11 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
 #     elif key is None:
 #          start = origin_pos
 #          stop = shape[0] + origin_pos
-    
+
 #          chunk_iter = rechunker.chunk_range((start,), (stop,), chunk_shape, clip_ends=False)
 #          for chunk in chunk_iter:
 #              new_key = utils.make_var_chunk_key(var_name, (chunk[0].start,))
-    
+
 #              yield new_key
 
 #     # elif isinstance(key, (list, np.ndarray)):
@@ -354,58 +363,20 @@ class LocationIndexer:
         """
 
         """
-        if isinstance(key, (int, float, str, slice, list, np.ndarray)):
-            index = index_combo_one(key, self.variable.data)
+        idx = loc_index_combo_all(key, self.variable.coords)
 
-            return self.variable.encoding.decode(self.variable[index])
-
-        elif isinstance(key, tuple):
-            key_len = len(key)
-
-            if key_len == 0:
-                return self.variable.encoding.decode(self.variable[()])
-
-            elif key_len > self.variable.ndim:
-                raise ValueError('input must have <= ndims.')
-
-            index = []
-            for i, k in enumerate(key):
-                index_i = index_combo_one(k, self.variable, i)
-                index.append(index_i)
-
-            return self.variable.encoding.decode(self.variable[tuple(index)])
-
-        else:
-            raise TypeError('You passed a strange object to index...')
+        return self.variable.get(idx)
 
 
-    def __setitem__(self, key, value):
+
+    def __setitem__(self, key, data):
         """
 
         """
-        if isinstance(key, (int, float, str, slice, list, np.ndarray)):
-            index = index_combo_one(key, self.variable, 0)
+        idx = loc_index_combo_all(key, self.variable.coords)
 
-            self.variable[index] = self.variable.encoding.encode(value)
+        self.variable[idx] = data
 
-        elif isinstance(key, tuple):
-            key_len = len(key)
-
-            if key_len == 0:
-                self.variable[()] = self.variable.encoding.encode(value)
-
-            elif key_len > self.variable.ndim:
-                raise ValueError('input must have <= ndims.')
-
-            index = []
-            for i, k in enumerate(key):
-                index_i = index_combo_one(k, self.variable, i)
-                index.append(index_i)
-
-            self.variable[tuple(index)] = self.variable.encoding.encode(value)
-
-        else:
-            raise TypeError('You passed a strange object to index...')
 
 
 

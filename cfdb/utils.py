@@ -26,7 +26,7 @@ from typing import Set, Optional, Dict, Tuple, List, Union, Any
 # import numcodecs
 # import hdf5plugin
 
-import data_models, rechunker
+import data_models, rechunker, indexers
 
 ########################################################
 ### Parmeters
@@ -550,10 +550,12 @@ def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sou
 #     return data, step
 
 
-def parse_dtype_encoding(dtype_decoded, dtype_encoded):
+def parse_dtypes(dtype_decoded, dtype_encoded):
     """
 
     """
+    dtype_decoded = np.dtype(dtype_decoded)
+
     # if dtype_decoded.kind == 'M':
     #     dtype_encoded = np.dtype('int64')
 
@@ -563,7 +565,21 @@ def parse_dtype_encoding(dtype_decoded, dtype_encoded):
     elif not isinstance(dtype_encoded, np.dtype):
         dtype_encoded = dtype_decoded
 
-    return dtype_encoded
+    return dtype_decoded, dtype_encoded
+
+
+def parse_dtype_names(dtype_decoded, dtype_encoded):
+    """
+
+    """
+    if dtype_encoded.kind == 'U':
+        dtype_decoded_name = dtype_decoded.descr[0][1]
+        dtype_encoded_name = dtype_encoded.descr[0][1]
+    else:
+        dtype_decoded_name = dtype_decoded.name
+        dtype_encoded_name = dtype_encoded.name
+
+    return dtype_decoded_name, dtype_encoded_name
 
 
 def parse_fillvalue(fillvalue, dtype_encoded):
@@ -630,8 +646,12 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
         # if dtype_decoded.kind == 'M':
         #     dtype_encoded = dtype_decoded
 
+        ## dtype encoding
+        dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
+
     else:
-        dtype_decoded = np.dtype(dtype_decoded)
+        ## dtype encoding
+        dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
 
         if dtype_decoded.kind in ('u', 'i') and isinstance(step, (float, np.floating)):
             if not step.is_integer():
@@ -648,15 +668,14 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
         else:
             raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
 
-    ## dtype encoding
-    dtype_encoded = parse_dtype_encoding(dtype_decoded, dtype_encoded)
-
     ## Guess the chunk_shape from the dtype
     if isinstance(chunk_shape, tuple):
         if not all([isinstance(c, int) for c in chunk_shape]):
             raise TypeError('chunk_shape must be a tuple of ints.')
-    else:
+    elif chunk_shape is None:
         chunk_shape = guess_chunk_shape((1000000,), dtype_encoded, 2**20)
+    else:
+        raise TypeError('chunk_shape must be either a tuple of ints or None.')
 
     ## fillvalue
     fillvalue = parse_fillvalue(fillvalue, dtype_encoded)
@@ -665,12 +684,7 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
     scale_factor, add_offset = parse_scale_offset(scale_factor, add_offset, dtype_decoded)
 
     ## Save metadata
-    if dtype_encoded.kind == 'U':
-        dtype_decoded_name = dtype_decoded.descr[0][1]
-        dtype_encoded_name = dtype_encoded.descr[0][1]
-    else:
-        dtype_decoded_name = dtype_decoded.name
-        dtype_encoded_name = dtype_encoded.name
+    dtype_decoded_name, dtype_encoded_name = parse_dtype_names(dtype_decoded, dtype_encoded)
 
     # enc = data_models.Encoding(dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
 
@@ -691,25 +705,30 @@ def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str
         raise ValueError(f"Dataset already contains the variable {name}.")
 
     ## Check shape and dtype
+    if len(coords) == 0:
+        raise ValueError('coords must have at least one value.')
+
     shape = []
     for coord_name in coords:
+        if not isinstance(coord_name, str):
+            raise TypeError('coords must contain strings of the coordinate names.')
         if coord_name not in sys_meta.variables:
             raise ValueError(f'{coord_name} not in the list of coordinates.')
         else:
             coord = sys_meta.variables[coord_name]
             shape.append(coord.shape[0])
 
-    dtype_decoded = np.dtype(dtype_decoded)
-
-    ## dtype encoding
-    dtype_encoded = parse_dtype_encoding(dtype_decoded, dtype_encoded)
+    ## dtypes
+    dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
 
     ## Guess the chunk_shape from the dtype
     if isinstance(chunk_shape, tuple):
         if not all([isinstance(c, int) for c in chunk_shape]):
             raise TypeError('chunk_shape must be a tuple of ints.')
-    else:
+    elif chunk_shape is None:
         chunk_shape = guess_chunk_shape(shape, dtype_encoded, 2**21)
+    else:
+        raise TypeError('chunk_shape must be either a tuple of ints or None.')
 
     ## fillvalue
     fillvalue = parse_fillvalue(fillvalue, dtype_encoded)
@@ -718,12 +737,7 @@ def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str
     scale_factor, add_offset = parse_scale_offset(scale_factor, add_offset, dtype_decoded)
 
     ## Save metadata
-    if dtype_encoded.kind == 'U':
-        dtype_decoded_name = dtype_decoded.descr[0][1]
-        dtype_encoded_name = dtype_encoded.descr[0][1]
-    else:
-        dtype_decoded_name = dtype_decoded.name
-        dtype_encoded_name = dtype_encoded.name
+    dtype_decoded_name, dtype_encoded_name = parse_dtype_names(dtype_decoded, dtype_encoded)
 
     # enc = data_models.Encoding(dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
 
@@ -932,6 +946,19 @@ def make_var_chunk_key(var_name, chunk_start):
     return var_chunk_key
 
 
+def check_sel_input_data(sel, input_data, coord_origins, shape):
+    """
+
+    """
+    slices = indexers.index_combo_all(sel, coord_origins, shape)
+    slices_shape = tuple(s.stop - s.start for s in slices)
+
+    if input_data.shape != slices_shape:
+        raise ValueError('The selection shape is not equal to the input data.')
+
+    return slices
+
+
 # def write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes):
 #     """
 
@@ -945,30 +972,30 @@ def make_var_chunk_key(var_name, chunk_start):
 #     blt_file[var_chunk_key] = data_chunk_bytes
 
 
-def write_init_data(blt_file, var_name, var_meta, data, compressor):
-    """
+# def write_init_data(blt_file, var_name, var_meta, data, compressor):
+#     """
 
-    """
-    dtype_decoded = np.dtype(var_meta.encoding.dtype_decoded)
-    fillvalue = dtype_decoded.type(var_meta.encoding.fillvalue)
-    dtype_encoded = np.dtype(var_meta.encoding.dtype_encoded)
-    add_offset = var_meta.encoding.add_offset
-    scale_factor = var_meta.encoding.scale_factor
+#     """
+#     dtype_decoded = np.dtype(var_meta.encoding.dtype_decoded)
+#     fillvalue = dtype_decoded.type(var_meta.encoding.fillvalue)
+#     dtype_encoded = np.dtype(var_meta.encoding.dtype_encoded)
+#     add_offset = var_meta.encoding.add_offset
+#     scale_factor = var_meta.encoding.scale_factor
 
-    mem_arr1 = np.full(var_meta.chunk_shape, fill_value=fillvalue, dtype=dtype_encoded)
+#     mem_arr1 = np.full(var_meta.chunk_shape, fill_value=fillvalue, dtype=dtype_encoded)
 
-    chunk_iter = rechunker.chunk_range(var_meta.origin_pos, var_meta.shape, var_meta.chunk_shape, clip_ends=True)
-    for chunk in chunk_iter:
-        # print(chunk)
-        mem_arr2 = mem_arr1.copy()
-        mem_chunk = tuple(slice(0, s.stop - s.start) for s in chunk)
-        mem_arr2[mem_chunk] = data[chunk]
+#     chunk_iter = rechunker.chunk_range(var_meta.origin_pos, var_meta.shape, var_meta.chunk_shape, clip_ends=True)
+#     for chunk in chunk_iter:
+#         # print(chunk)
+#         mem_arr2 = mem_arr1.copy()
+#         mem_chunk = tuple(slice(0, s.stop - s.start) for s in chunk)
+#         mem_arr2[mem_chunk] = data[chunk]
 
-        chunk_start_pos = tuple(s.start for s in chunk)
-        # print(mem_arr2)
-        data_chunk_bytes = encode_data(mem_arr2, dtype_encoded, fillvalue_encoded, add_offset, scale_factor, compressor)
+#         chunk_start_pos = tuple(s.start for s in chunk)
+#         # print(mem_arr2)
+#         data_chunk_bytes = encode_data(mem_arr2, dtype_encoded, fillvalue_encoded, add_offset, scale_factor, compressor)
 
-        write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes)
+#         write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes)
 
 
 # def coord_init(name, shape, chunk_shape, enc, sys_meta, step):
@@ -1602,7 +1629,7 @@ def data_variable_summary(ds):
 
     """
     if ds:
-        summ_dict = {'name': ds.name, 'dims order': '(' + ', '.join(ds.coords) + ')', 'chunk size': str(ds.chunks)}
+        summ_dict = {'name': ds.name, 'dims order': '(' + ', '.join(ds.coords) + ')', 'chunk size': str(ds.chunk_shape)}
 
         summary = """<cfbooklet.DataVariable>"""
 
@@ -1612,7 +1639,7 @@ def data_variable_summary(ds):
 
         for dim_name in ds.coords:
             dim = ds.file[dim_name]
-            dtype_name = dim.encoding['dtype_decoded']
+            dtype_name = dim.dtype_decoded
             dim_len = dim.shape[0]
             first_value = format_value(dim[0])
             spacing = value_indent - name_indent - len(dim_name)

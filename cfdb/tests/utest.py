@@ -65,8 +65,13 @@ dtype_decoded = 'float32'
 dtype_encoded = 'int32'
 chunk_shape = (20, 30)
 fillvalue = None
-scale_factor = None
+scale_factor = 0.1
 add_offset = None
+sel = (slice(1, 4), slice(2, 5))
+loc_sel = (slice(0.4, 0.7), None)
+
+data = np.linspace(0.8, 1.6, 9, dtype='float32').reshape(3, 3)
+
 
 ###################################################
 ### Functions
@@ -101,9 +106,13 @@ self1 = Dataset(file_path, flag=flag)
 lat_coord = self1.create.coord.latitude(data=old_data, chunk_shape=(8,))
 time_coord = self1.create.coord.time(data=data_time, dtype_decoded=data_time.dtype, dtype_encoded='int32')
 
-sys_meta = self._sys_meta
+# sys_meta = self._sys_meta
 
-self = self1.create.data_var.generic(name, coords, dtype_decoded, dtype_encoded)
+self = self1.create.data_var.generic(name, coords, dtype_decoded, dtype_encoded, scale_factor=scale_factor)
+
+self[sel] = data
+
+self.loc[loc_sel]
 
 self1.close()
 
