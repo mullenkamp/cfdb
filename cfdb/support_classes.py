@@ -15,6 +15,11 @@ import math
 import utils, indexers, rechunker
 
 ###################################################
+### Parameters
+
+attrs_key = '_{var_name}.attrs'
+
+###################################################
 ### Classes
 
 
@@ -32,25 +37,31 @@ class Attributes:
     """
 
     """
-    def __init__(self, blt_file, var_name, finalizers):
+    def __init__(self, blt_file, var_name, writable, finalizers):
         """
 
         """
-        key = f'_{var_name}.attrs'
-        self.data = blt_file.get(key)
-        if self.data is None:
+        key = attrs_key.format(var_name=var_name)
+        data = blt_file.get(key)
+        if data is None:
             self.data = {}
+        else:
+            self.data = msgspec.json.decode(data)
 
         self._blt = blt_file
         self._var_name = var_name
-        finalizers.append(weakref.finalize(self, utils.attrs_finalizer, self._blt, self.data, var_name))
+        finalizers.append(weakref.finalize(self, utils.attrs_finalizer, self._blt, self.data, var_name, writable))
+        self.writable = writable
 
     def set(self, key, value):
         """
 
         """
         # TODO input checks
-        self.data[key] = value
+        if self.writable:
+            self.data[key] = value
+        else:
+            raise ValueError('Dataset is not writable.')
 
     def __setitem__(self, key, value):
         """
@@ -90,7 +101,10 @@ class Attributes:
         return self.data.pop(key, default)
 
     def update(self, other=()):
-        self.data.update(other)
+        if self.writable:
+            self.data.update(other)
+        else:
+            raise ValueError('Dataset is not writable.')
 
     def __delitem__(self, key):
         del self.data[key]
@@ -297,7 +311,7 @@ class Variable:
     """
 
     """
-    def __init__(self, var_name, dataset):
+    def __init__(self, var_name, dataset, slices=None):
         """
 
         """
@@ -306,10 +320,10 @@ class Variable:
         self._var_meta = dataset._sys_meta.variables[var_name]
         self._blt = dataset._blt
         self.name = var_name
-        self.attrs = Attributes(self._blt, var_name, dataset._finalizers)
+        self.attrs = Attributes(self._blt, var_name, dataset.writable, dataset._finalizers)
         # self.encoding = msgspec.to_builtins(self._sys_meta.variables[self.name].encoding)
         self.chunk_shape = self._var_meta.chunk_shape
-        # self.origin_pos = self._var_meta.origin_pos
+        # self.origin = self._var_meta.origin
         self.dtype_decoded = np.dtype(self._var_meta.dtype_decoded)
         self.dtype_encoded = np.dtype(self._var_meta.dtype_encoded)
         self.fillvalue = self._var_meta.fillvalue
@@ -322,9 +336,17 @@ class Variable:
             self.coord_names = (var_name,)
             self.ndims = 1
 
+        # if sel is None:
+        #     self._sel = tuple(slice(None, None) for i in range(self.ndims))
+        # else:
+        #     self._sel = sel
+
+        self._sel = slices
+
         self._encoder = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, dataset._compressor)
         self.loc = indexers.LocationIndexer(self)
         self._finalizers = dataset._finalizers
+        self.writable = dataset.writable
 
         ## Assign all the encodings - should I do this?
         # for name, val in self._encoding_dict.items():
@@ -411,11 +433,11 @@ class Variable:
     #     self._dataset.resize(new_shape, axis)
 
 
-    def _make_blank_decoded_array(self, sel, coord_origin_poss):
+    def _make_blank_decoded_array(self, sel, coord_origins):
         """
 
         """
-        new_shape = indexers.determine_final_array_shape(sel, coord_origin_poss, self.shape)
+        new_shape = indexers.determine_final_array_shape(sel, coord_origins, self.shape)
 
         if self.dtype_decoded.kind == 'f':
             fillvalue = np.nan
@@ -425,11 +447,11 @@ class Variable:
         return np.full(new_shape, fillvalue, self.dtype_decoded)
 
 
-    def _make_blank_encoded_array(self, sel, coord_origin_poss):
+    def _make_blank_encoded_array(self, sel, coord_origins):
         """
 
         """
-        new_shape = indexers.determine_final_array_shape(sel, coord_origin_poss, self.shape)
+        new_shape = indexers.determine_final_array_shape(sel, coord_origins, self.shape)
 
         if self.dtype_encoded.kind == 'f':
             fillvalue = np.nan
@@ -439,15 +461,25 @@ class Variable:
         return np.full(new_shape, fillvalue, self.dtype_encoded)
 
 
-    def rechunker(self, target_chunk_shape, max_mem):
+    def rechunk(self, chunk_shape, max_mem=2**27, decoded=False):
         """
         Generator to rechunk the variable into a new chunk shape.
         """
-        pass
+        func = lambda sel: self.get_chunk(sel, decoded=False)
+
+        rechunker1 = rechunker.rechunker(func, self.shape, self.dtype_encoded, self.chunk_shape, chunk_shape, max_mem)
+
+        if decoded:
+            for slices, encoded_data in rechunker1:
+                yield slices, self._encoder.decode(encoded_data)
+        else:
+            for slices, encoded_data in rechunker1:
+                yield slices, encoded_data
 
 
     def __getitem__(self, sel):
         return self.get(sel)
+
 
     # def __setitem__(self, sel, data):
     #     """
@@ -470,15 +502,15 @@ class Variable:
     #         self._blt.set(blt_key, self._encoder.to_bytes(new_data))
 
 
-    def iter_chunks(self, sel=None):
+    def iter_chunks(self):
         """
 
         """
         coord_origins = self.get_coord_origins()
 
-        blank = self._make_blank_decoded_array(sel, coord_origins)
+        blank = self._make_blank_decoded_array(self._sel, coord_origins)
 
-        slices = indexers.index_combo_all(sel, coord_origins, self.shape)
+        slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
         for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
             # print(target_chunk, source_chunk, blt_key)
             b1 = self._blt.get(blt_key)
@@ -490,24 +522,12 @@ class Variable:
                 yield target_chunk, data[source_chunk]
 
 
-    def get(self, sel=None):
+    def get_chunk(self, sel=None, decoded=True, missing_none=False):
         """
 
         """
-        coord_origins = self.get_coord_origins()
-
-        target = self._make_blank_decoded_array(sel, coord_origins)
-
-        for target_chunk, data in self.iter_chunks(sel):
-            target[target_chunk] = data
-
-        return target
-
-
-    def get_chunk(self, sel, decoded=True, missing_none=False):
-        """
-
-        """
+        if sel is None:
+            sel = self._sel
         coord_origins = self.get_coord_origins()
         slices = indexers.index_combo_all(sel, coord_origins, self.shape)
         starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(self.chunk_shape, slices))
@@ -533,9 +553,9 @@ class Variable:
 
         """
         if hasattr(self, 'coords'):
-            coord_origins = tuple(self._sys_meta.variables[coord].origin_pos for coord in self.coord_names)
+            coord_origins = tuple(self._sys_meta.variables[coord].origin for coord in self.coord_names)
         else:
-            coord_origins = (self.origin_pos,)
+            coord_origins = (self.origin,)
 
         return coord_origins
 
@@ -609,12 +629,33 @@ class Coordinate(Variable):
     @property
     def data(self):
         if not hasattr(self, '_data'):
-            self._data = self.get()
+            coord_origins = self.get_coord_origins()
+
+            target = self._make_blank_decoded_array(self._sel, coord_origins)
+
+            for target_chunk, data in self.iter_chunks():
+                target[target_chunk] = data
+
+            self._data = target
 
         return self._data
 
 
-    def _add_updated_data(self, chunk_start, chunk_stop, new_origin_pos, updated_data):
+    def get(self, sel):
+        """
+
+        """
+        coord_origins = self.get_coord_origins()
+
+        slices = indexers.index_combo_all(sel, coord_origins, self.shape)
+
+        if self._sel is not None:
+            slices = tuple(slice(s.start, s.stop) if ss.start is None else slice(ss.start + s.start, ss.start + s.stop) for ss, s in zip(self._sel, slices))
+
+        return CoordinateView(self.name, self._dataset, slices)
+
+
+    def _add_updated_data(self, chunk_start, chunk_stop, new_origin, updated_data):
         """
 
         """
@@ -637,8 +678,8 @@ class Coordinate(Variable):
             mem_chunk_stop_pos = chunk_stop_pos - chunk_origin
             mem_chunk_slice = slice(mem_chunk_start_pos, mem_chunk_stop_pos)
 
-            coord_start_pos = chunk_start_pos - new_origin_pos
-            coord_stop_pos = chunk_stop_pos - new_origin_pos
+            coord_start_pos = chunk_start_pos - new_origin
+            coord_stop_pos = chunk_stop_pos - new_origin
             coord_chunk_slice = slice(coord_start_pos, coord_stop_pos)
 
             # print(updated_data[coord_chunk_slice])
@@ -658,19 +699,21 @@ class Coordinate(Variable):
         """
         Prepend data to the start of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the start.
         """
+        if not self.writable:
+            raise ValueError('Dataset is not writable.')
+
         updated_data = utils.prepend_coord_data_checks(data, self.data, self.dtype_decoded, self.step)
 
         data_diff = updated_data.size - self.data.size
 
-        new_origin_pos = self.origin_pos - data_diff
-        chunk_stop = (updated_data.size + new_origin_pos,)
+        new_origin = self.origin - data_diff
+        chunk_stop = (updated_data.size + new_origin,)
 
-        chunk_start = (new_origin_pos,)
-        # chunk_stop = shape
+        chunk_start = (new_origin,)
 
-        self._add_updated_data(chunk_start, chunk_stop, new_origin_pos, updated_data)
+        self._add_updated_data(chunk_start, chunk_stop, new_origin, updated_data)
 
-        self._var_meta.origin_pos = new_origin_pos
+        self._var_meta.origin = new_origin
         self._var_meta.shape = updated_data.shape
 
 
@@ -678,23 +721,32 @@ class Coordinate(Variable):
         """
         Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the end.
         """
+        if not self.writable:
+            raise ValueError('Dataset is not writable.')
+
         updated_data = utils.append_coord_data_checks(data, self.data, self.dtype_decoded, self.step)
 
         shape = (updated_data.size,)
 
-        chunk_start = (self.origin_pos,)
+        chunk_start = (self.origin,)
         chunk_stop = shape
 
-        self._add_updated_data(chunk_start, chunk_stop, self.origin_pos, updated_data)
+        self._add_updated_data(chunk_start, chunk_stop, self.origin, updated_data)
 
         self._var_meta.shape = shape
 
 
-    def resize(self, start, end):
-        """
-        Resize a coordinate. If step is an int or float, then resizing can add or truncate the length. If step is None, then the coordinate can only have the length truncated.
-        If the coordinate length is reduced, then all data variables associated with the coordinate will have their data truncated.
-        """
+    # def resize(self, start=None, end=None):
+    #     """
+    #     Resize a coordinate. If step is an int or float, then resizing can add or truncate the length. If step is None, then the coordinate can only have the length truncated.
+    #     If the coordinate length is reduced, then all data variables associated with the coordinate will have their data truncated.
+    #     """
+    #     if end is not None:
+    #         idx = indexers.loc_index_combo_one(end, self.data)
+    #         if self.step is not None:
+    #             pass
+    #         else:
+    #             updated_data =
 
 
     @property
@@ -706,8 +758,8 @@ class Coordinate(Variable):
         return getattr(self._var_meta, 'auto_increment')
 
     @property
-    def origin_pos(self):
-        return getattr(self._var_meta, 'origin_pos')
+    def origin(self):
+        return getattr(self._var_meta, 'origin')
 
     @property
     def shape(self):
@@ -755,24 +807,88 @@ class Coordinate(Variable):
     #     """
 
 
+class CoordinateView(Coordinate):
+    """
+
+    """
+    @property
+    def shape(self):
+        return tuple(s.stop - s.start for s in self._sel)
+
+    @property
+    def coords(self):
+        return tuple(self._dataset[coord_name][self._sel[i]] for i, coord_name in enumerate(self.coord_names))
+
+    def prepend(self, data):
+        """
+        Not implemented for views.
+        """
+        raise NotImplementedError()
+
+    def append(self, data):
+        """
+        Not implemented for views.
+        """
+        raise NotImplementedError()
+
+    def get_chunk(self, sel=None, decoded=True, missing_none=False):
+        """
+
+        """
+        raise NotImplementedError()
+
+
+
 class DataVariable(Variable):
     """
 
     """
-    def __setitem__(self, sel, data):
+    @property
+    def data(self):
+        coord_origins = self.get_coord_origins()
+
+        target = self._make_blank_decoded_array(self._sel, coord_origins)
+
+        for target_chunk, data in self.iter_chunks():
+            target[target_chunk] = data
+
+        return target
+
+
+    def get(self, sel):
         """
 
         """
         coord_origins = self.get_coord_origins()
 
-        blank = self._make_blank_encoded_array(None, coord_origins)
+        slices = indexers.index_combo_all(sel, coord_origins, self.shape)
+
+        if self._sel is not None:
+            slices = tuple(slice(s.start, s.stop) if ss.start is None else slice(ss.start + s.start, ss.start + s.stop) for ss, s in zip(self._sel, slices))
+
+        return DataVariableView(self.name, self._dataset, slices)
+
+
+    def __setitem__(self, sel, data):
+        """
+
+        """
+        if not self.writable:
+            raise ValueError('Dataset is not writable.')
+
+        coord_origins = self.get_coord_origins()
+
+        chunk_blank = np.full(self.chunk_shape, self.fillvalue, self.dtype_encoded)
 
         slices = utils.check_sel_input_data(sel, data, coord_origins, self.shape)
+
+        if self._sel is not None:
+            slices = tuple(slice(s.start, s.stop) if ss.start is None else slice(ss.start + s.start, ss.start + s.stop) for ss, s in zip(self._sel, slices))
+
         for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
             b1 = self._blt.get(blt_key)
             if b1 is None:
-                # blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
-                new_data = blank.copy()
+                new_data = chunk_blank.copy()
             else:
                 new_data = self._encoder.from_bytes(b1)
 
@@ -844,13 +960,30 @@ class DataVariable(Variable):
     def shape(self):
         return tuple(self._sys_meta.variables[coord_name].shape[0] for coord_name in self.coord_names)
 
+    # @property
+    # def coords(self):
+    #     return tuple(self._dataset[coord_name] for coord_name in self.coord_names)
+
+
+
+
+class DataVariableView(DataVariable):
+    """
+
+    """
+    @property
+    def shape(self):
+        return tuple(s.stop - s.start for s in self._sel)
+
     @property
     def coords(self):
-        return tuple(self._dataset[coord_name] for coord_name in self.coord_names)
+        return tuple(self._dataset[coord_name][self._sel[i]] for i, coord_name in enumerate(self.coord_names))
 
+    def get_chunk(self, sel=None, decoded=True, missing_none=False):
+        """
 
-
-
+        """
+        raise NotImplementedError()
 
 
 

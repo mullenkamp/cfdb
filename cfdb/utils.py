@@ -252,11 +252,11 @@ def dataset_finalizer(blt_file, sys_meta):
     blt_file.close()
 
 
-def attrs_finalizer(blt_file, attrs, var_name):
+def attrs_finalizer(blt_file, attrs, var_name, writeable):
     """
 
     """
-    if attrs:
+    if attrs and writeable:
         key = attrs_key_str.format(var_name=var_name)
         old_attrs = blt_file.get(key)
         if old_attrs is not None:
@@ -688,7 +688,7 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
 
     # enc = data_models.Encoding(dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
 
-    var = data_models.CoordinateVariable(shape=(0,), chunk_shape=chunk_shape, origin_pos=0, step=step, dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
+    var = data_models.CoordinateVariable(shape=(0,), chunk_shape=chunk_shape, origin=0, step=step, dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
 
     return name, var
 
@@ -984,7 +984,7 @@ def check_sel_input_data(sel, input_data, coord_origins, shape):
 
 #     mem_arr1 = np.full(var_meta.chunk_shape, fill_value=fillvalue, dtype=dtype_encoded)
 
-#     chunk_iter = rechunker.chunk_range(var_meta.origin_pos, var_meta.shape, var_meta.chunk_shape, clip_ends=True)
+#     chunk_iter = rechunker.chunk_range(var_meta.origin, var_meta.shape, var_meta.chunk_shape, clip_ends=True)
 #     for chunk in chunk_iter:
 #         # print(chunk)
 #         mem_arr2 = mem_arr1.copy()
@@ -1006,7 +1006,7 @@ def check_sel_input_data(sel, input_data, coord_origins, shape):
 #     if name in sys_meta.variables:
 #         raise ValueError(f'Dataset already contains the variable {name}.')
 
-#     var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, origin_pos=(0,), coords=(name,), is_coord=True, encoding=enc, step=step)
+#     var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, origin=(0,), coords=(name,), is_coord=True, encoding=enc, step=step)
 
 #     sys_meta.variables[name] = var
 
@@ -1050,7 +1050,7 @@ def check_coords(coords, shape, sys_meta):
 #     if name in sys_meta.variables:
 #         raise ValueError(f'Dataset already contains the variable {name}.')
 
-#     var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, origin_pos=0, coords=coords, is_coord=False, encoding=enc)
+#     var = data_models.Variable(shape=shape, chunk_shape=chunk_shape, origin=0, coords=coords, is_coord=False, encoding=enc)
 
 #     sys_meta.variables[name] = var
 
@@ -1629,23 +1629,25 @@ def data_variable_summary(ds):
 
     """
     if ds:
-        summ_dict = {'name': ds.name, 'dims order': '(' + ', '.join(ds.coords) + ')', 'chunk size': str(ds.chunk_shape)}
+        summ_dict = {'name': ds.name, 'dims order': '(' + ', '.join(ds.coord_names) + ')', 'shape': str(ds.shape), 'chunk size': str(ds.chunk_shape)}
 
-        summary = """<cfbooklet.DataVariable>"""
+        type1 = type(ds)
+
+        summary = f"""<cfdb.{type1.__name__}>"""
 
         summary = append_summary(summary, summ_dict)
 
         summary += """\nCoordinates:"""
 
-        for dim_name in ds.coords:
-            dim = ds.file[dim_name]
-            dtype_name = dim.dtype_decoded
-            dim_len = dim.shape[0]
-            first_value = format_value(dim[0])
-            spacing = value_indent - name_indent - len(dim_name)
+        for coord in ds.coords:
+            coord_name = coord.name
+            dtype_name = coord.dtype_decoded
+            dim_len = coord.shape[0]
+            first_value = format_value(coord.data[0])
+            spacing = value_indent - name_indent - len(coord_name)
             if spacing < 1:
                 spacing = 1
-            dim_str = f"""\n    {dim_name}""" + """ """ * spacing
+            dim_str = f"""\n    {coord_name}""" + """ """ * spacing
             dim_str += f"""({dim_len}) {dtype_name} {first_value} ..."""
             summary += dim_str
 
@@ -1653,7 +1655,7 @@ def data_variable_summary(ds):
         summary += """\n""" + attrs_summary
 
     else:
-        summary = """DataVariable is closed"""
+        summary = """Dataset is closed"""
 
     return summary
 
@@ -1664,7 +1666,7 @@ def coordinate_summary(ds):
     """
     if ds:
         name = ds.name
-        dim_len = ds.shape[0]
+        # dim_len = ds.ndims
         # dtype_name = ds.dtype.name
         # dtype_decoded = ds.encoding['dtype_decoded']
 
@@ -1672,16 +1674,18 @@ def coordinate_summary(ds):
         last_value = format_value(ds.data[-1])
 
         # summ_dict = {'name': name, 'dtype encoded': dtype_name, 'dtype decoded': dtype_decoded, 'chunk size': str(ds.chunks), 'dim length': str(dim_len), 'values': f"""{first_value} ... {last_value}"""}
-        summ_dict = {'name': name, 'chunk shape': str(ds.chunk_shape), 'dim length': str(dim_len), 'values': f"""{first_value} ... {last_value}"""}
+        summ_dict = {'name': name, 'shape': str(ds.shape), 'chunk shape': str(ds.chunk_shape), 'values': f"""{first_value} ... {last_value}"""}
 
-        summary = """<cfdb.Coordinate>"""
+        type1 = type(ds)
+
+        summary = f"""<cfdb.{type1.__name__}>"""
 
         summary = append_summary(summary, summ_dict)
 
         attrs_summary = make_attrs_repr(ds.attrs, name_indent, value_indent, 'Attributes')
         summary += """\n""" + attrs_summary
     else:
-        summary = """Coordinate is closed"""
+        summary = """Dataset is closed"""
 
     return summary
 
@@ -1877,54 +1881,55 @@ def prepare_encodings_for_variables(dtype_encoded, dtype_decoded, scale_factor, 
     return encoding
 
 
-def file_summary(file):
+def file_summary(ds):
     """
 
     """
-    if file:
-        file_path = pathlib.Path(file.filename)
+    if ds:
+        file_path = ds.file_path
         if file_path.exists() and file_path.is_file():
             file_size = file_path.stat().st_size*0.000001
             file_size_str = """{file_size:.1f} MB""".format(file_size=file_size)
         else:
             file_size_str = """NA"""
 
-        summ_dict = {'file name': file_path.name, 'file size': file_size_str, 'writable': str(file.writable)}
+        summ_dict = {'file name': file_path.name, 'file size': file_size_str, 'writable': str(ds.writable)}
 
-        summary = """<hdf5tools.File>"""
+        summary = """<cfdb.Dataset>"""
 
         summary = append_summary(summary, summ_dict)
 
         summary += """\nCoordinates:"""
 
-        for dim_name in file.coords:
-            dim = file[dim_name]
-            dtype_name = dim.encoding['dtype_decoded']
-            dim_len = dim.shape[0]
-            first_value = format_value(dim[0])
+        for var in ds.coords:
+            dim_name = var.name
+            dtype_name = var.dtype_decoded
+            dim_len = var.shape[0]
+            first_value = format_value(var.data[0])
+            last_value = format_value(var.data[-1])
             spacing = value_indent - name_indent - len(dim_name)
             if spacing < 1:
                 spacing = 1
             dim_str = f"""\n    {dim_name}""" + """ """ * spacing
-            dim_str += f"""({dim_len}) {dtype_name} {first_value} ..."""
+            dim_str += f"""({dim_len}) {dtype_name} {first_value} ... {last_value}"""
             summary += dim_str
 
         summary += """\nData Variables:"""
 
-        for ds_name in file.data_vars:
-            ds = file[ds_name]
-            dtype_name = ds.encoding['dtype_decoded']
-            shape = ds.shape
-            dims = ', '.join(ds.coords)
-            first_value = format_value(ds[tuple(0 for i in range(len(shape)))])
-            spacing = value_indent - name_indent - len(ds_name)
+        for dv in ds.data_vars:
+            dv_name = dv.name
+            dtype_name = dv.dtype_decoded
+            # shape = dv.shape
+            dims = ', '.join(dv.coord_names)
+            # first_value = format_value(dv[tuple(0 for i in range(len(shape)))])
+            spacing = value_indent - name_indent - len(dv_name)
             if spacing < 1:
                 spacing = 1
-            ds_str = f"""\n    {ds_name}""" + """ """ * spacing
-            ds_str += f"""({dims}) {dtype_name} {first_value} ..."""
+            ds_str = f"""\n    {dv_name}""" + """ """ * spacing
+            ds_str += f"""({dims}) {dtype_name}"""
             summary += ds_str
 
-        attrs_summary = make_attrs_repr(file.attrs, name_indent, value_indent, 'Attributes')
+        attrs_summary = make_attrs_repr(ds.attrs, name_indent, value_indent, 'Attributes')
         summary += """\n""" + attrs_summary
     else:
         summary = """File is closed"""

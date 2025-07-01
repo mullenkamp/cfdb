@@ -60,6 +60,12 @@ chunk_shape = (40,)
 fillvalue = None
 dtype_decoded = 'int16'
 
+
+cache_path = pathlib.Path('/home/mike/data/cache/cfdb')
+file_path = cache_path.joinpath('test1.blt')
+flag = 'n'
+
+name = 'air_temp'
 coords = ('latitude', 'time')
 dtype_decoded = 'float32'
 dtype_encoded = 'int32'
@@ -70,7 +76,10 @@ add_offset = None
 sel = (slice(1, 4), slice(2, 5))
 loc_sel = (slice(0.4, 0.7), None)
 
-data = np.linspace(0.8, 1.6, 9, dtype='float32').reshape(3, 3)
+lat_data = np.linspace(0, 19.9, 200, dtype='float32')
+time_data = np.linspace(0, 199, 200, dtype='datetime64[D]')
+
+air_data = np.linspace(0, 3999.9, 40000, dtype='float32').reshape(200, 200)
 
 
 ###################################################
@@ -103,26 +112,58 @@ self = self1.create.coord.time(data=data_time, dtype_decoded=data_time.dtype, dt
 
 
 self1 = Dataset(file_path, flag=flag)
-lat_coord = self1.create.coord.latitude(data=old_data, chunk_shape=(8,))
-time_coord = self1.create.coord.time(data=data_time, dtype_decoded=data_time.dtype, dtype_encoded='int32')
+lat_coord = self1.create.coord.latitude(data=lat_data, chunk_shape=(20,))
+time_coord = self1.create.coord.time(data=time_data, dtype_decoded=time_data.dtype, dtype_encoded='int32')
 
 # sys_meta = self._sys_meta
 
-self = self1.create.data_var.generic(name, coords, dtype_decoded, dtype_encoded, scale_factor=scale_factor)
+self = self1.create.data_var.generic(name, coords, dtype_decoded, dtype_encoded, scale_factor=scale_factor, chunk_shape=(20, 20))
 
-self[sel] = data
+self[:] = air_data
 
-self.loc[loc_sel]
+lat_coord.append(new_data)
+lat_coord.prepend(old_data)
+
+view1 = self.loc[loc_sel]
+view1.data
+
+self.attrs['test_attr'] = ['test']
 
 self1.close()
+
+
+self1 = Dataset(file_path)
+self = self1[name]
+
+
+
+
+
+
 
 
 ###################################################
 ### Chunker testing
 
+source_shape = (30, 30)
+shape = source_shape
+new_shape = (35, 31)
+
+source_chunk_shape = (5, 2)
+target_chunk_shape = (2, 5)
+source_chunk_shape = (5, 2, 4)
+target_chunk_shape = (2, 5, 3)
+itemsize = 4
+max_mem = 40 * itemsize
+max_mem = 160 * itemsize
+
+dtype = 'int32'
+
+
+
 out_chunks = rechunking_plan(shape, shape, source_chunk_shape, target_chunk_shape, itemsize, max_mem, True, False)
 
-# out_chunks = rechunking_plan(shape, new_shape, source_chunk_shape, target_chunk_shape, itemsize, max_mem, True, True)
+out_chunks = rechunking_plan(shape, source_chunk_shape, target_chunk_shape, itemsize, max_mem, True, True)
 
 source = np.arange(1, prod(source_shape) + 1).reshape(source_shape).astype(dtype)
 target = np.zeros(source_shape, dtype=dtype)

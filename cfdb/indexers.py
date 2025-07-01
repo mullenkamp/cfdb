@@ -97,7 +97,7 @@ def loc_index_slice(slice_obj, coord_data):
 
 
 
-@sup
+# @sup
 def loc_index_combo_one(key, coord_data):
     """
 
@@ -152,42 +152,42 @@ def loc_index_combo_all(key, coords):
 #         if stop is None:
 
 
-# def numpy_indexer_coord(key, coord_name, origin_pos, data):
+# def numpy_indexer_coord(key, coord_name, origin, data):
 #     """
 
 #     """
 #     if isinstance(key, int):
 
 
-def slice_int(key, coord_origin_poss, var_shape, pos):
+def slice_int(key, coord_origins, var_shape, pos):
     """
 
     """
     if key > var_shape[pos]:
         raise ValueError('key is larger than the coord length.')
 
-    slice1 = slice(key + coord_origin_poss[pos], key + coord_origin_poss[pos] + 1)
+    slice1 = slice(key + coord_origins[pos], key + coord_origins[pos] + 1)
 
     return slice1
 
 
-def slice_slice(key, coord_origin_poss, var_shape, pos):
+def slice_slice(key, coord_origins, var_shape, pos):
     """
 
     """
     start = key.start
     if isinstance(start, int):
-        start = start + coord_origin_poss[pos]
+        start = start + coord_origins[pos]
     else:
-        start = coord_origin_poss[pos]
+        start = coord_origins[pos]
 
     stop = key.stop
     if isinstance(stop, int):
-        stop = stop + coord_origin_poss[pos]
+        stop = stop + coord_origins[pos]
     else:
-        stop = var_shape[pos] + coord_origin_poss[pos]
+        stop = var_shape[pos] + coord_origins[pos]
 
-    # slices = [slice(co, cs) for co, cs in zip(coord_origin_poss, coord_sizes)]
+    # slices = [slice(co, cs) for co, cs in zip(coord_origins, coord_sizes)]
 
     # TODO - Should I leave this test in here? Or should this be allowed?
     if start == stop:
@@ -198,56 +198,56 @@ def slice_slice(key, coord_origin_poss, var_shape, pos):
     return slice1
 
 
-def slice_none(coord_origin_poss, var_shape, pos):
+def slice_none(coord_origins, var_shape, pos):
     """
 
     """
-    start = coord_origin_poss[pos]
-    stop = var_shape[pos] + coord_origin_poss[pos]
+    start = coord_origins[pos]
+    stop = var_shape[pos] + coord_origins[pos]
 
-    # slices = [slice(co, cs) for co, cs in zip(coord_origin_poss, coord_sizes)]
+    # slices = [slice(co, cs) for co, cs in zip(coord_origins, coord_sizes)]
 
     slice1 = slice(start, stop)
 
     return slice1
 
 
-def index_combo_one(key, coord_origin_poss, var_shape, pos):
+def index_combo_one(key, coord_origins, var_shape, pos):
     """
 
     """
     if isinstance(key, slice):
-        slice1 = slice_slice(key, coord_origin_poss, var_shape, pos)
+        slice1 = slice_slice(key, coord_origins, var_shape, pos)
     elif isinstance(key, int):
-        slice1 = slice_int(key, coord_origin_poss, var_shape, pos)
+        slice1 = slice_int(key, coord_origins, var_shape, pos)
     elif key is None:
-        slice1 = slice_none(coord_origin_poss, var_shape, pos)
+        slice1 = slice_none(coord_origins, var_shape, pos)
     else:
         raise TypeError('key must be an int, slice of ints, or None.')
 
     return slice1
 
 
-def index_combo_all(key, coord_origin_poss, var_shape):
+def index_combo_all(key, coord_origins, var_shape):
     """
 
     """
     if isinstance(key, int):
-        slices = [slice(co, cs) for co, cs in zip(coord_origin_poss, var_shape)]
-        slices[0] = slice_int(key, coord_origin_poss, var_shape, 0)
+        slices = [slice(co, cs) for co, cs in zip(coord_origins, var_shape)]
+        slices[0] = slice_int(key, coord_origins, var_shape, 0)
     elif isinstance(key, slice):
-        slices = [slice(co, cs) for co, cs in zip(coord_origin_poss, var_shape)]
-        slices[0] = slice_slice(key, coord_origin_poss, var_shape, 0)
+        slices = [slice(co, cs) for co, cs in zip(coord_origins, var_shape)]
+        slices[0] = slice_slice(key, coord_origins, var_shape, 0)
     elif key is None:
-        slices = tuple(slice_none(coord_origin_poss, var_shape, pos) for pos in range(0, len(var_shape)))
+        slices = tuple(slice_none(coord_origins, var_shape, pos) for pos in range(0, len(var_shape)))
     elif isinstance(key, tuple):
         key_len = len(key)
         if key_len == 0:
-            slices = tuple(slice_none(coord_origin_poss, var_shape, pos) for pos in range(0, len(var_shape)))
+            slices = tuple(slice_none(coord_origins, var_shape, pos) for pos in range(0, len(var_shape)))
         elif key_len != len(var_shape):
             raise ValueError('The tuple key must be the same length as the associated coordinates.')
         else:
-            slices = tuple(index_combo_one(key1, coord_origin_poss, var_shape, pos) for pos, key1 in enumerate(key))
+            slices = tuple(index_combo_one(key1, coord_origins, var_shape, pos) for pos, key1 in enumerate(key))
 
     else:
         raise TypeError('key must be an int, slice of ints, or None.')
@@ -255,11 +255,11 @@ def index_combo_all(key, coord_origin_poss, var_shape):
     return tuple(slices)
 
 
-def determine_final_array_shape(key, coord_origin_poss, var_shape):
+def determine_final_array_shape(key, coord_origins, var_shape):
     """
 
     """
-    slices = index_combo_all(key, coord_origin_poss, var_shape)
+    slices = index_combo_all(key, coord_origins, var_shape)
     new_shape = tuple(s.stop - s.start for s in slices)
 
     return new_shape
@@ -288,12 +288,12 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
 
 
 
-# def indexer_to_keys(key, var_name, var_chunk_shape, coord_origin_poss, coord_sizes):
+# def indexer_to_keys(key, var_name, var_chunk_shape, coord_origins, coord_sizes):
 #     """
 
 #     """
 #     if isinstance(key, int):
-#         new_pos = key + origin_pos
+#         new_pos = key + origin
 
 #         new_key = utils.make_var_chunk_key(var_name, (new_pos,))
 
@@ -302,11 +302,11 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
 #     elif isinstance(key, slice):
 #         start = key.start
 #         if not isinstance(start, int):
-#             start = origin_pos
+#             start = origin
 
 #         stop = key.stop
 #         if not isinstance(stop, int):
-#             stop = shape[0] + origin_pos
+#             stop = shape[0] + origin
 
 #         chunk_iter = rechunker.chunk_range((start,), (stop,), chunk_shape, clip_ends=False)
 #         for chunk in chunk_iter:
@@ -315,8 +315,8 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
 #             yield new_key
 
 #     elif key is None:
-#          start = origin_pos
-#          stop = shape[0] + origin_pos
+#          start = origin
+#          stop = shape[0] + origin
 
 #          chunk_iter = rechunker.chunk_range((start,), (stop,), chunk_shape, clip_ends=False)
 #          for chunk in chunk_iter:

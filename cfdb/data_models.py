@@ -82,7 +82,7 @@ class CoordinateVariable(msgspec.Struct, tag='coord'):
     fillvalue: Union[int, None] = None
     scale_factor: Union[float, int, None] = None
     add_offset: Union[float, int, None] = None
-    origin_pos: Union[int, None] = None
+    origin: Union[int, None] = None
     step: Union[float, int, None] = None
     auto_increment: bool = False
 

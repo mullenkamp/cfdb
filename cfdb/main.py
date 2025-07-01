@@ -50,6 +50,7 @@ class Dataset:
         fp_exists = fp.exists()
         self._blt = booklet.open(file_path, flag, key_serializer='str', **kwargs)
         self.writable = self._blt.writable
+        self.file_path = fp
 
         ## Set/Get system metadata
         if not fp_exists or flag in ('n', 'c'):
@@ -70,7 +71,7 @@ class Dataset:
         self._finalizers = []
         self._finalizers.append(weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta))
 
-        self.attrs = sc.Attributes(self._blt, '_', self._finalizers)
+        self.attrs = sc.Attributes(self._blt, '_', self.writable, self._finalizers)
 
         self._var_cache = weakref.WeakValueDictionary()
 
@@ -86,25 +87,37 @@ class Dataset:
     #     return Attributes(self._blt, '_')
 
     @property
-    def variables(self):
+    def var_names(self):
         """
         Return a tuple of all the variables (coord and data variables).
         """
         return tuple(self._sys_meta.variables.keys())
 
     @property
-    def coords(self):
+    def coord_names(self):
         """
         Return a tuple of all the coordinates.
         """
-        return tuple(k for k, v in self._sys_meta.variables.items() if v.is_coord)
+        return tuple(k for k, v in self._sys_meta.variables.items() if isinstance(v, data_models.CoordinateVariable))
 
     @property
-    def data_vars(self):
+    def data_var_names(self):
         """
         Return a tuple of all the data variables.
         """
-        return tuple(k for k, v in self._sys_meta.variables.items() if not v.is_coord)
+        return tuple(k for k, v in self._sys_meta.variables.items() if isinstance(v, data_models.DataVariable))
+
+    @property
+    def coords(self):
+        return tuple(self[coord_name] for coord_name in self.coord_names)
+
+    @property
+    def data_vars(self):
+        return tuple(self[var_name] for var_name in self.data_var_names)
+
+    @property
+    def variables(self):
+        return tuple(self[var_name] for var_name in self.var_names)
 
 
     # def __bool__(self):
@@ -130,7 +143,7 @@ class Dataset:
         if not isinstance(var_name, str):
             raise TypeError('var_name must be a string.')
 
-        if var_name not in self._sys_meta.variables:
+        if var_name not in self:
             raise ValueError(f'The Variable {var_name} does not exist.')
 
         if var_name not in self._var_cache:
@@ -144,7 +157,6 @@ class Dataset:
         return self._var_cache[var_name]
 
 
-
     def __getitem__(self, key):
         return self.get(key)
 
@@ -155,22 +167,42 @@ class Dataset:
             raise TypeError('Assigned value must be a Variable or Coordinate object.')
 
     def __delitem__(self, key):
-        try:
-            if key not in self:
-                raise KeyError(key)
+        if key not in self:
+            raise KeyError(key)
 
-            # Check if the object to delete is a coordinate
-            # And if it is, check that no variables are attached to it
-            if isinstance(self[key], sc.Coordinate):
-                for var_name in self.data_vars:
-                    if key in self[var_name].coords:
+        # Check if the object to delete is a coordinate
+        # And if it is, check that no variables are attached to it
+        if isinstance(self[key], sc.Coordinate):
+            for var_name, var in self._sys_meta.variables.items():
+                if isinstance(var, data_models.DataVariable):
+                    if key in var.coords:
                         raise ValueError(f'{key} is a coordinate of {var_name}. You must delete all variables associated with a coordinate before you can delete the coordinate.')
 
-            # TODO: Needs to be done...
-            del self._file[key]
-            # delattr(self, key)
-        except Exception as err:
-            raise err
+        # Delete all chunks from file
+        coord_origins = self.get_coord_origins()
+
+        slices = indexers.index_combo_all(None, coord_origins, self.shape)
+        for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
+            try:
+                del self._blt[blt_key]
+            except KeyError:
+                pass
+
+        # Delete the attrs key
+        try:
+            del self._blt[sc.attrs_key.format(var_name=key)]
+        except KeyError:
+            pass
+
+        # Delete in cache
+        try:
+            del self._var_cache[var_name]
+        except KeyError:
+            pass
+
+        # Delete the instance in the sys meta
+        del self._sys_meta.variables[key]
+
 
     def __enter__(self):
         return self
@@ -208,109 +240,109 @@ class Dataset:
         return utils.file_summary(self)
 
 
-    def intersect(self, coords: dict=None, include_dims: list=None, exclude_dims: list=None, include_variables: list=None, exclude_variables: list=None, **file_kwargs):
-        """
-        This method should create a "view" on the existing object by default and otpionally create a new file.
-        """
-        ## Check for coordinate names in input
-        dims = np.asarray(self.coords)
+    # def sel(self, sel: dict=None, include_dims: list=None, exclude_dims: list=None, include_variables: list=None, exclude_variables: list=None, **file_kwargs):
+    #     """
+    #     This method should create a "view" on the existing object by default and otpionally create a new file.
+    #     """
+    #     ## Check for coordinate names in input
+    #     dims = np.asarray(self.coords)
 
-        if coords is not None:
-            keys = tuple(coords.keys())
-            for key in keys:
-                if key not in dims:
-                    raise KeyError(f'{key} is not in the coordinates.')
+    #     if coords is not None:
+    #         keys = tuple(coords.keys())
+    #         for key in keys:
+    #             if key not in dims:
+    #                 raise KeyError(f'{key} is not in the coordinates.')
 
-        if include_dims is not None:
-            include_dims_check = np.isin(include_dims, dims)
-            if not include_dims_check.all():
-                no_dims = ', '.join(include_dims[np.where(include_dims_check)[0].tolist()])
-                raise KeyError(f'{no_dims} are not in dims.')
+    #     if include_dims is not None:
+    #         include_dims_check = np.isin(include_dims, dims)
+    #         if not include_dims_check.all():
+    #             no_dims = ', '.join(include_dims[np.where(include_dims_check)[0].tolist()])
+    #             raise KeyError(f'{no_dims} are not in dims.')
 
-        if exclude_dims is not None:
-            exclude_dims_check = np.isin(exclude_dims, dims)
-            if not exclude_dims_check.all():
-                no_dims = ', '.join(exclude_dims[np.where(exclude_dims_check)[0].tolist()])
-                raise KeyError(f'{no_dims} are not in dims.')
+    #     if exclude_dims is not None:
+    #         exclude_dims_check = np.isin(exclude_dims, dims)
+    #         if not exclude_dims_check.all():
+    #             no_dims = ', '.join(exclude_dims[np.where(exclude_dims_check)[0].tolist()])
+    #             raise KeyError(f'{no_dims} are not in dims.')
 
-        ## Check if variables exist
-        variables = np.array(self.data_vars)
+    #     ## Check if variables exist
+    #     variables = np.array(self.data_vars)
 
-        if include_variables is not None:
-            include_variables_check = np.isin(include_variables, variables)
-            if not include_variables_check.all():
-                no_variables = ', '.join(include_variables[np.where(include_variables_check)[0].tolist()])
-                raise KeyError(f'{no_variables} are not in variables.')
+    #     if include_variables is not None:
+    #         include_variables_check = np.isin(include_variables, variables)
+    #         if not include_variables_check.all():
+    #             no_variables = ', '.join(include_variables[np.where(include_variables_check)[0].tolist()])
+    #             raise KeyError(f'{no_variables} are not in variables.')
 
-        if exclude_variables is not None:
-            exclude_variables_check = np.isin(exclude_variables, variables)
-            if not exclude_variables_check.all():
-                no_variables = ', '.join(exclude_variables[np.where(exclude_variables_check)[0].tolist()])
-                raise KeyError(f'{no_variables} are not in variables.')
+    #     if exclude_variables is not None:
+    #         exclude_variables_check = np.isin(exclude_variables, variables)
+    #         if not exclude_variables_check.all():
+    #             no_variables = ', '.join(exclude_variables[np.where(exclude_variables_check)[0].tolist()])
+    #             raise KeyError(f'{no_variables} are not in variables.')
 
-        ## Filter dims
-        if include_dims is not None:
-            dims = dims[np.isin(dims, include_dims)]
-        if exclude_dims is not None:
-            dims = dims[~np.isin(dims, exclude_dims)]
+    #     ## Filter dims
+    #     if include_dims is not None:
+    #         dims = dims[np.isin(dims, include_dims)]
+    #     if exclude_dims is not None:
+    #         dims = dims[~np.isin(dims, exclude_dims)]
 
-        ## Filter variables
-        if include_variables is not None:
-            variables = variables[np.isin(variables, include_variables)]
-        if exclude_variables is not None:
-            variables = variables[~np.isin(variables, exclude_variables)]
+    #     ## Filter variables
+    #     if include_variables is not None:
+    #         variables = variables[np.isin(variables, include_variables)]
+    #     if exclude_variables is not None:
+    #         variables = variables[~np.isin(variables, exclude_variables)]
 
-        for ds_name in copy.deepcopy(variables):
-            ds = self[ds_name]
-            ds_dims = np.asarray(ds.coords)
-            dims_check = np.isin(ds_dims, dims).all()
-            if not dims_check:
-                variables = np.delete(variables, np.where(variables == ds_name)[0])
+    #     for ds_name in copy.deepcopy(variables):
+    #         ds = self[ds_name]
+    #         ds_dims = np.asarray(ds.coords)
+    #         dims_check = np.isin(ds_dims, dims).all()
+    #         if not dims_check:
+    #             variables = np.delete(variables, np.where(variables == ds_name)[0])
 
-        ## Create file
-        file_kwargs['mode'] = 'w'
-        new_file = File(**file_kwargs)
+    #     ## Create file
+    #     file_kwargs['mode'] = 'w'
+    #     new_file = File(**file_kwargs)
 
-        ## Iterate through the coordinates
-        for dim_name in dims:
-            old_dim = self[dim_name]
+    #     ## Iterate through the coordinates
+    #     for dim_name in dims:
+    #         old_dim = self[dim_name]
 
-            if coords is not None:
-                if dim_name in coords:
-                    data = old_dim.loc[coords[dim_name]]
-                else:
-                    data = old_dim.data
-            else:
-                data = old_dim.data
+    #         if coords is not None:
+    #             if dim_name in coords:
+    #                 data = old_dim.loc[coords[dim_name]]
+    #             else:
+    #                 data = old_dim.data
+    #         else:
+    #             data = old_dim.data
 
-            new_dim = new_file.create_coordinate(dim_name, data, encoding=old_dim.encoding._encoding)
-            new_dim.attrs.update(old_dim.attrs)
+    #         new_dim = new_file.create_coordinate(dim_name, data, encoding=old_dim.encoding._encoding)
+    #         new_dim.attrs.update(old_dim.attrs)
 
-        ## Iterate through the old variables
-        # TODO: Make the variable copy when doing a selection more RAM efficient
-        for ds_name in variables:
-            old_ds = self[ds_name]
+    #     ## Iterate through the old variables
+    #     # TODO: Make the variable copy when doing a selection more RAM efficient
+    #     for ds_name in variables:
+    #         old_ds = self[ds_name]
 
-            if coords is not None:
-                ds_dims = old_ds.coords
+    #         if coords is not None:
+    #             ds_dims = old_ds.coords
 
-                ds_sel = []
-                for dim in ds_dims:
-                    if dim in keys:
-                        ds_sel.append(coords[dim])
-                    else:
-                        ds_sel.append(None)
+    #             ds_sel = []
+    #             for dim in ds_dims:
+    #                 if dim in keys:
+    #                     ds_sel.append(coords[dim])
+    #                 else:
+    #                     ds_sel.append(None)
 
-                data = old_ds.loc[tuple(ds_sel)]
-                new_ds = new_file.create_data_variable(ds_name, old_ds.coords, data=data, encoding=old_ds.encoding._encoding)
-                new_ds.attrs.update(old_ds.attrs)
-            else:
-                new_ds = old_ds.copy(new_file)
+    #             data = old_ds.loc[tuple(ds_sel)]
+    #             new_ds = new_file.create_data_variable(ds_name, old_ds.coords, data=data, encoding=old_ds.encoding._encoding)
+    #             new_ds.attrs.update(old_ds.attrs)
+    #         else:
+    #             new_ds = old_ds.copy(new_file)
 
-        ## Add global attrs
-        # new_file.attrs.update(self.attrs)
+    #     ## Add global attrs
+    #     # new_file.attrs.update(self.attrs)
 
-        return new_file
+    #     return new_file
 
 
     # def to_pandas(self):
