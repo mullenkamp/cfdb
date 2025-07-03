@@ -10,7 +10,7 @@ import numpy as np
 # from . import utils
 import utils
 
-import rechunker
+import rechunkit
 
 sup = np.testing.suppress_warnings()
 sup.filter(FutureWarning)
@@ -271,8 +271,8 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
     """
     starts = tuple(s.start for s in slices)
     stops = tuple(s.stop for s in slices)
-    # chunk_iter1 = rechunker.chunk_range(starts, stops, var_chunk_shape, clip_ends=False)
-    chunk_iter2 = rechunker.chunk_range(starts, stops, var_chunk_shape, clip_ends=clip_ends)
+    # chunk_iter1 = rechunkit.chunk_range(starts, stops, var_chunk_shape, clip_ends=False)
+    chunk_iter2 = rechunkit.chunk_range(starts, stops, var_chunk_shape, clip_ends=clip_ends)
     # for full_chunk, partial_chunk in zip(chunk_iter1, chunk_iter2):
     for partial_chunk in chunk_iter2:
         # starts_chunk = tuple(s.start for s in full_chunk)
@@ -308,7 +308,7 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
 #         if not isinstance(stop, int):
 #             stop = shape[0] + origin
 
-#         chunk_iter = rechunker.chunk_range((start,), (stop,), chunk_shape, clip_ends=False)
+#         chunk_iter = rechunkit.chunk_range((start,), (stop,), chunk_shape, clip_ends=False)
 #         for chunk in chunk_iter:
 #             new_key = utils.make_var_chunk_key(var_name, (chunk[0].start,))
 
@@ -318,7 +318,7 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
 #          start = origin
 #          stop = shape[0] + origin
 
-#          chunk_iter = rechunker.chunk_range((start,), (stop,), chunk_shape, clip_ends=False)
+#          chunk_iter = rechunkit.chunk_range((start,), (stop,), chunk_shape, clip_ends=False)
 #          for chunk in chunk_iter:
 #              new_key = utils.make_var_chunk_key(var_name, (chunk[0].start,))
 

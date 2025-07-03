@@ -147,18 +147,33 @@ self = self1[name]
 
 source_shape = (30, 30)
 shape = source_shape
-new_shape = (35, 31)
+# new_shape = (35, 31)
+
+sel = (slice(3, 21), slice(11, 24))
+sel = (slice(5, 20), slice(10, 24))
 
 source_chunk_shape = (5, 2)
 target_chunk_shape = (2, 5)
-source_chunk_shape = (5, 2, 4)
-target_chunk_shape = (2, 5, 3)
+# source_chunk_shape = (5, 2, 4)
+# target_chunk_shape = (2, 5, 3)
 itemsize = 4
 max_mem = 40 * itemsize
-max_mem = 160 * itemsize
+# max_mem = 160 * itemsize
 
-dtype = 'int32'
+dtype = np.dtype('int32')
 
+source = np.arange(1, prod(source_shape) + 1).reshape(source_shape).astype(dtype)
+source = source.__getitem__
+
+chunk_read_offset = tuple(s.start for s in sel)
+
+chunk_start = tuple(cs * (ss.start//cs) for cs, ss in zip(source_chunk_shape, sel))
+# chunk_start = tuple(ss.start for ss in self._sel)
+chunk_end = tuple(cs * ((ss.stop - 1)//cs + 1) for cs, ss in zip(source_chunk_shape, sel))
+
+shape = tuple(cs * ((ss.stop - ss.start - 1)//cs + 1) for cs, ss in zip(target_chunk_shape, sel))
+
+# shape = tuple(ss.stop - ss.start for ss in sel)
 
 
 out_chunks = rechunking_plan(shape, shape, source_chunk_shape, target_chunk_shape, itemsize, max_mem, True, False)
@@ -177,6 +192,12 @@ source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, targe
 read_ratio = calc_read_ratio_source(source_read_chunk_shape, source_chunk_shape, target_chunk_shape)
 
 n_reads_source = calc_n_reads_source(source_chunk_shape, target_chunk_shape)
+
+
+target = np.zeros(source_shape, dtype=dtype)
+for write_chunk, data in rechunker(source, shape, dtype, source_chunk_shape, target_chunk_shape, max_mem):
+    target[write_chunk] = data
+
 
 
 ### Testing
@@ -335,13 +356,46 @@ m1 = sys_meta
 
 
 
+##############################
+### h5netcdf
+
+import xarray as xr
+import h5netcdf
+
+h5_path = pathlib.Path('/home/mike/data/cache/cfdb/h5netcdf.nc')
 
 
+h5 = h5netcdf.File(h5_path, 'w')
 
+h5.dimensions['lat'] = len(lat_data)
 
+lat_data_enc = np.round(lat_data * 10).astype('int32')
 
+lat_coord = h5.create_variable('lat', ('lat',), lat_data_enc.dtype, compression='gzip')
+lat_coord[:] = lat_data_enc
+lat_coord.attrs.update({'scale_factor': 0.0000001})
 
+h5.dimensions['time'] = len(time_data)
 
+time_data_enc = time_data.astype('int32')
+time_coord = h5.create_variable('time', ('time',), time_data_enc.dtype, compression='gzip')
+time_coord[:] = time_data_enc
+time_coord.attrs.update({
+    'long_name': 'time',
+    'units': 'days since 1970-01-01 00:00:00',
+    'standard_name': 'time',
+    'calendar': 'proleptic_gregorian',
+    'axis': 'T',
+    })
+
+air_data_enc = np.round(air_data * 10).astype('int32')
+temp_var = h5.create_variable('air_temp', ('lat', 'time'), air_data_enc.dtype, compression='gzip')
+temp_var[:] = air_data_enc
+temp_var.attrs.update({
+    'scale_factor': 0.1
+    })
+
+h5.close()
 
 
 

@@ -9,7 +9,7 @@ import numpy as np
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
 import msgspec
 
-import utils, data_models, rechunker, support_classes as sc
+import utils, data_models, rechunkit, support_classes as sc
 
 #################################################
 

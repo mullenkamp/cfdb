@@ -12,7 +12,7 @@ import lz4.frame
 import zstandard as zstd
 import math
 
-import utils, indexers, rechunker
+import utils, indexers, rechunkit
 
 ###################################################
 ### Parameters
@@ -467,13 +467,22 @@ class Variable:
         """
         func = lambda sel: self.get_chunk(sel, decoded=False)
 
-        rechunker1 = rechunker.rechunker(func, self.shape, self.dtype_encoded, self.chunk_shape, chunk_shape, max_mem)
+        if self._sel is None:
+            chunk_start = tuple(0 for i in range(len(self.shape)))
+            shape = self.shape
+        else:
+            chunk_start = tuple(ss.start * (ss.start//cs) for cs, ss in zip(self.chunk_shape, self._sel))
+            # chunk_start = tuple(ss.start for ss in self._sel)
+            shape = tuple(cs * ((ss.stop - 1)//cs + 1) for cs, ss in zip(self.chunk_shape, self._sel))
+            # shape = tuple(s.stop for s in self._sel)
+
+        rechunkit1 = rechunkit.rechunker(func, shape, self.dtype_encoded, self.chunk_shape, chunk_shape, max_mem, chunk_start)
 
         if decoded:
-            for slices, encoded_data in rechunker1:
+            for slices, encoded_data in rechunkit1:
                 yield slices, self._encoder.decode(encoded_data)
         else:
-            for slices, encoded_data in rechunker1:
+            for slices, encoded_data in rechunkit1:
                 yield slices, encoded_data
 
 
@@ -562,7 +571,10 @@ class Variable:
 
     @property
     def coords(self):
-        return tuple(self._dataset[coord_name] for coord_name in self.coord_names)
+        if self._sel is None:
+            return tuple(self._dataset[coord_name] for coord_name in self.coord_names)
+        else:
+            return tuple(self._dataset[coord_name][self._sel[i]] for i, coord_name in enumerate(self.coord_names))
 
 
     # def __bool__(self):
@@ -622,7 +634,7 @@ class Variable:
     #     return new_ds
 
 
-class Coordinate(Variable):
+class CoordinateView(Variable):
     """
 
     """
@@ -655,6 +667,87 @@ class Coordinate(Variable):
         return CoordinateView(self.name, self._dataset, slices)
 
 
+    # def resize(self, start=None, end=None):
+    #     """
+    #     Resize a coordinate. If step is an int or float, then resizing can add or truncate the length. If step is None, then the coordinate can only have the length truncated.
+    #     If the coordinate length is reduced, then all data variables associated with the coordinate will have their data truncated.
+    #     """
+    #     if end is not None:
+    #         idx = indexers.loc_index_combo_one(end, self.data)
+    #         if self.step is not None:
+    #             pass
+    #         else:
+    #             updated_data =
+
+
+    @property
+    def step(self):
+        return getattr(self._var_meta, 'step')
+
+    @property
+    def auto_increment(self):
+        return getattr(self._var_meta, 'auto_increment')
+
+    @property
+    def origin(self):
+        return getattr(self._var_meta, 'origin')
+
+    @property
+    def shape(self):
+        return tuple(s.stop - s.start for s in self._sel)
+
+
+
+
+    # def copy(self, to_file=None, name: str=None, include_attrs=True, **kwargs):
+    #     """
+    #     Copy a Coordinate object.
+    #     """
+    #     if (to_file is None) and (name is None):
+    #         raise ValueError('If to_file is None, then a name must be passed and it must be different from the original.')
+
+    #     if to_file is None:
+    #         to_file = self.file
+
+    #     if name is None:
+    #         name = self.name
+
+    #     ds = copy_coordinate(to_file, self, name, include_attrs=include_attrs, **kwargs)
+
+    #     return ds
+
+    def __repr__(self):
+        """
+
+        """
+        return utils.coordinate_summary(self)
+
+
+    # def to_pandas(self):
+    #     """
+
+    #     """
+    #     if not import_pandas:
+    #         raise ImportError('pandas could not be imported.')
+
+    #     return pd.Index(self.data, name=self.name)
+
+
+    # def to_xarray(self):
+    #     """
+
+    #     """
+
+
+class Coordinate(CoordinateView):
+    """
+
+    """
+    @property
+    def shape(self):
+        return getattr(self._var_meta, 'shape')
+
+
     def _add_updated_data(self, chunk_start, chunk_stop, new_origin, updated_data):
         """
 
@@ -665,7 +758,7 @@ class Coordinate(Variable):
 
         # print(chunk_start)
 
-        chunk_iter = rechunker.chunk_range(chunk_start, chunk_stop, self.chunk_shape, clip_ends=True)
+        chunk_iter = rechunkit.chunk_range(chunk_start, chunk_stop, self.chunk_shape, clip_ends=True)
         for chunk in chunk_iter:
             chunk = chunk[0] # Because coords are always 1D
             # print(chunk)
@@ -736,110 +829,8 @@ class Coordinate(Variable):
         self._var_meta.shape = shape
 
 
-    # def resize(self, start=None, end=None):
-    #     """
-    #     Resize a coordinate. If step is an int or float, then resizing can add or truncate the length. If step is None, then the coordinate can only have the length truncated.
-    #     If the coordinate length is reduced, then all data variables associated with the coordinate will have their data truncated.
-    #     """
-    #     if end is not None:
-    #         idx = indexers.loc_index_combo_one(end, self.data)
-    #         if self.step is not None:
-    #             pass
-    #         else:
-    #             updated_data =
 
-
-    @property
-    def step(self):
-        return getattr(self._var_meta, 'step')
-
-    @property
-    def auto_increment(self):
-        return getattr(self._var_meta, 'auto_increment')
-
-    @property
-    def origin(self):
-        return getattr(self._var_meta, 'origin')
-
-    @property
-    def shape(self):
-        return getattr(self._var_meta, 'shape')
-
-
-
-    # def copy(self, to_file=None, name: str=None, include_attrs=True, **kwargs):
-    #     """
-    #     Copy a Coordinate object.
-    #     """
-    #     if (to_file is None) and (name is None):
-    #         raise ValueError('If to_file is None, then a name must be passed and it must be different from the original.')
-
-    #     if to_file is None:
-    #         to_file = self.file
-
-    #     if name is None:
-    #         name = self.name
-
-    #     ds = copy_coordinate(to_file, self, name, include_attrs=include_attrs, **kwargs)
-
-    #     return ds
-
-    def __repr__(self):
-        """
-
-        """
-        return utils.coordinate_summary(self)
-
-
-    # def to_pandas(self):
-    #     """
-
-    #     """
-    #     if not import_pandas:
-    #         raise ImportError('pandas could not be imported.')
-
-    #     return pd.Index(self.data, name=self.name)
-
-
-    # def to_xarray(self):
-    #     """
-
-    #     """
-
-
-class CoordinateView(Coordinate):
-    """
-
-    """
-    @property
-    def shape(self):
-        return tuple(s.stop - s.start for s in self._sel)
-
-    @property
-    def coords(self):
-        return tuple(self._dataset[coord_name][self._sel[i]] for i, coord_name in enumerate(self.coord_names))
-
-    def prepend(self, data):
-        """
-        Not implemented for views.
-        """
-        raise NotImplementedError()
-
-    def append(self, data):
-        """
-        Not implemented for views.
-        """
-        raise NotImplementedError()
-
-    def get_chunk(self, sel=None, decoded=True, missing_none=False):
-        """
-
-        """
-        raise NotImplementedError()
-
-
-
-class DataVariable(Variable):
+class DataVariableView(Variable):
     """
 
     """
@@ -958,32 +949,23 @@ class DataVariable(Variable):
 
     @property
     def shape(self):
-        return tuple(self._sys_meta.variables[coord_name].shape[0] for coord_name in self.coord_names)
+        return tuple(s.stop - s.start for s in self._sel)
 
     # @property
     # def coords(self):
-    #     return tuple(self._dataset[coord_name] for coord_name in self.coord_names)
+    #     return tuple(self._dataset[coord_name][self._sel[i]] for i, coord_name in enumerate(self.coord_names))
 
 
 
 
-class DataVariableView(DataVariable):
+class DataVariable(DataVariableView):
     """
 
     """
     @property
     def shape(self):
-        return tuple(s.stop - s.start for s in self._sel)
+        return tuple(self._sys_meta.variables[coord_name].shape[0] for coord_name in self.coord_names)
 
-    @property
-    def coords(self):
-        return tuple(self._dataset[coord_name][self._sel[i]] for i, coord_name in enumerate(self.coord_names))
-
-    def get_chunk(self, sel=None, decoded=True, missing_none=False):
-        """
-
-        """
-        raise NotImplementedError()
 
 
 
