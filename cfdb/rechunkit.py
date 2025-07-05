@@ -249,23 +249,44 @@ def calc_n_reads_simple(source_shape, source_chunk_shape, target_chunk_shape):
     return next(read_counter)
 
 
-def calc_n_reads_rechunker(source_shape, source_chunk_shape, target_chunk_shape, itemsize, max_mem):
+def calc_n_reads_rechunker(shape: Tuple[int, ...], dtype: np.dtype, source_chunk_shape: Tuple[int, ...], target_chunk_shape: Tuple[int, ...], max_mem: int, sel=None) -> Iterator[Tuple[Tuple[slice, ...], np.ndarray]]:
     """
-    The number of reads and writes using the new rechunking method.
-    """
-    ## Calc the optimum read_chunk shape
-    ## Calc n chunks per read
-    ## Calc ideal read chunking shape
-    source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
+    This function takes a source dataset function with a specific chunk_shape and returns a generator that converts to a new chunk_shape. It optimises the rechunking by using an intermediate numpy ndarray with a size defined by the max_mem provided by the user.
 
-    ## Calc n chunks per read
-    n_chunks_per_read = calc_n_chunks_per_read(source_chunk_shape, source_read_chunk_shape)
+    Parameters
+    ----------
+    source: array-like
+        The source function to read the dataset/array. The function must have a single parameter input as a tuple of slices to retrieve an array chunk of data.
+    shape: tuple of ints
+        The shape of the source dataset, which will also be the shape of the target dataset.
+    dtype: np.dtype
+        The numpy data type of the source/target.
+    source_chunk_shape: tuple of ints
+        The chunk_shape of the source.
+    target_chunk_shape: tuple of ints
+        The chunk_shape of the target.
+    max_mem: int
+        The max allocated memory to perform the chunking operation in bytes.
+
+    Returns
+    -------
+    Generator
+        tuple of the target slices to the np.ndarray of data
+    """
+    itemsize = dtype.itemsize
+
+    ## Calc the optimum read_chunk_shape
+    source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
 
     ## Calc ideal read chunking shape
     ideal_read_chunk_shape = calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape)
 
-    ## Chunk_start
-    chunk_start = tuple(0 for i in range(len(source_shape)))
+    chunk_start = tuple(0 for i in range(len(shape)))
+
+    if sel is None:
+        target_shape = shape
+    else:
+        target_shape = tuple(ss.stop - ss.start for ss in sel)
 
     ## Counters
     read_counter = count()
@@ -273,306 +294,17 @@ def calc_n_reads_rechunker(source_shape, source_chunk_shape, target_chunk_shape,
 
     ## If the read chunking is set to the ideal chunking case, then use the simple implementation. Otherwise, use the more complicated one.
     if source_read_chunk_shape == ideal_read_chunk_shape:
-        read_chunk_iter = chunk_range(chunk_start, source_shape, source_read_chunk_shape)
+        read_chunk_iter = chunk_range(chunk_start, target_shape, source_read_chunk_shape)
         for read_chunk_grp in read_chunk_iter:
             read_chunk_grp_start = tuple(s.start for s in read_chunk_grp)
             read_chunk_grp_stop = tuple(s.stop for s in read_chunk_grp)
-            for read_chunk in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, source_chunk_shape, True, True):
-                # print(read_chunk)
+            for read_chunk in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, source_chunk_shape):
                 next(read_counter)
-            for write_chunk1 in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, target_chunk_shape, include_partial_chunks=True):
+
+            for write_chunk1 in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, target_chunk_shape):
                 next(write_counter)
 
     else:
-        writen_chunks = set() # Need to keep track of the bulk writes
-
-        read_chunk_iter = chunk_range(chunk_start, source_shape, target_chunk_shape)
-
-        for write_chunk in read_chunk_iter:
-            write_chunk_start = tuple(s.start for s in write_chunk)
-            write_chunk_stop = tuple(s.stop for s in write_chunk)
-            if write_chunk_start not in writen_chunks:
-                read_chunk_start = tuple(rc * (wc//rc) for wc, rc in zip(write_chunk_start, source_chunk_shape))
-                read_chunk_stop = tuple(min(max(rcs + rc, wc), sh) for rcs, rc, wc, sh in zip(read_chunk_start, source_read_chunk_shape, write_chunk_stop, source_shape))
-                read_chunks = list(chunk_range(write_chunk_start, read_chunk_stop, source_chunk_shape, True, False))
-                if len(read_chunks) <= n_chunks_per_read:
-                    for read_chunk in read_chunks:
-                        # print(read_chunk)
-                        # print(len(read_chunks))
-                        next(read_counter)
-
-                    for write_chunk1 in chunk_range(write_chunk_start, read_chunk_stop, target_chunk_shape, include_partial_chunks=False):
-                        # print(write_chunk1)
-                        write_chunk1_start = tuple(s.start for s in write_chunk1)
-                        if write_chunk1_start not in writen_chunks:
-                            writen_chunks.add(write_chunk1_start)
-                            next(write_counter)
-                else:
-                    for read_chunk in chunk_range(write_chunk_start, write_chunk_stop, source_chunk_shape, True, False):
-                        # print(read_chunk)
-                        next(read_counter)
-                    writen_chunks.add(write_chunk_start)
-                    next(write_counter)
-
-    return next(read_counter), next(write_counter)
-
-
-# def rechunker_example(source, source_chunk_shape, target_chunk_shape, max_mem):
-#     """
-#     This is just a test function to illustrate how the rechunking can work. The source should be an np.ndarray. This needs to be slightly reworked in the final implementation. Likely with "yields".
-#     """
-#     source_shape = source.shape
-#     dtype = source.dtype
-#     itemsize = dtype.itemsize
-
-#     target = np.zeros(source_shape, dtype=dtype)
-#     # target_shape = target.shape
-
-#     ## Calc the optimum read_chunk_shape
-#     source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
-
-#     mem_arr1 = np.zeros(source_read_chunk_shape, dtype=dtype)
-
-#     ## Calc n chunks per read
-#     n_chunks_per_read = calc_n_chunks_per_read(source_chunk_shape, source_read_chunk_shape)
-
-#     ## Calc ideal read chunking shape
-#     ideal_read_chunk_shape = calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape)
-
-#     ## Chunk_start
-#     chunk_start = tuple(0 for i in range(len(source_shape)))
-
-#     ## If the read chunking is set to the ideal chunking case, then use the simple implementation. Otherwise, the more complicated one.
-#     if source_read_chunk_shape == ideal_read_chunk_shape:
-#         read_chunk_iter = chunk_range(chunk_start, source_shape, source_read_chunk_shape)
-#         for read_chunk_grp in read_chunk_iter:
-#             read_chunk_grp_start = tuple(s.start for s in read_chunk_grp)
-#             read_chunk_grp_stop = tuple(s.stop for s in read_chunk_grp)
-#             for read_chunk in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, source_chunk_shape):
-#                 # print(read_chunk)
-#                 offset_slices = tuple(slice(rc.start - wcs, rc.stop - wcs) for wcs, rc in zip(read_chunk_grp_start, read_chunk))
-#                 mem_arr1[offset_slices] = source[read_chunk]
-
-#             for write_chunk1 in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, target_chunk_shape):
-#                 offset_slices = tuple(slice(wc.start - wcs, wc.stop - wcs) for wcs, wc in zip(read_chunk_grp_start, write_chunk1))
-#                 target[write_chunk1] = mem_arr1[offset_slices]
-
-#     else:
-#         writen_chunks = set() # Need to keep track of the bulk writes
-
-#         read_chunk_iter = chunk_range(chunk_start, source_shape, target_chunk_shape)
-
-#         for write_chunk in read_chunk_iter:
-#             write_chunk_start = tuple(s.start for s in write_chunk)
-#             if write_chunk_start not in writen_chunks:
-#                 write_chunk_stop = tuple(s.stop for s in write_chunk)
-#                 read_chunk_start = tuple(rc * (wc//rc) for wc, rc in zip(write_chunk_start, source_chunk_shape))
-#                 read_chunk_stop = tuple(min(max(rcs + rc, wc), sh) for rcs, rc, wc, sh in zip(read_chunk_start, source_read_chunk_shape, write_chunk_stop, source_shape))
-#                 read_chunks = list(chunk_range(write_chunk_start, read_chunk_stop, source_chunk_shape, True, False))
-#                 if len(read_chunks) <= n_chunks_per_read:
-#                     for read_chunk in read_chunks:
-#                         # print(read_chunk)
-#                         offset_slices = tuple(slice(rc.start - rcs, rc.stop - rcs) for rcs, rc in zip(read_chunk_start, read_chunk))
-#                         mem_arr1[offset_slices] = source[read_chunk]
-
-#                     for write_chunk1 in chunk_range(write_chunk_start, read_chunk_stop, target_chunk_shape, include_partial_chunks=False):
-#                         # print(write_chunk1)
-#                         write_chunk1_start = tuple(s.start for s in write_chunk1)
-#                         if write_chunk1_start not in writen_chunks:
-#                             offset_slices = tuple(slice(wc.start - wcs, wc.stop - wcs) for wcs, wc in zip(read_chunk_start, write_chunk1))
-#                             target[write_chunk1] = mem_arr1[offset_slices]
-#                             writen_chunks.add(write_chunk1_start)
-#                 else:
-#                     mem_read_chunk_slice = tuple(slice(0, wc.stop - wc.start) for wc in write_chunk)
-#                     for read_chunk in chunk_range(write_chunk_start, write_chunk_stop, source_chunk_shape, True, False):
-#                         # print(read_chunk)
-#                         clip_chunk = get_slice_min_max(read_chunk, write_chunk)
-#                         read_slice = tuple(slice(cc.start - rc.start, cc.stop - rc.start) for cc, rc in zip(clip_chunk, read_chunk))
-#                         write_slice = tuple(slice(cc.start - rc.start, cc.stop - rc.start) for cc, rc in zip(clip_chunk, write_chunk))
-
-#                         # print(read_chunk, read_slice, write_slice)
-#                         mem_arr1[write_slice] = source[read_chunk][read_slice]
-
-#                     target[write_chunk] = mem_arr1[mem_read_chunk_slice]
-#                     writen_chunks.add(write_chunk_start)
-
-#     return target
-
-
-def rechunker(source: object, shape: Tuple[int, ...], dtype: np.dtype, source_chunk_shape: Tuple[int, ...], target_chunk_shape: Tuple[int, ...], max_mem: int) -> Iterator[Tuple[Tuple[slice, ...], np.ndarray]]:
-    """
-    This function takes a source dataset function with a specific chunk_shape and returns a generator that converts to a new chunk_shape. It optimises the rechunking by using an intermediate numpy ndarray with a size defined by the max_mem provided by the user.
-
-    Parameters
-    ----------
-    source: array-like
-        The source function to read the dataset/array. The function must have a single parameter input as a tuple of slices to retrieve an array chunk of data.
-    shape: tuple of ints
-        The shape of the source dataset, which will also be the shape of the target dataset.
-    dtype: np.dtype
-        The numpy data type of the source/target.
-    source_chunk_shape: tuple of ints
-        The chunk_shape of the source.
-    target_chunk_shape: tuple of ints
-        The chunk_shape of the target.
-    max_mem: int
-        The max allocated memory to perform the chunking operation in bytes.
-
-    Returns
-    -------
-    Generator
-        tuple of the target slices to the np.ndarray of data
-    """
-    itemsize = dtype.itemsize
-
-    # target = np.zeros(shape, dtype=dtype)
-    # target_shape = target.shape
-
-    ## Calc the optimum read_chunk_shape
-    source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
-
-    mem_arr1 = np.zeros(source_read_chunk_shape, dtype=dtype)
-
-    ## Calc ideal read chunking shape
-    ideal_read_chunk_shape = calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape)
-
-    ## Chunk_start
-    chunk_start = tuple(0 for i in range(len(shape)))
-
-    ## If the read chunking is set to the ideal chunking case, then use the simple implementation. Otherwise, use the more complicated one.
-    if source_read_chunk_shape == ideal_read_chunk_shape:
-        read_chunk_iter = chunk_range(chunk_start, shape, source_read_chunk_shape)
-        for read_chunk_grp in read_chunk_iter:
-            read_chunk_grp_start = tuple(s.start for s in read_chunk_grp)
-            read_chunk_grp_stop = tuple(s.stop for s in read_chunk_grp)
-            for read_chunk in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, source_chunk_shape):
-                offset_slices = tuple(slice(rc.start - wcs, rc.stop - wcs) for wcs, rc in zip(read_chunk_grp_start, read_chunk))
-                mem_arr1[offset_slices] = source(read_chunk)
-
-            for write_chunk1 in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, target_chunk_shape):
-                offset_slices = tuple(slice(wc.start - wcs, wc.stop - wcs) for wcs, wc in zip(read_chunk_grp_start, write_chunk1))
-
-                yield write_chunk1, mem_arr1[offset_slices]
-
-    else:
-        ## Calc n chunks per read
-        n_chunks_per_read = calc_n_chunks_per_read(source_chunk_shape, source_read_chunk_shape)
-
-        writen_chunks = set() # Need to keep track of the bulk writes
-
-        read_chunk_iter = chunk_range(chunk_start, shape, target_chunk_shape)
-
-        for write_chunk in read_chunk_iter:
-            write_chunk_start = tuple(s.start for s in write_chunk)
-            if write_chunk_start not in writen_chunks:
-                write_chunk_stop = tuple(s.stop for s in write_chunk)
-                read_chunk_start = tuple(rc * (wc//rc) for wc, rc in zip(write_chunk_start, source_chunk_shape))
-                read_chunk_stop = tuple(min(max(rcs + rc, wc), sh) for rcs, rc, wc, sh in zip(read_chunk_start, source_read_chunk_shape, write_chunk_stop, shape))
-                read_chunks = list(chunk_range(write_chunk_start, read_chunk_stop, source_chunk_shape, True, False))
-                if len(read_chunks) <= n_chunks_per_read:
-                    for read_chunk in read_chunks:
-                        offset_slices = tuple(slice(rc.start - rcs, rc.stop - rcs) for rcs, rc in zip(read_chunk_start, read_chunk))
-                        mem_arr1[offset_slices] = source(read_chunk)
-
-                    for write_chunk1 in chunk_range(write_chunk_start, read_chunk_stop, target_chunk_shape, include_partial_chunks=False):
-                        write_chunk1_start = tuple(s.start for s in write_chunk1)
-                        if write_chunk1_start not in writen_chunks:
-                            offset_slices = tuple(slice(wc.start - wcs, wc.stop - wcs) for wcs, wc in zip(read_chunk_start, write_chunk1))
-
-                            yield write_chunk1, mem_arr1[offset_slices]
-
-                            writen_chunks.add(write_chunk1_start)
-                else:
-                    mem_read_chunk_slice = tuple(slice(0, wc.stop - wc.start) for wc in write_chunk)
-                    for read_chunk in chunk_range(write_chunk_start, write_chunk_stop, source_chunk_shape, True, False):
-                        clip_chunk = get_slice_min_max(read_chunk, write_chunk)
-                        read_slice = tuple(slice(cc.start - rc.start, cc.stop - rc.start) for cc, rc in zip(clip_chunk, read_chunk))
-                        write_slice = tuple(slice(cc.start - rc.start, cc.stop - rc.start) for cc, rc in zip(clip_chunk, write_chunk))
-
-                        # print(read_chunk, read_slice, write_slice)
-                        mem_arr1[write_slice] = source(read_chunk)[read_slice]
-
-                    yield write_chunk, mem_arr1[mem_read_chunk_slice]
-
-                    writen_chunks.add(write_chunk_start)
-
-
-def rechunker_testing(source: object, shape: Tuple[int, ...], dtype: np.dtype, source_chunk_shape: Tuple[int, ...], target_chunk_shape: Tuple[int, ...], max_mem: int, sel) -> Iterator[Tuple[Tuple[slice, ...], np.ndarray]]:
-    """
-    This function takes a source dataset function with a specific chunk_shape and returns a generator that converts to a new chunk_shape. It optimises the rechunking by using an intermediate numpy ndarray with a size defined by the max_mem provided by the user.
-
-    Parameters
-    ----------
-    source: array-like
-        The source function to read the dataset/array. The function must have a single parameter input as a tuple of slices to retrieve an array chunk of data.
-    shape: tuple of ints
-        The shape of the source dataset, which will also be the shape of the target dataset.
-    dtype: np.dtype
-        The numpy data type of the source/target.
-    source_chunk_shape: tuple of ints
-        The chunk_shape of the source.
-    target_chunk_shape: tuple of ints
-        The chunk_shape of the target.
-    max_mem: int
-        The max allocated memory to perform the chunking operation in bytes.
-
-    Returns
-    -------
-    Generator
-        tuple of the target slices to the np.ndarray of data
-    """
-    itemsize = dtype.itemsize
-
-
-    # target_shape = target.shape
-
-    ## Calc the optimum read_chunk_shape
-    source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
-
-    mem_arr1 = np.zeros(source_read_chunk_shape, dtype=dtype)
-
-    ## Calc ideal read chunking shape
-    ideal_read_chunk_shape = calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape)
-
-    ## Check if shape is a tuple of ints or slices
-    # ints_check = all([isinstance(s, (int, np.integer)) for s in shape])
-
-    # if ints_check:
-    #     chunk_start = tuple(0 for i in range(len(shape)))
-    # elif all([isinstance(s, slice) for s in shape]):
-    #     chunk_start = tuple(s.start for s in shape)
-    #     shape = tuple(s.stop - s.start for s in shape)
-
-    chunk_start = tuple(0 for i in range(len(shape)))
-
-    chunk_read_offset = tuple(s.start for s in sel)
-    # chunk_end = tuple(cs * ((ss.stop - 1)//cs + 1) for cs, ss in zip(source_chunk_shape, sel))
-    target_shape = tuple(cs * ((ss.stop - ss.start - 1)//cs + 1) for cs, ss in zip(target_chunk_shape, sel))
-    # target_shape = tuple(ss.stop - ss.start for ss in sel)
-
-    target = np.zeros(target_shape, dtype=dtype)
-
-    ## If the read chunking is set to the ideal chunking case, then use the simple implementation. Otherwise, use the more complicated one.
-    if source_read_chunk_shape == ideal_read_chunk_shape:
-        read_chunk_iter = chunk_range(chunk_start, shape, source_read_chunk_shape)
-        for read_chunk_grp in read_chunk_iter:
-            read_chunk_grp_start = tuple(s.start for s in read_chunk_grp)
-            read_chunk_grp_stop = tuple(s.stop for s in read_chunk_grp)
-            for read_chunk in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, source_chunk_shape):
-                offset_slices = tuple(slice(rc.start - wcs, rc.stop - wcs) for wcs, rc in zip(read_chunk_grp_start, read_chunk))
-                mem_arr1[offset_slices] = source(read_chunk)
-
-            for write_chunk1 in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, target_chunk_shape):
-                offset_slices = tuple(slice(wc.start - wcs, wc.stop - wcs) for wcs, wc in zip(read_chunk_grp_start, write_chunk1))
-
-                target[write_chunk1] = mem_arr1[offset_slices]
-
-                # yield write_chunk1, mem_arr1[offset_slices]
-
-    else:
-        ## Calc n chunks per read
-        n_chunks_per_read = calc_n_chunks_per_read(source_chunk_shape, source_read_chunk_shape)
-
         writen_chunks = set() # Need to keep track of the bulk writes
 
         write_chunk_iter = chunk_range(chunk_start, target_shape, target_chunk_shape)
@@ -581,52 +313,155 @@ def rechunker_testing(source: object, shape: Tuple[int, ...], dtype: np.dtype, s
             write_chunk_start = tuple(s.start for s in write_chunk)
             if write_chunk_start not in writen_chunks:
                 write_chunk_stop = tuple(s.stop for s in write_chunk)
-                write_bulk_chunk_stop = tuple(min(max(rcs + rc, wc), sh) for rcs, rc, wc, sh in zip(write_chunk_start, source_read_chunk_shape, write_chunk_stop, target_shape))
 
-                read_chunk_start = tuple(rc * ((wc + rco)//rc) for wc, rc, rco in zip(write_chunk_start, source_chunk_shape, chunk_read_offset))
+                read_chunk_start = tuple(rc * (wc//rc) for wc, rc in zip(write_chunk_start, source_chunk_shape))
                 read_chunk_stop = tuple(min(max(rcs + rc, wc), sh) for rcs, rc, wc, sh in zip(read_chunk_start, source_read_chunk_shape, write_chunk_stop, shape))
+                read_chunks_iter = chunk_range(read_chunk_start, read_chunk_stop, source_chunk_shape, True, False)
 
-                # write_chunk_start2 = tuple(wcs + cro for wcs, cro in zip(write_chunk_start, chunk_read_offset))
-                # read_chunk_stop2 = tuple(cro + rcs for cro, rcs in zip(chunk_read_offset, write_chunk_stop))
-                read_chunks = list(chunk_range(read_chunk_start, read_chunk_stop, source_chunk_shape, True, False))
-                if len(read_chunks) <= n_chunks_per_read:
-                    for read_chunk in read_chunks:
-                        offset_slices = tuple(slice(rc.start - rcs, rc.stop - rcs) for rcs, rc in zip(read_chunk_start, read_chunk))
-                        # offset_slices = tuple(slice(max(rc.start - rcs, 0), rc.stop - rcs) for rcs, rc in zip(write_chunk_start2, read_chunk))
-                        # offset_slices = tuple(slice(max(rc.start - rcs, 0), rc.stop - rcs) for rcs, rc in zip(write_chunk_start2, read_chunk))
+                if all(stop - start <= rcs for start, stop, rcs in zip(read_chunk_start, read_chunk_stop, source_read_chunk_shape)):
+                    for read_chunk in read_chunks_iter:
+                        next(read_counter)
 
-                        mem_arr1[offset_slices] = source(read_chunk)
+                    is_end_chunk = any(wc.stop == ts for wc, ts in zip(write_chunk, target_shape))
+                    for write_chunk1 in chunk_range(write_chunk_start, read_chunk_stop, target_chunk_shape, include_partial_chunks=is_end_chunk, clip_ends=False):
+                        write_chunk2 = tuple(slice(wc.start, min(wc.stop, s)) for wc, s in zip(write_chunk1, target_shape))
+                        if all(all((wc.stop - wcs <= src, wc.start < wc.stop)) for wcs, wc, src in zip(write_chunk_start, write_chunk2, source_read_chunk_shape)):
+                            write_chunk1_start = tuple(s.start for s in write_chunk2)
+                            if write_chunk1_start not in writen_chunks:
+                                next(write_counter)
 
-                    for write_chunk1 in chunk_range(write_chunk_start, write_bulk_chunk_stop, target_chunk_shape, include_partial_chunks=False):
-                        write_chunk1_start = tuple(s.start for s in write_chunk1)
-                        if write_chunk1_start not in writen_chunks:
-                            offset_slices = tuple(slice(wc.start - rcs, wc.stop - rcs) for rcs, wc in zip(read_chunk_start, write_chunk1))
-                            # print(write_chunk1, offset_slices)
-
-                            target[write_chunk1] = mem_arr1[offset_slices]
-
-                            # yield write_chunk1, mem_arr1[offset_slices]
-
-                            writen_chunks.add(write_chunk1_start)
+                                writen_chunks.add(write_chunk1_start)
                 else:
-                    mem_read_chunk_slice = tuple(slice(0, wc.stop - wc.start) for wc in write_chunk)
-                    for read_chunk in chunk_range(write_chunk_start, write_chunk_stop, source_chunk_shape, True, False):
-                        clip_chunk = get_slice_min_max(read_chunk, write_chunk)
-                        read_slice = tuple(slice(cc.start - rc.start, cc.stop - rc.start) for cc, rc in zip(clip_chunk, read_chunk))
-                        write_slice = tuple(slice(cc.start - rc.start, cc.stop - rc.start) for cc, rc in zip(clip_chunk, write_chunk))
+                    for read_chunk in read_chunks_iter:
+                        next(read_counter)
 
-                        # print(read_chunk, read_slice, write_slice)
-                        mem_arr1[write_slice] = source(read_chunk)[read_slice]
-
-                    target[write_chunk] = mem_arr1[mem_read_chunk_slice]
-
-                    # yield write_chunk, mem_arr1[mem_read_chunk_slice]
+                    next(write_counter)
 
                     writen_chunks.add(write_chunk_start)
 
+    return next(read_counter), next(write_counter)
 
 
 
+def rechunker(source: object, shape: Tuple[int, ...], dtype: np.dtype, source_chunk_shape: Tuple[int, ...], target_chunk_shape: Tuple[int, ...], max_mem: int, sel=None) -> Iterator[Tuple[Tuple[slice, ...], np.ndarray]]:
+    """
+    This function takes a source dataset function with a specific chunk_shape and returns a generator that converts to a new chunk_shape. It optimises the rechunking by using an intermediate numpy ndarray with a size defined by the max_mem provided by the user.
+
+    Parameters
+    ----------
+    source: array-like
+        The source function to read the dataset/array. The function must have a single parameter input as a tuple of slices to retrieve an array chunk of data.
+    shape: tuple of ints
+        The shape of the source dataset, which will also be the shape of the target dataset.
+    dtype: np.dtype
+        The numpy data type of the source/target.
+    source_chunk_shape: tuple of ints
+        The chunk_shape of the source.
+    target_chunk_shape: tuple of ints
+        The chunk_shape of the target.
+    max_mem: int
+        The max allocated memory to perform the chunking operation in bytes.
+    sel: tuple of slices
+        A subset selection of the source in the form of a tuple of slices. The starts and stops must be within the shape of the source.
+
+    Returns
+    -------
+    Generator
+        tuple of the target slices to the np.ndarray of data
+    """
+    itemsize = dtype.itemsize
+
+    ## Calc the optimum read_chunk_shape
+    source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, target_chunk_shape, itemsize, max_mem)
+
+    mem_arr1 = np.zeros(source_read_chunk_shape, dtype=dtype)
+
+    ## Calc ideal read chunking shape
+    ideal_read_chunk_shape = calc_ideal_read_chunk_shape(source_chunk_shape, target_chunk_shape)
+
+    chunk_start = tuple(0 for i in range(len(shape)))
+
+    if sel is None:
+        chunk_read_offset = chunk_start
+        target_shape = shape
+    else:
+        chunk_read_offset = tuple(s.start for s in sel)
+        target_shape = tuple(ss.stop - ss.start for ss in sel)
+
+    # target = np.zeros(target_shape, dtype=dtype)
+
+    ## If the read chunking is set to the ideal chunking case, then use the simple implementation. Otherwise, use the more complicated one.
+    if source_read_chunk_shape == ideal_read_chunk_shape:
+        read_chunk_iter = chunk_range(chunk_start, target_shape, source_read_chunk_shape)
+        for read_chunk_grp in read_chunk_iter:
+            read_chunk_grp_start = tuple(s.start for s in read_chunk_grp)
+            read_chunk_grp_stop = tuple(s.stop for s in read_chunk_grp)
+            for read_chunk in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, source_chunk_shape):
+                offset_slices = tuple(slice(rc.start - wcs, rc.stop - wcs) for wcs, rc in zip(read_chunk_grp_start, read_chunk))
+                read_chunk1 = tuple(slice(rc.start + cro, rc.stop + cro) for rc, cro in zip(read_chunk, chunk_read_offset))
+                mem_arr1[offset_slices] = source(read_chunk1)
+
+            for write_chunk1 in chunk_range(read_chunk_grp_start, read_chunk_grp_stop, target_chunk_shape):
+                offset_slices = tuple(slice(wc.start - wcs, wc.stop - wcs) for wcs, wc in zip(read_chunk_grp_start, write_chunk1))
+
+                # target[write_chunk1] = mem_arr1[offset_slices]
+
+                yield write_chunk1, mem_arr1[offset_slices]
+
+    else:
+        writen_chunks = set() # Need to keep track of the bulk writes
+
+        write_chunk_iter = chunk_range(chunk_start, target_shape, target_chunk_shape)
+
+        for write_chunk in write_chunk_iter:
+            write_chunk_start = tuple(s.start for s in write_chunk)
+            if write_chunk_start not in writen_chunks:
+                write_chunk_stop = tuple(s.stop for s in write_chunk)
+
+                read_chunk_start = tuple(rc * (wc//rc) for wc, rc in zip(write_chunk_start, source_chunk_shape))
+                read_chunk_stop = tuple(min(max(rcs + rc, wc), sh) for rcs, rc, wc, sh in zip(read_chunk_start, source_read_chunk_shape, write_chunk_stop, shape))
+                read_chunks_iter = chunk_range(read_chunk_start, read_chunk_stop, source_chunk_shape, True, False)
+
+                if all(stop - start <= rcs for start, stop, rcs in zip(read_chunk_start, read_chunk_stop, source_read_chunk_shape)):
+                    for read_chunk in read_chunks_iter:
+                        offset_slices = tuple(slice(rc.start - rcs, rc.stop - rcs) for rcs, rc in zip(read_chunk_start, read_chunk))
+                        read_chunk1 = tuple(slice(rc.start + cro, rc.stop + cro) for rc, cro in zip(read_chunk, chunk_read_offset))
+
+                        mem_arr1[offset_slices] = source(read_chunk1)
+
+                    is_end_chunk = any(wc.stop == ts for wc, ts in zip(write_chunk, target_shape))
+                    for write_chunk1 in chunk_range(write_chunk_start, read_chunk_stop, target_chunk_shape, include_partial_chunks=is_end_chunk, clip_ends=False):
+                        write_chunk2 = tuple(slice(wc.start, min(wc.stop, s)) for wc, s in zip(write_chunk1, target_shape))
+                        if all(all((wc.stop - wcs <= src, wc.start < wc.stop)) for wcs, wc, src in zip(write_chunk_start, write_chunk2, source_read_chunk_shape)):
+                            write_chunk1_start = tuple(s.start for s in write_chunk2)
+                            if write_chunk1_start not in writen_chunks:
+                                offset_slices = tuple(slice(wc.start - rcs, wc.stop - rcs) for rcs, wc in zip(read_chunk_start, write_chunk2))
+                                # print(write_chunk1, offset_slices)
+
+                                # target[write_chunk2] = mem_arr1[offset_slices]
+
+                                yield write_chunk2, mem_arr1[offset_slices]
+
+                                writen_chunks.add(write_chunk1_start)
+                                # if write_chunk1_start == (14, 5):
+                                #     raise ValueError()
+                else:
+                    mem_read_chunk_slice = tuple(slice(0, wc.stop - wc.start) for wc in write_chunk)
+                    # for read_chunk in chunk_range(write_chunk_start, write_chunk_stop, source_chunk_shape, True, False):
+                    for read_chunk in read_chunks_iter:
+                        read_chunk1 = tuple(slice(rc.start + cro, rc.stop + cro) for rc, cro in zip(read_chunk, chunk_read_offset))
+                        clip_read_chunk = get_slice_min_max(read_chunk, write_chunk)
+                        read_slice = tuple(slice(cc.start - rc.start, cc.stop - rc.start) for cc, rc in zip(clip_read_chunk, read_chunk))
+                        write_slice = tuple(slice(cc.start - rc.start, cc.stop - rc.start) for cc, rc in zip(clip_read_chunk, write_chunk))
+
+                        # print(read_chunk, read_slice, write_slice)
+                        mem_arr1[write_slice] = source(read_chunk1)[read_slice]
+
+                    # target[write_chunk] = mem_arr1[mem_read_chunk_slice]
+
+                    yield write_chunk, mem_arr1[mem_read_chunk_slice]
+
+                    writen_chunks.add(write_chunk_start)
 
 
 
