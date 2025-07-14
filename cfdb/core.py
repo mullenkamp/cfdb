@@ -13,6 +13,7 @@ from typing import Union, List
 import pathlib
 import copy
 import uuid6 as uuid
+import tempfile
 
 try:
     import fcntl
