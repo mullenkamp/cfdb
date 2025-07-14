@@ -7,9 +7,9 @@ Created on Thu Feb 13 17:08:09 2025
 """
 import numpy as np
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
-import msgspec
 
-import utils, data_models, rechunkit, support_classes as sc
+from . import utils, data_models, support_classes as sc
+# import utils, data_models, rechunkit, support_classes as sc
 
 #################################################
 
@@ -44,7 +44,7 @@ class Coord:
         self._dataset._sys_meta.variables[name] = var
 
         ## Init Coordinate
-        coord = sc.Coordinate(self, name, self._dataset)
+        coord = sc.Coordinate(name, self._dataset)
         # coord.attrs.update(utils.default_attrs['lat'])
 
         ## Add data if it has been passed
@@ -53,35 +53,39 @@ class Coord:
 
         self._dataset._var_cache[name] = coord
 
+        ## Add attributes to datetime vars
+        if coord.dtype_decoded.kind == 'M':
+            coord.attrs['units'] = utils.parse_cf_time_units(coord.dtype_decoded)
+            coord.attrs['calendar'] = 'proleptic_gregorian'
+
         return coord
+
+
+    def like(self, name: str, coord: Union[sc.Coordinate, sc.CoordinateView], copy_data=False):
+        """
+
+        """
+        if copy_data:
+            data = coord.data
+        else:
+            data = None
+
+        new_coord = self.generic(name, data, dtype_decoded=coord.dtype_decoded, dtype_encoded=coord.dtype_encoded, chunk_shape=coord.chunk_shape, fillvalue=coord.fillvalue, scale_factor=coord.scale_factor, add_offset=coord.add_offset, step=coord.step)
+
+        return new_coord
+
 
 
     def latitude(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
         """
 
         """
-        params = utils.default_params['lat']
-        params.update(kwargs)
-
-        if params['name'] in self._dataset._sys_meta.variables:
-            raise ValueError(f"Dataset already contains the variable {params['name']}.")
+        name, params = utils.get_var_params('lat', kwargs)
 
         # print(params)
 
-        name, var = utils.parse_coord_inputs(data=data, step=step, **params)
-
-        ## Var init process
-        self._dataset._sys_meta.variables[name] = var
-
-        ## Init Coordinate
-        coord = sc.Coordinate(name, self._dataset)
+        coord = self.generic(name, data, step=step, **params)
         coord.attrs.update(utils.default_attrs['lat'])
-
-        ## Add data if it has been passed
-        if isinstance(data, np.ndarray):
-            coord.append(data)
-
-        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -90,26 +94,12 @@ class Coord:
         """
 
         """
-        params = utils.default_params['lon']
-        params.update(kwargs)
+        name, params = utils.get_var_params('lon', kwargs)
 
-        if params['name'] in self._dataset._sys_meta.variables:
-            raise ValueError(f"Dataset already contains the variable {params['name']}.")
+        # print(params)
 
-        name, var = utils.parse_coord_inputs(data=data, step=step, **params)
-
-        ## Var init process
-        self._dataset._sys_meta.variables[name] = var
-
-        ## Init Coordinate
-        coord = sc.Coordinate(name, self._dataset)
+        coord = self.generic(name, data, step=step, **params)
         coord.attrs.update(utils.default_attrs['lon'])
-
-        ## Add data if it has been passed
-        if isinstance(data, np.ndarray):
-            coord.append(data)
-
-        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -118,26 +108,12 @@ class Coord:
         """
 
         """
-        params = utils.default_params['time']
-        params.update(kwargs)
+        name, params = utils.get_var_params('time', kwargs)
 
-        if params['name'] in self._dataset._sys_meta.variables:
-            raise ValueError(f"Dataset already contains the variable {params['name']}.")
+        # print(params)
 
-        name, var = utils.parse_coord_inputs(data=data, step=step, **params)
-
-        ## Var init process
-        self._dataset._sys_meta.variables[name] = var
-
-        ## Init Coordinate
-        coord = sc.Coordinate(name, self._dataset)
+        coord = self.generic(name, data, step=step, **params)
         coord.attrs.update(utils.default_attrs['time'])
-
-        ## Add data if it has been passed
-        if isinstance(data, np.ndarray):
-            coord.append(data)
-
-        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -146,26 +122,12 @@ class Coord:
         """
 
         """
-        params = utils.default_params['height']
-        params.update(kwargs)
+        name, params = utils.get_var_params('height', kwargs)
 
-        if params['name'] in self._dataset._sys_meta.variables:
-            raise ValueError(f"Dataset already contains the variable {params['name']}.")
+        # print(params)
 
-        name, var = utils.parse_coord_inputs(data=data, step=step, **params)
-
-        ## Var init process
-        self._dataset._sys_meta.variables[name] = var
-
-        ## Init Coordinate
-        coord = sc.Coordinate(name, self._dataset)
+        coord = self.generic(name, data, step=step, **params)
         coord.attrs.update(utils.default_attrs['height'])
-
-        ## Add data if it has been passed
-        if isinstance(data, np.ndarray):
-            coord.append(data)
-
-        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -174,26 +136,12 @@ class Coord:
         """
 
         """
-        params = utils.default_params['altitude']
-        params.update(kwargs)
+        name, params = utils.get_var_params('altitude', kwargs)
 
-        if params['name'] in self._dataset._sys_meta.variables:
-            raise ValueError(f"Dataset already contains the variable {params['name']}.")
+        # print(params)
 
-        name, var = utils.parse_coord_inputs(data=data, step=step, **params)
-
-        ## Var init process
-        self._dataset._sys_meta.variables[name] = var
-
-        ## Init Coordinate
-        coord = sc.Coordinate(name, self._dataset)
+        coord = self.generic(name, data, step=step, **params)
         coord.attrs.update(utils.default_attrs['altitude'])
-
-        ## Add data if it has been passed
-        if isinstance(data, np.ndarray):
-            coord.append(data)
-
-        self._dataset._var_cache[name] = coord
 
         return coord
 
@@ -228,7 +176,21 @@ class DataVar:
 
         self._dataset._var_cache[name] = data_var
 
+        ## Add attributes to datetime vars
+        if data_var.dtype_decoded.kind == 'M':
+            data_var.attrs['units'] = utils.parse_cf_time_units(data_var.dtype_decoded)
+            data_var.attrs['calendar'] = 'proleptic_gregorian'
+
         return data_var
+
+
+    def like(self, name: str, data_var: Union[sc.DataVariable, sc.DataVariableView]):
+        """
+
+        """
+        new_data_var = self.generic(name, data_var.coord_names, dtype_decoded=data_var.dtype_decoded, dtype_encoded=data_var.dtype_encoded, chunk_shape=data_var.chunk_shape, fillvalue=data_var.fillvalue, scale_factor=data_var.scale_factor, add_offset=data_var.add_offset)
+
+        return new_data_var
 
 
 

@@ -12,21 +12,24 @@ import os
 import numpy as np
 import msgspec
 import re
-import copy
+from copy import deepcopy
 # import xarray as xr
 # from time import time
 # from datetime import datetime
 import cftime
 import math
+import rechunkit
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
 # import zstandard as zstd
 # import lz4
+import booklet
 
 # import dateutil.parser as dparser
 # import numcodecs
 # import hdf5plugin
 
-import data_models, rechunker, indexers
+from . import data_models
+# import data_models
 
 ########################################################
 ### Parmeters
@@ -56,6 +59,21 @@ name_indent = 4
 value_indent = 20
 var_name_regex = "^[a-zA-Z][a-zA-Z0-9_]*$"
 var_name_pattern = re.compile(var_name_regex)
+
+time_units_dict = {
+    'M': 'months',
+    'D': 'days',
+    'h': 'hours',
+    'm': 'minutes',
+    's': 'seconds',
+    'ms': 'milliseconds',
+    'us': 'microseconds',
+    'ns': 'nanoseconds',
+    }
+
+compression_options = ('zstd', 'lz4')
+default_compression_levels = {'zstd': 1, 'lz4': 1}
+default_n_buckets = 144013
 
 default_params = {'lon': {'name': 'longitude', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
                  'lat': {'name': 'latitude', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
@@ -124,9 +142,9 @@ default_attrs = dict(
         },
     time={
         'long_name': 'time',
-        'units': 'seconds since 1970-01-01 00:00:00',
+        # 'units': 'seconds since 1970-01-01 00:00:00',
         'standard_name': 'time',
-        'calendar': 'proleptic_gregorian',
+        # 'calendar': 'proleptic_gregorian',
         'axis': 'T',
         },
     )
@@ -215,7 +233,16 @@ default_attrs = dict(
 ### Functions
 
 
-# def make_compressor(
+def parse_cf_time_units(dtype_decoded):
+    """
+
+    """
+    np_time_str = dtype_decoded.str.split('[')[1].split(']')[0]
+    time_name = time_units_dict[np_time_str]
+    datetime = np.datetime64('1970-01-01', np_time_str)
+    units = f'{time_name} since {datetime}'
+
+    return units
 
 
 def min_max_dates_per_bit_len(n_bits):
@@ -302,6 +329,7 @@ def compute_scale_and_offset(min_value: Union[int, float, np.number], max_value:
         target_min = -(2**(bits - 1) - 1)
     else:
         target_min = -(2**(bits - 1) - 1000)
+
     # if bits < 64:
     #     target_range = 2**bits - 2
     #     target_min = -(2**(bits - 1) - 1)
@@ -410,10 +438,11 @@ def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sour
 
     """
     # new_shape = new_data.shape
-    new_dtype_decoded = new_data.dtype
+    # new_dtype_decoded = new_data.dtype
+    new_data = np.asarray(new_data, dtype=source_dtype_decoded)
 
-    if source_dtype_decoded != new_dtype_decoded:
-        raise TypeError('The data dtype does not match the originally assigned dtype.')
+    # if source_dtype_decoded != new_dtype_decoded:
+    #     raise TypeError('The data dtype does not match the originally assigned dtype.')
 
     # print(source_data)
 
@@ -451,10 +480,11 @@ def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sou
 
     """
     # new_shape = new_data.shape
-    new_dtype_decoded = new_data.dtype
+    # new_dtype_decoded = new_data.dtype
+    new_data = np.asarray(new_data, dtype=source_dtype_decoded)
 
-    if source_dtype_decoded != new_dtype_decoded:
-        raise TypeError('The data dtype does not match the originally assigned dtype.')
+    # if source_dtype_decoded != new_dtype_decoded:
+    #     raise TypeError('The data dtype does not match the originally assigned dtype.')
 
     if source_data.size > 0:
         if source_dtype_decoded.kind != 'U':
@@ -573,8 +603,8 @@ def parse_dtype_names(dtype_decoded, dtype_encoded):
 
     """
     if dtype_encoded.kind == 'U':
-        dtype_decoded_name = dtype_decoded.descr[0][1]
-        dtype_encoded_name = dtype_encoded.descr[0][1]
+        dtype_decoded_name = dtype_decoded.str
+        dtype_encoded_name = dtype_encoded.str
     else:
         dtype_decoded_name = dtype_decoded.name
         dtype_encoded_name = dtype_encoded.name
@@ -673,7 +703,7 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
         if not all([isinstance(c, int) for c in chunk_shape]):
             raise TypeError('chunk_shape must be a tuple of ints.')
     elif chunk_shape is None:
-        chunk_shape = guess_chunk_shape((1000000,), dtype_encoded, 2**20)
+        chunk_shape = rechunkit.guess_chunk_shape((1000000,), dtype_encoded, 2**20)
     else:
         raise TypeError('chunk_shape must be either a tuple of ints or None.')
 
@@ -726,7 +756,7 @@ def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str
         if not all([isinstance(c, int) for c in chunk_shape]):
             raise TypeError('chunk_shape must be a tuple of ints.')
     elif chunk_shape is None:
-        chunk_shape = guess_chunk_shape(shape, dtype_encoded, 2**21)
+        chunk_shape = rechunkit.guess_chunk_shape(shape, dtype_encoded, 2**21)
     else:
         raise TypeError('chunk_shape must be either a tuple of ints or None.')
 
@@ -946,19 +976,6 @@ def make_var_chunk_key(var_name, chunk_start):
     return var_chunk_key
 
 
-def check_sel_input_data(sel, input_data, coord_origins, shape):
-    """
-
-    """
-    slices = indexers.index_combo_all(sel, coord_origins, shape)
-    slices_shape = tuple(s.stop - s.start for s in slices)
-
-    if input_data.shape != slices_shape:
-        raise ValueError('The selection shape is not equal to the input data.')
-
-    return slices
-
-
 # def write_chunk(blt_file, var_name, chunk_start_pos, data_chunk_bytes):
 #     """
 
@@ -1041,6 +1058,37 @@ def check_coords(coords, shape, sys_meta):
             raise ValueError(f'The {coord} shape length ({size}) != existing coord length ({exist_coord.shape[0]})')
 
 
+# def init_file(file_path: Union[str, pathlib.Path], flag: str = "r", compression='zstd', compression_level=1, **kwargs):
+#     """
+
+#     """
+#     if 'n_buckets' not in kwargs:
+#         kwargs['n_buckets'] = default_n_buckets
+
+#     fp = pathlib.Path(file_path)
+#     fp_exists = fp.exists()
+#     blt = booklet.open(file_path, flag, key_serializer='str', **kwargs)
+#     writable = blt.writable
+#     file_path = fp
+
+#     ## Set/Get system metadata
+#     if not fp_exists or flag in ('n', 'c'):
+#         # Checks
+#         if compression.lower() not in compression_options:
+#             raise ValueError(f'compression must be one of {compression_options}.')
+
+#         sys_meta = data_models.SysMeta(object_type='Dataset', compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
+#         blt.set_metadata(msgspec.to_builtins(sys_meta))
+
+#     else:
+#         sys_meta = msgspec.convert(blt.get_metadata(), data_models.SysMeta)
+
+#     compression = sys_meta.compression.value
+#     compression_level = sys_meta.compression_level
+#     compressor = sc.Compressor(compression, compression_level)
+
+    # finalizers = [weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta))]
+
 
 # def data_var_init(name, coords, shape, chunk_shape, enc, sys_meta):
 #     """
@@ -1055,222 +1103,222 @@ def check_coords(coords, shape, sys_meta):
 #     sys_meta.variables[name] = var
 
 
-def extend_coords(files, encodings, group):
-    """
+# def extend_coords(files, encodings, group):
+#     """
 
-    """
-    coords_dict = {}
+#     """
+#     coords_dict = {}
 
-    for file1 in files:
-        with open_file(file1, group) as file:
-            if isinstance(file, xr.Dataset):
-                ds_list = list(file.coords)
-            else:
-                ds_list = [ds_name for ds_name in file.keys() if is_scale(file[ds_name])]
+#     for file1 in files:
+#         with open_file(file1, group) as file:
+#             if isinstance(file, xr.Dataset):
+#                 ds_list = list(file.coords)
+#             else:
+#                 ds_list = [ds_name for ds_name in file.keys() if is_scale(file[ds_name])]
 
-            for ds_name in ds_list:
-                ds = file[ds_name]
+#             for ds_name in ds_list:
+#                 ds = file[ds_name]
 
-                if isinstance(file, xr.Dataset):
-                    data = encode_data(ds.values, **encodings[ds_name])
-                else:
-                    if ds.dtype.name == 'object':
-                        data = ds[:].astype(str).astype(h5py.string_dtype())
-                    else:
-                        data = ds[:]
+#                 if isinstance(file, xr.Dataset):
+#                     data = encode_data(ds.values, **encodings[ds_name])
+#                 else:
+#                     if ds.dtype.name == 'object':
+#                         data = ds[:].astype(str).astype(h5py.string_dtype())
+#                     else:
+#                         data = ds[:]
 
-                # Check for nan values in numeric types
-                dtype = data.dtype
-                if np.issubdtype(dtype, np.integer):
-                    nan_value = missing_value_dict[dtype.name]
-                    if nan_value in data:
-                        raise ValueError(f'{ds_name} has nan values. Floats and integers coordinates cannot have nan values. Check the encoding values if the original values are floats.')
+#                 # Check for nan values in numeric types
+#                 dtype = data.dtype
+#                 if np.issubdtype(dtype, np.integer):
+#                     nan_value = missing_value_dict[dtype.name]
+#                     if nan_value in data:
+#                         raise ValueError(f'{ds_name} has nan values. Floats and integers coordinates cannot have nan values. Check the encoding values if the original values are floats.')
 
-                if ds_name in coords_dict:
-                    coords_dict[ds_name] = np.union1d(coords_dict[ds_name], data)
-                else:
-                    coords_dict[ds_name] = data
+#                 if ds_name in coords_dict:
+#                     coords_dict[ds_name] = np.union1d(coords_dict[ds_name], data)
+#                 else:
+#                     coords_dict[ds_name] = data
 
-    return coords_dict
-
-
-def index_variables(files, coords_dict, encodings, group):
-    """
-
-    """
-    vars_dict = {}
-    is_regular_dict = {}
-
-    for i, file1 in enumerate(files):
-        with open_file(file1, group) as file:
-            # if i == 77:
-            #     break
-
-            if isinstance(file, xr.Dataset):
-                ds_list = list(file.data_vars)
-            else:
-                ds_list = [ds_name for ds_name in file.keys() if not is_scale(file[ds_name])]
-
-            _ = [is_regular_dict.update({ds_name: True}) for ds_name in ds_list if ds_name not in is_regular_dict]
-
-            for ds_name in ds_list:
-                ds = file[ds_name]
-
-                var_enc = encodings[ds_name]
-
-                dims = []
-                global_index = {}
-                local_index = {}
-                remove_ds = False
-
-                for dim in ds.dims:
-                    if isinstance(ds, xr.DataArray):
-                        dim_name = dim
-                        dim_data = encode_data(ds[dim_name].values, **encodings[dim_name])
-                    else:
-                        dim_name = dim[0].name.split('/')[-1]
-                        if dim[0].dtype.name == 'object':
-                            dim_data = dim[0][:].astype(str).astype(h5py.string_dtype())
-                        else:
-                            dim_data = dim[0][:]
-
-                    dims.append(dim_name)
-
-                    # global_arr_index = np.searchsorted(coords_dict[dim_name], dim_data)
-                    # local_arr_index = np.isin(dim_data, coords_dict[dim_name], assume_unique=True).nonzero()[0]
-                    values, global_arr_index, local_arr_index = np.intersect1d(coords_dict[dim_name], dim_data, assume_unique=True, return_indices=True)
-
-                    if len(global_arr_index) > 0:
-
-                        global_index[dim_name] = global_arr_index
-                        local_index[dim_name] = local_arr_index
-
-                        if is_regular_dict[ds_name]:
-                            if (not is_regular_index(global_arr_index)) or (not is_regular_index(local_arr_index)):
-                                is_regular_dict[ds_name] = False
-                    else:
-                        remove_ds = True
-                        break
-
-                if remove_ds:
-                    if ds_name in vars_dict:
-                        if i in vars_dict[ds_name]['data']:
-                            del vars_dict[ds_name]['data'][i]
-
-                else:
-                    dict1 = {'dims_order': tuple(i for i in range(len(dims))), 'global_index': global_index, 'local_index': local_index}
-
-                    if ds_name in vars_dict:
-                        if not np.in1d(vars_dict[ds_name]['dims'], dims).all():
-                            raise ValueError('dims are not consistant between the same named dataset: ' + ds_name)
-                        # if vars_dict[ds_name]['dtype'] != ds.dtype:
-                        #     raise ValueError('dtypes are not consistant between the same named dataset: ' + ds_name)
-
-                        dims_order = [vars_dict[ds_name]['dims'].index(dim) for dim in dims]
-                        dict1['dims_order'] = tuple(dims_order)
-
-                        vars_dict[ds_name]['data'][i] = dict1
-                    else:
-                        shape = tuple([coords_dict[dim_name].shape[0] for dim_name in dims])
-
-                        if 'missing_value' in var_enc:
-                            fillvalue = var_enc['missing_value']
-                        else:
-                            fillvalue = None
-
-                        vars_dict[ds_name] = {'data': {i: dict1}, 'dims': tuple(dims), 'shape': shape, 'dtype': var_enc['dtype'], 'fillvalue': fillvalue, 'dtype_decoded': var_enc['dtype_decoded']}
-
-    return vars_dict, is_regular_dict
+#     return coords_dict
 
 
-def filter_coords(coords_dict, selection, encodings):
-    """
+# def index_variables(files, coords_dict, encodings, group):
+#     """
 
-    """
-    for coord, sel in selection.items():
-        if coord not in coords_dict:
-            raise ValueError(coord + ' one of the coordinates.')
+#     """
+#     vars_dict = {}
+#     is_regular_dict = {}
 
-        coord_data = decode_data(coords_dict[coord], **encodings[coord])
+#     for i, file1 in enumerate(files):
+#         with open_file(file1, group) as file:
+#             # if i == 77:
+#             #     break
 
-        if isinstance(sel, slice):
-            if 'datetime64' in coord_data.dtype.name:
-                # if not isinstance(sel.start, (str, np.datetime64)):
-                #     raise TypeError('Input for datetime selection should be either a datetime string or np.datetime64.')
+#             if isinstance(file, xr.Dataset):
+#                 ds_list = list(file.data_vars)
+#             else:
+#                 ds_list = [ds_name for ds_name in file.keys() if not is_scale(file[ds_name])]
 
-                if sel.start is not None:
-                    start = np.datetime64(sel.start, 's')
-                else:
-                    start = np.datetime64(coord_data[0] - 1, 's')
+#             _ = [is_regular_dict.update({ds_name: True}) for ds_name in ds_list if ds_name not in is_regular_dict]
 
-                if sel.stop is not None:
-                    end = np.datetime64(sel.stop, 's')
-                else:
-                    end = np.datetime64(coord_data[-1] + 1, 's')
+#             for ds_name in ds_list:
+#                 ds = file[ds_name]
 
-                bool_index = (start <= coord_data) & (coord_data < end)
-            else:
-                bool_index = (sel.start <= coord_data) & (coord_data < sel.stop)
+#                 var_enc = encodings[ds_name]
 
-        else:
-            if isinstance(sel, (int, float)):
-                sel = [sel]
+#                 dims = []
+#                 global_index = {}
+#                 local_index = {}
+#                 remove_ds = False
 
-            try:
-                sel1 = np.array(sel)
-            except:
-                raise TypeError('selection input could not be coerced to an ndarray.')
+#                 for dim in ds.dims:
+#                     if isinstance(ds, xr.DataArray):
+#                         dim_name = dim
+#                         dim_data = encode_data(ds[dim_name].values, **encodings[dim_name])
+#                     else:
+#                         dim_name = dim[0].name.split('/')[-1]
+#                         if dim[0].dtype.name == 'object':
+#                             dim_data = dim[0][:].astype(str).astype(h5py.string_dtype())
+#                         else:
+#                             dim_data = dim[0][:]
 
-            if sel1.dtype.name == 'bool':
-                if sel1.shape[0] != coord_data.shape[0]:
-                    raise ValueError('The boolean array does not have the same length as the coord array.')
-                bool_index = sel1
-            else:
-                bool_index = np.in1d(coord_data, sel1)
+#                     dims.append(dim_name)
 
-        new_coord_data = encode_data(coord_data[bool_index], **encodings[coord])
+#                     # global_arr_index = np.searchsorted(coords_dict[dim_name], dim_data)
+#                     # local_arr_index = np.isin(dim_data, coords_dict[dim_name], assume_unique=True).nonzero()[0]
+#                     values, global_arr_index, local_arr_index = np.intersect1d(coords_dict[dim_name], dim_data, assume_unique=True, return_indices=True)
 
-        coords_dict[coord] = new_coord_data
+#                     if len(global_arr_index) > 0:
+
+#                         global_index[dim_name] = global_arr_index
+#                         local_index[dim_name] = local_arr_index
+
+#                         if is_regular_dict[ds_name]:
+#                             if (not is_regular_index(global_arr_index)) or (not is_regular_index(local_arr_index)):
+#                                 is_regular_dict[ds_name] = False
+#                     else:
+#                         remove_ds = True
+#                         break
+
+#                 if remove_ds:
+#                     if ds_name in vars_dict:
+#                         if i in vars_dict[ds_name]['data']:
+#                             del vars_dict[ds_name]['data'][i]
+
+#                 else:
+#                     dict1 = {'dims_order': tuple(i for i in range(len(dims))), 'global_index': global_index, 'local_index': local_index}
+
+#                     if ds_name in vars_dict:
+#                         if not np.in1d(vars_dict[ds_name]['dims'], dims).all():
+#                             raise ValueError('dims are not consistant between the same named dataset: ' + ds_name)
+#                         # if vars_dict[ds_name]['dtype'] != ds.dtype:
+#                         #     raise ValueError('dtypes are not consistant between the same named dataset: ' + ds_name)
+
+#                         dims_order = [vars_dict[ds_name]['dims'].index(dim) for dim in dims]
+#                         dict1['dims_order'] = tuple(dims_order)
+
+#                         vars_dict[ds_name]['data'][i] = dict1
+#                     else:
+#                         shape = tuple([coords_dict[dim_name].shape[0] for dim_name in dims])
+
+#                         if 'missing_value' in var_enc:
+#                             fillvalue = var_enc['missing_value']
+#                         else:
+#                             fillvalue = None
+
+#                         vars_dict[ds_name] = {'data': {i: dict1}, 'dims': tuple(dims), 'shape': shape, 'dtype': var_enc['dtype'], 'fillvalue': fillvalue, 'dtype_decoded': var_enc['dtype_decoded']}
+
+#     return vars_dict, is_regular_dict
 
 
-def guess_chunk_shape(shape: Tuple[int, ...], dtype: np.dtype, target_chunk_size: int = 2**21) -> Tuple[int, ...]:
-    """
-    Guess an appropriate chunk layout for a dataset, given its shape and
-    the size of each element in bytes.  Will allocate chunks only as large
-    as target_chunk_size.  Chunks are generally close to some power-of-2 fraction of
-    each axis, slightly favoring bigger values for the last index.
-    """
-    ndims = len(shape)
+# def filter_coords(coords_dict, selection, encodings):
+#     """
 
-    if ndims > 0:
+#     """
+#     for coord, sel in selection.items():
+#         if coord not in coords_dict:
+#             raise ValueError(coord + ' one of the coordinates.')
 
-        if not all(isinstance(v, int) for v in shape):
-            raise TypeError('All values in the shape must be ints.')
+#         coord_data = decode_data(coords_dict[coord], **encodings[coord])
 
-        chunks = np.array(shape, dtype='=f8')
-        if not np.all(np.isfinite(chunks)):
-            raise ValueError("Illegal value in chunk tuple")
+#         if isinstance(sel, slice):
+#             if 'datetime64' in coord_data.dtype.name:
+#                 # if not isinstance(sel.start, (str, np.datetime64)):
+#                 #     raise TypeError('Input for datetime selection should be either a datetime string or np.datetime64.')
 
-        dtype = np.dtype(dtype)
-        typesize = dtype.itemsize
+#                 if sel.start is not None:
+#                     start = np.datetime64(sel.start, 's')
+#                 else:
+#                     start = np.datetime64(coord_data[0] - 1, 's')
 
-        idx = 0
-        while True:
-            chunk_bytes = math.prod(chunks)*typesize
+#                 if sel.stop is not None:
+#                     end = np.datetime64(sel.stop, 's')
+#                 else:
+#                     end = np.datetime64(coord_data[-1] + 1, 's')
 
-            if (chunk_bytes < target_chunk_size or \
-             abs(chunk_bytes - target_chunk_size)/target_chunk_size < 0.5):
-                break
+#                 bool_index = (start <= coord_data) & (coord_data < end)
+#             else:
+#                 bool_index = (sel.start <= coord_data) & (coord_data < sel.stop)
 
-            if math.prod(chunks) == 1:
-                break
+#         else:
+#             if isinstance(sel, (int, float)):
+#                 sel = [sel]
 
-            chunks[idx%ndims] = math.ceil(chunks[idx%ndims] / 2.0)
-            idx += 1
+#             try:
+#                 sel1 = np.array(sel)
+#             except:
+#                 raise TypeError('selection input could not be coerced to an ndarray.')
 
-        return tuple(int(x) for x in chunks)
-    else:
-        return None
+#             if sel1.dtype.name == 'bool':
+#                 if sel1.shape[0] != coord_data.shape[0]:
+#                     raise ValueError('The boolean array does not have the same length as the coord array.')
+#                 bool_index = sel1
+#             else:
+#                 bool_index = np.in1d(coord_data, sel1)
+
+#         new_coord_data = encode_data(coord_data[bool_index], **encodings[coord])
+
+#         coords_dict[coord] = new_coord_data
+
+
+# def guess_chunk_shape(shape: Tuple[int, ...], dtype: np.dtype, target_chunk_size: int = 2**21) -> Tuple[int, ...]:
+#     """
+#     Guess an appropriate chunk layout for a dataset, given its shape and
+#     the size of each element in bytes.  Will allocate chunks only as large
+#     as target_chunk_size.  Chunks are generally close to some power-of-2 fraction of
+#     each axis, slightly favoring bigger values for the last index.
+#     """
+#     ndims = len(shape)
+
+#     if ndims > 0:
+
+#         if not all(isinstance(v, int) for v in shape):
+#             raise TypeError('All values in the shape must be ints.')
+
+#         chunks = np.array(shape, dtype='=f8')
+#         if not np.all(np.isfinite(chunks)):
+#             raise ValueError("Illegal value in chunk tuple")
+
+#         dtype = np.dtype(dtype)
+#         typesize = dtype.itemsize
+
+#         idx = 0
+#         while True:
+#             chunk_bytes = math.prod(chunks)*typesize
+
+#             if (chunk_bytes < target_chunk_size or \
+#              abs(chunk_bytes - target_chunk_size)/target_chunk_size < 0.5):
+#                 break
+
+#             if math.prod(chunks) == 1:
+#                 break
+
+#             chunks[idx%ndims] = math.ceil(chunks[idx%ndims] / 2.0)
+#             idx += 1
+
+#         return tuple(int(x) for x in chunks)
+#     else:
+#         return None
 
 
 # def guess_chunk_hdf5(shape, maxshape, dtype, chunk_max=2**21):
@@ -1450,152 +1498,152 @@ def cartesian(arrays, out=None):
     return out
 
 
-def get_compressor(name: str = None):
-    """
+# def get_compressor(name: str = None):
+#     """
 
-    """
-    if name is None:
-        compressor = {}
-    elif name.lower() == 'none':
-        compressor = {}
-    elif name.lower() == 'gzip':
-        compressor = {'compression': name}
-    elif name.lower() == 'lzf':
-        compressor = {'compression': name}
-    elif name.lower() == 'zstd':
-        compressor = hdf5plugin.Zstd(1)
-    elif name.lower() == 'lz4':
-        compressor = hdf5plugin.LZ4()
-    else:
-        raise ValueError('name must be one of gzip, lzf, zstd, lz4, or None.')
+#     """
+#     if name is None:
+#         compressor = {}
+#     elif name.lower() == 'none':
+#         compressor = {}
+#     elif name.lower() == 'gzip':
+#         compressor = {'compression': name}
+#     elif name.lower() == 'lzf':
+#         compressor = {'compression': name}
+#     elif name.lower() == 'zstd':
+#         compressor = hdf5plugin.Zstd(1)
+#     elif name.lower() == 'lz4':
+#         compressor = hdf5plugin.LZ4()
+#     else:
+#         raise ValueError('name must be one of gzip, lzf, zstd, lz4, or None.')
 
-    return compressor
-
-
-def fill_ds_by_chunks(ds, files, ds_vars, var_name, group, encodings):
-    """
-
-    """
-    dims = ds_vars['dims']
-    if ds_vars['fillvalue'] is None:
-        fillvalue = -99
-    else:
-        fillvalue = ds_vars['fillvalue']
-
-    for chunk in ds.iter_chunks():
-        chunk_size1 = tuple(c.stop - c.start for c in chunk)
-        chunk_arr = np.full(chunk_size1, fill_value=fillvalue, dtype=ds_vars['dtype'], order='C')
-        for i_file, data in ds_vars['data'].items():
-            # if i_file == 9:
-            #     break
-            g_bool_index = [(chunk[i].start <= data['global_index'][dim]) & (data['global_index'][dim] < chunk[i].stop) for i, dim in enumerate(dims)]
-            bool1 = all([a.any() for a in g_bool_index])
-            if bool1:
-                l_slices = {}
-                for i, dim in enumerate(dims):
-                    w = g_bool_index[i]
-                    l_index = data['local_index'][dim][w]
-                    if is_regular_index(l_index):
-                        l_slices[dim] = slice(l_index[0], l_index[-1] + 1, None)
-                    else:
-                        l_slices[dim] = l_index
-
-                if tuple(range(len(dims))) == data['dims_order']:
-                    transpose_order = None
-                else:
-                    transpose_order = tuple(data['dims_order'].index(i) for i in range(len(data['dims_order'])))
-
-                with open_file(files[i_file], group) as f:
-                    if isinstance(f, xr.Dataset):
-                        l_data = encode_data(f[var_name][tuple(l_slices.values())].values, **encodings[var_name])
-                    else:
-                        l_data = f[var_name][tuple(l_slices.values())]
-
-                    if transpose_order is not None:
-                        l_data = l_data.transpose(transpose_order)
-
-                    g_chunk_index = []
-                    for i, dim in enumerate(dims):
-                        s1 = data['global_index'][dim][g_bool_index[i]] - chunk[i].start
-                        if is_regular_index(s1):
-                            s1 = slice(s1[0], s1[-1] + 1, None)
-                        g_chunk_index.append(s1)
-                    chunk_arr[tuple(g_chunk_index)] = l_data
-
-        ## Save chunk to new dataset
-        ds[chunk] = chunk_arr
+#     return compressor
 
 
-def fill_ds_by_files(ds, files, ds_vars, var_name, group, encodings):
-    """
-    Currently the implementation is simple. It loads one entire input file into the ds. It would be nice to chunk the file before loading to handle very large input files.
-    """
-    dims = ds_vars['dims']
-    dtype = ds_vars['dtype']
+# def fill_ds_by_chunks(ds, files, ds_vars, var_name, group, encodings):
+#     """
 
-    for i_file, data in ds_vars['data'].items():
-        dims_order = data['dims_order']
-        g_index_start = tuple(data['global_index'][dim][0] for dim in dims)
+#     """
+#     dims = ds_vars['dims']
+#     if ds_vars['fillvalue'] is None:
+#         fillvalue = -99
+#     else:
+#         fillvalue = ds_vars['fillvalue']
 
-        if tuple(range(len(dims))) == data['dims_order']:
-            transpose_order = None
-        else:
-            transpose_order = tuple(dims_order.index(i) for i in range(len(dims_order)))
-            g_index_start = tuple(g_index_start[i] for i in dims_order)
+#     for chunk in ds.iter_chunks():
+#         chunk_size1 = tuple(c.stop - c.start for c in chunk)
+#         chunk_arr = np.full(chunk_size1, fill_value=fillvalue, dtype=ds_vars['dtype'], order='C')
+#         for i_file, data in ds_vars['data'].items():
+#             # if i_file == 9:
+#             #     break
+#             g_bool_index = [(chunk[i].start <= data['global_index'][dim]) & (data['global_index'][dim] < chunk[i].stop) for i, dim in enumerate(dims)]
+#             bool1 = all([a.any() for a in g_bool_index])
+#             if bool1:
+#                 l_slices = {}
+#                 for i, dim in enumerate(dims):
+#                     w = g_bool_index[i]
+#                     l_index = data['local_index'][dim][w]
+#                     if is_regular_index(l_index):
+#                         l_slices[dim] = slice(l_index[0], l_index[-1] + 1, None)
+#                     else:
+#                         l_slices[dim] = l_index
 
-        file_shape = tuple(len(arr) for dim, arr in data['local_index'].items())
-        chunk_size = guess_chunk(file_shape, file_shape, dtype, 2**27)
-        chunk_iter = ChunkIterator(chunk_size, file_shape)
+#                 if tuple(range(len(dims))) == data['dims_order']:
+#                     transpose_order = None
+#                 else:
+#                     transpose_order = tuple(data['dims_order'].index(i) for i in range(len(data['dims_order'])))
 
-        with open_file(files[i_file], group) as f:
-            for chunk in chunk_iter:
-                # g_chunk_slices = []
-                # l_slices = []
-                # for dim in dims:
-                #     g_index = data['global_index'][dim]
-                #     g_chunk_slices.append(slice(g_index[0], g_index[-1] + 1, None))
+#                 with open_file(files[i_file], group) as f:
+#                     if isinstance(f, xr.Dataset):
+#                         l_data = encode_data(f[var_name][tuple(l_slices.values())].values, **encodings[var_name])
+#                     else:
+#                         l_data = f[var_name][tuple(l_slices.values())]
 
-                #     l_index = data['local_index'][dim]
-                #     l_slices.append(slice(l_index[0], l_index[-1] + 1, None))
+#                     if transpose_order is not None:
+#                         l_data = l_data.transpose(transpose_order)
 
-                if isinstance(f, xr.Dataset):
-                    l_data = encode_data(f[var_name][chunk].values, **encodings[var_name])
-                else:
-                    l_data = f[var_name][chunk]
+#                     g_chunk_index = []
+#                     for i, dim in enumerate(dims):
+#                         s1 = data['global_index'][dim][g_bool_index[i]] - chunk[i].start
+#                         if is_regular_index(s1):
+#                             s1 = slice(s1[0], s1[-1] + 1, None)
+#                         g_chunk_index.append(s1)
+#                     chunk_arr[tuple(g_chunk_index)] = l_data
 
-                if transpose_order is not None:
-                    l_data = l_data.transpose(transpose_order)
-
-                g_chunk_slices = tuple(slice(g_index_start[i] + s.start, g_index_start[i] + s.stop, 1) for i, s in enumerate(chunk))
-
-                ds[g_chunk_slices] = l_data
-
-
-def get_dtype_shape(data=None, dtype=None, shape=None):
-    """
-
-    """
-    if data is None:
-        if (shape is None) or (dtype is None):
-            raise ValueError('shape and dtype must be passed or data must be passed.')
-        if not isinstance(dtype, str):
-            dtype = dtype.name
-    else:
-        shape = data.shape
-        dtype = data.dtype.name
-
-    return dtype, shape
+#         ## Save chunk to new dataset
+#         ds[chunk] = chunk_arr
 
 
-def is_var_name(name):
-    """
+# def fill_ds_by_files(ds, files, ds_vars, var_name, group, encodings):
+#     """
+#     Currently the implementation is simple. It loads one entire input file into the ds. It would be nice to chunk the file before loading to handle very large input files.
+#     """
+#     dims = ds_vars['dims']
+#     dtype = ds_vars['dtype']
 
-    """
-    res = var_name_pattern.search(name)
-    if res:
-        return True
-    else:
-        return False
+#     for i_file, data in ds_vars['data'].items():
+#         dims_order = data['dims_order']
+#         g_index_start = tuple(data['global_index'][dim][0] for dim in dims)
+
+#         if tuple(range(len(dims))) == data['dims_order']:
+#             transpose_order = None
+#         else:
+#             transpose_order = tuple(dims_order.index(i) for i in range(len(dims_order)))
+#             g_index_start = tuple(g_index_start[i] for i in dims_order)
+
+#         file_shape = tuple(len(arr) for dim, arr in data['local_index'].items())
+#         chunk_size = guess_chunk(file_shape, file_shape, dtype, 2**27)
+#         chunk_iter = ChunkIterator(chunk_size, file_shape)
+
+#         with open_file(files[i_file], group) as f:
+#             for chunk in chunk_iter:
+#                 # g_chunk_slices = []
+#                 # l_slices = []
+#                 # for dim in dims:
+#                 #     g_index = data['global_index'][dim]
+#                 #     g_chunk_slices.append(slice(g_index[0], g_index[-1] + 1, None))
+
+#                 #     l_index = data['local_index'][dim]
+#                 #     l_slices.append(slice(l_index[0], l_index[-1] + 1, None))
+
+#                 if isinstance(f, xr.Dataset):
+#                     l_data = encode_data(f[var_name][chunk].values, **encodings[var_name])
+#                 else:
+#                     l_data = f[var_name][chunk]
+
+#                 if transpose_order is not None:
+#                     l_data = l_data.transpose(transpose_order)
+
+#                 g_chunk_slices = tuple(slice(g_index_start[i] + s.start, g_index_start[i] + s.stop, 1) for i, s in enumerate(chunk))
+
+#                 ds[g_chunk_slices] = l_data
+
+
+# def get_dtype_shape(data=None, dtype=None, shape=None):
+#     """
+
+#     """
+#     if data is None:
+#         if (shape is None) or (dtype is None):
+#             raise ValueError('shape and dtype must be passed or data must be passed.')
+#         if not isinstance(dtype, str):
+#             dtype = dtype.name
+#     else:
+#         shape = data.shape
+#         dtype = data.dtype.name
+
+#     return dtype, shape
+
+
+# def is_var_name(name):
+#     """
+
+#     """
+#     res = var_name_pattern.search(name)
+#     if res:
+#         return True
+#     else:
+#         return False
 
 
 def format_value(value):
@@ -1628,10 +1676,10 @@ def data_variable_summary(ds):
     """
 
     """
+    type1 = type(ds)
+
     if ds:
         summ_dict = {'name': ds.name, 'dims order': '(' + ', '.join(ds.coord_names) + ')', 'shape': str(ds.shape), 'chunk size': str(ds.chunk_shape)}
-
-        type1 = type(ds)
 
         summary = f"""<cfdb.{type1.__name__}>"""
 
@@ -1655,7 +1703,7 @@ def data_variable_summary(ds):
         summary += """\n""" + attrs_summary
 
     else:
-        summary = """Dataset is closed"""
+        summary = f"""<cfdb.{type1.__name__} is closed>"""
 
     return summary
 
@@ -1664,19 +1712,23 @@ def coordinate_summary(ds):
     """
 
     """
+    type1 = type(ds)
+
     if ds:
         name = ds.name
         # dim_len = ds.ndims
         # dtype_name = ds.dtype.name
         # dtype_decoded = ds.encoding['dtype_decoded']
-
-        first_value = format_value(ds.data[0])
-        last_value = format_value(ds.data[-1])
+        data = ds.data
+        if len(data) > 0:
+            first_value = format_value(ds.data[0])
+            last_value = format_value(ds.data[-1])
+        else:
+            first_value = ''
+            last_value = ''
 
         # summ_dict = {'name': name, 'dtype encoded': dtype_name, 'dtype decoded': dtype_decoded, 'chunk size': str(ds.chunks), 'dim length': str(dim_len), 'values': f"""{first_value} ... {last_value}"""}
         summ_dict = {'name': name, 'shape': str(ds.shape), 'chunk shape': str(ds.chunk_shape), 'values': f"""{first_value} ... {last_value}"""}
-
-        type1 = type(ds)
 
         summary = f"""<cfdb.{type1.__name__}>"""
 
@@ -1685,7 +1737,7 @@ def coordinate_summary(ds):
         attrs_summary = make_attrs_repr(ds.attrs, name_indent, value_indent, 'Attributes')
         summary += """\n""" + attrs_summary
     else:
-        summary = """Dataset is closed"""
+        summary = f"""<cfdb.{type1.__name__} is closed>"""
 
     return summary
 
@@ -1862,29 +1914,31 @@ def make_attrs_repr(attrs, name_indent, value_indent, header):
 #     return ds
 
 
-def prepare_encodings_for_variables(dtype_encoded, dtype_decoded, scale_factor, add_offset, fillvalue, units, calendar):
-    """
+# def prepare_encodings_for_variables(dtype_encoded, dtype_decoded, scale_factor, add_offset, fillvalue, units, calendar):
+#     """
 
-    """
-    encoding = {'dtype': dtype_encoded, 'dtype_encoded': dtype_encoded, 'missing_value': fillvalue, '_FillValue': fillvalue, 'add_offset': add_offset, 'scale_factor': scale_factor, 'units': units, 'calendar': calendar}
-    for key, value in copy.deepcopy(encoding).items():
-        if value is None:
-            del encoding[key]
+#     """
+#     encoding = {'dtype': dtype_encoded, 'dtype_encoded': dtype_encoded, 'missing_value': fillvalue, '_FillValue': fillvalue, 'add_offset': add_offset, 'scale_factor': scale_factor, 'units': units, 'calendar': calendar}
+#     for key, value in copy.deepcopy(encoding).items():
+#         if value is None:
+#             del encoding[key]
 
-    if 'datetime64' in dtype_decoded:
-        if 'units' not in encoding:
-            encoding['units'] = 'seconds since 1970-01-01'
-        if 'calendar' not in encoding:
-            encoding['calendar'] = 'gregorian'
-        encoding['dtype'] = 'int64'
+#     if 'datetime64' in dtype_decoded:
+#         if 'units' not in encoding:
+#             encoding['units'] = 'seconds since 1970-01-01'
+#         if 'calendar' not in encoding:
+#             encoding['calendar'] = 'gregorian'
+#         encoding['dtype'] = 'int64'
 
-    return encoding
+#     return encoding
 
 
 def file_summary(ds):
     """
 
     """
+    type1 = type(ds)
+
     if ds:
         file_path = ds.file_path
         if file_path.exists() and file_path.is_file():
@@ -1895,7 +1949,7 @@ def file_summary(ds):
 
         summ_dict = {'file name': file_path.name, 'file size': file_size_str, 'writable': str(ds.writable)}
 
-        summary = """<cfdb.Dataset>"""
+        summary = f"""<cfdb.{type1.__name__}>"""
 
         summary = append_summary(summary, summ_dict)
 
@@ -1932,12 +1986,21 @@ def file_summary(ds):
         attrs_summary = make_attrs_repr(ds.attrs, name_indent, value_indent, 'Attributes')
         summary += """\n""" + attrs_summary
     else:
-        summary = """File is closed"""
+        summary = f"""<cfdb.{type1.__name__} is closed>"""
 
     return summary
 
 
+def get_var_params(name, kwargs):
+    """
 
+    """
+    params = deepcopy(default_params[name])
+    params.update(kwargs)
+
+    name = params.pop('name')
+
+    return name, params
 
 
 

@@ -63,6 +63,8 @@ dtype_decoded = 'int16'
 
 cache_path = pathlib.Path('/home/mike/data/cache/cfdb')
 file_path = cache_path.joinpath('test1.blt')
+new_file_path = cache_path.joinpath('test2.blt')
+nc_file_path = cache_path.joinpath('test1.nc')
 flag = 'n'
 
 name = 'air_temp'
@@ -74,7 +76,9 @@ fillvalue = None
 scale_factor = 0.1
 add_offset = None
 sel = (slice(1, 4), slice(2, 5))
-loc_sel = (slice(0.4, 0.7), None)
+loc_sel = (slice(0.4, 0.7), slice('1970-01-06', '1970-01-15'))
+ds_sel = {'latitude': slice(4, 14)}
+ds_loc_sel = {'latitude': slice(0.4, 0.7)}
 
 lat_data = np.linspace(0, 19.9, 200, dtype='float32')
 time_data = np.linspace(0, 199, 200, dtype='datetime64[D]')
@@ -111,7 +115,7 @@ self = self1.create.coord.longitude(data=data)
 self = self1.create.coord.time(data=data_time, dtype_decoded=data_time.dtype, dtype_encoded='int32')
 
 
-self1 = Dataset(file_path, flag=flag)
+self1 = open_dataset(file_path, flag=flag)
 lat_coord = self1.create.coord.latitude(data=lat_data, chunk_shape=(20,))
 time_coord = self1.create.coord.time(data=time_data, dtype_decoded=time_data.dtype, dtype_encoded='int32')
 
@@ -129,15 +133,89 @@ view1.data
 
 self.attrs['test_attr'] = ['test']
 
+view2 = self1.sel(ds_sel)
+
+
 self1.close()
 
 
-self1 = Dataset(file_path)
+self1 = open_dataset(file_path)
 self = self1[name]
 
 
+new_ds = view2.copy(new_file_path)
 
 
+##############################
+### Tests
+
+
+with open_dataset(file_path) as f:
+    self = f[name]
+    view1 = self.loc[loc_sel]
+    print(view1.data)
+
+f = open_dataset(file_path, flag=flag)
+lat_coord = f.create.coord.latitude(data=lat_data, chunk_shape=(20,))
+
+del f['latitude']
+
+lat_coord = f.create.coord.latitude(chunk_shape=(20,))
+lat_coord.append(lat_data)
+
+time_coord = f.create.coord.time(data=time_data, dtype_decoded=time_data.dtype, dtype_encoded='int32')
+
+air_temp_var = f.create.data_var.generic(name, coords, dtype_decoded, dtype_encoded, scale_factor=scale_factor, chunk_shape=(20, 20))
+
+air_temp_var[:] = air_data
+
+view1 = air_temp_var[sel]
+
+assert np.allclose(view1.data, air_data[sel])
+
+view2 = air_temp_var.loc[loc_sel]
+
+assert np.allclose(view2.data, air_temp_var.data[(slice(4, 7), slice(5, 14))])
+view2.data
+
+del f[name]
+
+view3 = f.sel(ds_sel)
+
+new_chunk_shape = (40, 40)
+air_temp2_var = f.create.data_var.generic(name + '2', coords, dtype_decoded, dtype_encoded, scale_factor=scale_factor, chunk_shape=new_chunk_shape)
+
+rechunker = air_temp_var.rechunker()
+rechunk = rechunker.rechunk(new_chunk_shape, decoded=False)
+
+for write_chunk, data in rechunk:
+    air_temp2_var.set(write_chunk, data, encode=False)
+
+rechunk = rechunker.rechunk(new_chunk_shape)
+
+for write_chunk, data in rechunk:
+    air_temp2_var[write_chunk] = data
+
+
+grp = air_temp_var.groupby(['latitude'])
+for write_chunk, data in grp:
+    print(write_chunk)
+    print(data)
+
+
+f.to_netcdf4(nc_file_path)
+
+str_var = f.create.coord.generic('str_coord', dtype_decoded='U10', chunk_shape=(20,))
+
+str_var.append(['b', 'c', 'yyyyyyy', 'hhh'])
+str_var.prepend(['a'])
+
+
+for chunk, data in air_temp_var:
+    print(chunk)
+
+
+f.close()
 
 
 
@@ -186,7 +264,7 @@ source_read_chunk_shape = calc_source_read_chunk_shape(source_chunk_shape, targe
 
 n_reads_simple = calc_n_reads_simple(source_shape, source_chunk_shape, target_chunk_shape)
 
-n_reads, n_writes = calc_n_reads_rechunker(source_shape, dtype, source_chunk_shape, target_chunk_shape, max_mem)
+n_reads, n_writes = calc_n_reads_rechunker(source_shape, dtype, source_chunk_shape, target_chunk_shape, max_mem, sel)
 
 
 target = np.zeros(source_shape, dtype=dtype)[sel]

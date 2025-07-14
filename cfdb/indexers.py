@@ -6,11 +6,10 @@ Created on Tue Nov 14 13:21:10 2023
 @author: mike
 """
 import numpy as np
-
-# from . import utils
-import utils
-
 import rechunkit
+
+from . import utils
+# import utils
 
 sup = np.testing.suppress_warnings()
 sup.filter(FutureWarning)
@@ -29,7 +28,10 @@ def loc_index_numeric(key, coord_data):
     """
 
     """
-    label_idx = np.searchsorted(coord_data, key)
+    if coord_data.dtype.kind == 'f':
+        label_idx = np.nonzero(np.isclose(coord_data, key))[0][0]
+    else:
+        label_idx = np.searchsorted(coord_data, key)
 
     return int(label_idx)
 
@@ -39,7 +41,7 @@ def loc_index_str(key, coord_data):
 
     """
     if coord_data.dtype.kind == 'M':
-        key = np.datetime64(key)
+        key = np.array(key, dtype=coord_data.dtype)
 
     label_idx = np.searchsorted(coord_data, key)
 
@@ -265,6 +267,20 @@ def determine_final_array_shape(key, coord_origins, var_shape):
     return new_shape
 
 
+def slices_to_keys(slices, var_name, var_chunk_shape):
+    """
+    slices to keys
+    """
+    starts = tuple(s.start for s in slices)
+    stops = tuple(s.stop for s in slices)
+    chunk_iter2 = rechunkit.chunk_range(starts, stops, var_chunk_shape)
+    for partial_chunk in chunk_iter2:
+        starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(var_chunk_shape, partial_chunk))
+        new_key = utils.make_var_chunk_key(var_name, starts_chunk)
+
+        yield new_key
+
+
 def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
     """
     slices from the output of index_combo_all.
@@ -285,6 +301,18 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
         yield target_chunk, partial_chunk1, new_key
 
 
+
+def check_sel_input_data(sel, input_data, coord_origins, shape):
+    """
+
+    """
+    slices = index_combo_all(sel, coord_origins, shape)
+    slices_shape = tuple(s.stop - s.start for s in slices)
+
+    if input_data.shape != slices_shape:
+        raise ValueError('The selection shape is not equal to the input data.')
+
+    return slices
 
 
 

@@ -115,5 +115,5 @@ ENV/
 data/*
 
 # Test config files
-/cfbooklet/tests/*.toml
-/cfbooklet/tests/*.yml
+/cfdb/tests/*.toml
+/cfdb/tests/*.yml
