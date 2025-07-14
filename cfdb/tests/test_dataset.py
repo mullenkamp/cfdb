@@ -227,14 +227,6 @@ def test_edataset():
         view2 = data_var.loc[loc_sel]
         assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(5, 14))])
 
-    # with remote_conn.open('w') as s3open:
-    #     s3open.delete_remote()
-
-    # file_path.unlink()
-    # remote_index_path = file_path.parent.joinpath(file_path.name + '.remote_index')
-    # remote_index_path.unlink()
-    # new_file_path.unlink()
-    # nc_file_path.unlink()
 
 
 
