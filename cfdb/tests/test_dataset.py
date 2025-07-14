@@ -27,7 +27,6 @@ nc_file_path = script_path.joinpath('test1.nc')
 
 name = 'air_temp'
 coords = ('latitude', 'time')
-# dtype_decoded = 'float32'
 dtype_encoded = 'int32'
 chunk_shape = (20, 30)
 fillvalue = None
@@ -226,9 +225,6 @@ def test_edataset():
 
         view2 = data_var.loc[loc_sel]
         assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(5, 14))])
-
-
-
 
 
 
