@@ -1,0 +1,9 @@
+booklet>=0.9.2
+rechunkit>=0.1.0
+numpy
+zstandard
+cftime
+msgspec
+lz4
+ebooklet>=0.5.10
+h5netcdf

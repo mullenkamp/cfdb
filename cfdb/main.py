@@ -442,7 +442,7 @@ class Dataset(DatasetBase):
 
     def get(self, var_name):
         """
-
+        Get a variable contained within the dataset.
         """
         if not isinstance(var_name, str):
             raise TypeError('var_name must be a string.')
@@ -472,7 +472,7 @@ class Dataset(DatasetBase):
 
     def close(self):
         """
-
+        Close the database.
         """
         # self.sync()
         for finalizer in reversed(self._finalizers):
@@ -505,14 +505,23 @@ class Dataset(DatasetBase):
 
     @property
     def coords(self):
+        """
+        Return a tuple of coords.
+        """
         return tuple(self[coord_name] for coord_name in self.coord_names)
 
     @property
     def data_vars(self):
+        """
+        Return a tuple of data variables.
+        """
         return tuple(self[var_name] for var_name in self.data_var_names)
 
     @property
     def variables(self):
+        """
+        Return a tuple of variables.
+        """
         return tuple(self[var_name] for var_name in self.var_names)
 
     def prune(self, timestamp=None, reindex=False):
@@ -554,7 +563,7 @@ class DatasetView(DatasetBase):
 
     def get(self, var_name):
         """
-
+        Get a variable contained within the dataset.
         """
         if self._sel is not None:
             if var_name not in self._sel:
