@@ -60,7 +60,7 @@ except:
 
 bucket = 'achelous'
 db_key = uuid.uuid8().hex[-13:]
-db_key = '7b120a3b4ec5d'
+# db_key = '7b120a3b4ec5d'
 base_url = 'https://b2.tethys-ts.xyz/file/' + bucket + '/'
 db_url = base_url +  db_key
 
