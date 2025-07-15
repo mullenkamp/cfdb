@@ -16,7 +16,7 @@ from copy import deepcopy
 import rechunkit
 
 from . import utils, indexers
-# import utils, indexers, rechunkit
+# import utils, indexers
 
 ###################################################
 ### Parameters
@@ -50,39 +50,74 @@ class Rechunker:
 
     def guess_chunk_shape(self, target_chunk_size: int):
         """
+        Guess an appropriate chunk layout for a dataset, given its shape and
+        the size of each element in bytes.  Will allocate chunks only as large
+        as target_chunk_size. Chunks will be assigned to the highest composite number within the target_chunk_size. Using composite numbers will benefit the rehunking process as there is a very high likelihood that the least common multiple of two composite numbers will be significantly lower than the product of those two numbers.
 
+        Parameters
+        ----------
+        target_chunk_size: int
+            The maximum size per chunk in bytes.
+
+        Returns
+        -------
+        tuple of ints
+            shape of the chunk
         """
         chunk_shape = rechunkit.guess_chunk_shape(self._var.shape, self._var.dtype_encoded, target_chunk_size)
         return chunk_shape
 
     def calc_ideal_read_chunk_shape(self, target_chunk_shape: Tuple[int, ...]):
         """
-
+        Calculates the minimum ideal read chunk shape between a source and target.
         """
         return rechunkit.calc_ideal_read_chunk_shape(self._var.chunk_shape, target_chunk_shape)
 
     def calc_ideal_read_chunk_mem(self, target_chunk_shape: Tuple[int, ...]):
         """
-
+        Calculates the minimum ideal read chunk memory between a source and target.
         """
         ideal_read_chunk_shape = rechunkit.calc_ideal_read_chunk_shape(self._var.chunk_shape, target_chunk_shape)
         return rechunkit.calc_ideal_read_chunk_mem(ideal_read_chunk_shape, self._var.dtype_encoded.itemsize)
 
     def calc_source_read_chunk_shape(self, target_chunk_shape: Tuple[int, ...], max_mem: int):
         """
+        Calculates the optimum read chunk shape given a maximum amount of available memory.
 
+        Parameters
+        ----------
+        target_chunk_shape: tuple of int
+            The target chunk shape
+        max_mem: int
+            The max allocated memory to perform the chunking operation in bytes.
+
+        Returns
+        -------
+        optimal chunk shape: tuple of ints
         """
         return rechunkit.calc_source_read_chunk_shape(self._var.chunk_shape, target_chunk_shape, self._var.dtype_encoded.itemsize, max_mem)
 
     def calc_n_chunks(self):
         """
-
+        Calculate the total number of chunks in the existing variable.
         """
         return rechunkit.calc_n_chunks(self._var.shape, self._var.chunk_shape)
 
     def calc_n_reads_rechunker(self, target_chunk_shape: Tuple[int, ...], max_mem: int=2**27):
         """
+        Calculate the total number of reads and writes using the rechunker.
 
+        Parameters
+        ----------
+        target_chunk_shape: tuple of ints
+            The chunk_shape of the target.
+        max_mem: int
+            The max allocated memory to perform the chunking operation in bytes. This will only be as large as necessary for an optimum size chunk for the rechunking.
+
+        Returns
+        -------
+        tuple
+            of n_reads, n_writes
         """
         return rechunkit.calc_n_reads_rechunker(self._var.shape, self._var.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
 
@@ -363,7 +398,7 @@ class Encoding:
 
     def from_bytes(self, data: bytes, count=-1, offset=0) -> np.ndarray:
         """
-        from bytes to encoded array. The count and offset are from the np.frombuffer function.
+        from bytes to encoded array. The count and offset are from the np.frombuffer function, but are currently unused because it's too hard at the moment.
         """
         b1 = bytearray(self.compressor.decompress(data))
         encoded_array = np.frombuffer(b1, dtype=self.dtype_encoded, count=count, offset=offset).reshape(self.chunk_shape)
@@ -372,6 +407,9 @@ class Encoding:
 
 
     def encode(self, array: np.ndarray):
+        """
+        decoded array to encoded array.
+        """
         if array.dtype != self.dtype_decoded:
             raise TypeError('The data dtype does not match the assigned dtype_decoded.')
 
@@ -520,7 +558,17 @@ class Variable:
 
     def iter_chunks(self, decoded=True):
         """
+        Iterate through the chunks of the variable and return numpy arrays associated with the index slices. This should be the main way for users to get large amounts of data from a variable. The "ends" of the data will be clipped to the shape of the variable (i.e. not all chunks will be the chunk_shape).
 
+        Parameters
+        ----------
+        decoded: bool
+            Should the data be decoded?
+
+        Returns
+        -------
+        Generator
+            tuple of slices of the indexes, numpy array of the data
         """
         self.load()
 
@@ -549,7 +597,20 @@ class Variable:
 
     def get_chunk(self, sel=None, decoded=True, missing_none=False):
         """
+        Get data from one chunk. The method will return the first chunk parsed from sel.
 
+        Parameters
+        ----------
+        sel: tuple of slices, ints
+            The selection based on index positions.
+        decoded: bool
+            Should the data be decoded?
+        missing_none: bool
+            If chunk is missing, should the method return None or a blank array (filled with the fillvalue)?
+
+        Returns
+        -------
+        np.ndarray
         """
         if sel is None:
             sel = self._sel
@@ -572,7 +633,7 @@ class Variable:
 
     def get_coord_origins(self):
         """
-
+        Get the coordinate origins for the variable.
         """
         if hasattr(self, 'coords'):
             coord_origins = tuple(self._sys_meta.variables[coord].origin for coord in self.coord_names)
@@ -595,7 +656,8 @@ class Variable:
 
     def load(self):
         """
-
+        This method only applies if the dataset has been open as an EDataset.
+        Load the chunks from the remote into the local file based on the selection. If not selection has been made, then it will load in all the chunks.
         """
         if self._has_load_items:
             coord_origins = self.get_coord_origins()
@@ -630,7 +692,17 @@ class CoordinateView(Variable):
 
     def get(self, sel):
         """
+        Get a CoordinateView based on the index position(s).
+        The parameter sel can be an int, slice, or some combo within a tuple. For example, a tuple of slices (of the index positions).
 
+        Parameters
+        ----------
+        sel: int, slice, tuple of ints or slices
+            It can be an int, slice, or a tuple of ints or slices. Numpy advanced indexing is not implemented.
+
+        Returns
+        -------
+        cfdb.CoordinateView
         """
         coord_origins = self.get_coord_origins()
 
@@ -765,7 +837,7 @@ class Coordinate(CoordinateView):
 
     def prepend(self, data):
         """
-        Prepend data to the start of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the start.
+        Prepend data to the start of the coordinate. The extra length will be added to the associated data variables with the fillvalue.
         """
         if not self.writable:
             raise ValueError('Dataset is not writable.')
@@ -787,7 +859,7 @@ class Coordinate(CoordinateView):
 
     def append(self, data):
         """
-        Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue. One of data or length must be passed. A negative length can be passed to shrink the coordinate from the end.
+        Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue. 
         """
         if not self.writable:
             raise ValueError('Dataset is not writable.')
@@ -823,7 +895,17 @@ class DataVariableView(Variable):
 
     def get(self, sel):
         """
+        Get a DataVariableView based on the index position(s).
+        The parameter sel can be an int, slice, or some combo within a tuple. For example, a tuple of slices (of the index positions).
 
+        Parameters
+        ----------
+        sel: int, slice, tuple of ints or slices
+            It can be an int, slice, or a tuple of ints or slices. Numpy advanced indexing is not implemented.
+
+        Returns
+        -------
+        cfdb.DataVariableView
         """
         coord_origins = self.get_coord_origins()
 
@@ -837,7 +919,7 @@ class DataVariableView(Variable):
 
     def set(self, sel, data, encode=True):
         """
-
+        Set data based on index positions.
         """
         if not self.writable:
             raise ValueError('Dataset is not writable.')

@@ -60,10 +60,12 @@ except:
 
 bucket = 'achelous'
 db_key = uuid.uuid8().hex[-13:]
+db_key = '7b120a3b4ec5d'
 base_url = 'https://b2.tethys-ts.xyz/file/' + bucket + '/'
 db_url = base_url +  db_key
 
 remote_conn = ebooklet.S3Connection(access_key_id, access_key, db_key, bucket, endpoint_url=endpoint_url, db_url=db_url)
+
 
 
 ##############################
@@ -225,6 +227,13 @@ def test_edataset():
 
         view2 = data_var.loc[loc_sel]
         assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(5, 14))])
+
+    # with remote_conn.open('w') as s3open:
+    #     s3open.delete_remote()
+
+    # file_path.unlink()
+    # remote_index_path = file_path.parent.joinpath(file_path.name + '.remote_index')
+    # remote_index_path.unlink()
 
 
 
