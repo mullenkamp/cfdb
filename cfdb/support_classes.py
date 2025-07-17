@@ -947,6 +947,29 @@ class DataVariableView(Variable):
             self._blt.set(blt_key, self._encoder.to_bytes(new_data))
 
 
+    # def set_chunk(self, sel, data, encode=True):
+    #     """
+    #     Set the first chunk associated with the selection.
+    #     """
+    #     if not self.writable:
+    #         raise ValueError('Dataset is not writable.')
+
+    #     if sel is None:
+    #         sel = self._sel
+    #     coord_origins = self.get_coord_origins()
+    #     slices = indexers.index_combo_all(sel, coord_origins, self.shape)
+    #     starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(self.chunk_shape, slices))
+    #     chunk_stop = tuple(min(cs, s - sc) for cs, sc, s in zip(self.chunk_shape, starts_chunk, self.shape))
+    #     if data.shape != chunk_stop:
+    #         raise ValueError(f'The shape of this chunk should be {chunk_stop}, but the data passed is {data.shape}')
+
+    #     blt_key = utils.make_var_chunk_key(self.name, starts_chunk)
+    #     if encode:
+    #         self._blt.set(blt_key, self._encoder.to_bytes(self._encoder.encode(data)))
+    #     else:
+    #         self._blt.set(blt_key, self._encoder.to_bytes(data))
+
+
     def __setitem__(self, sel, data):
         """
 

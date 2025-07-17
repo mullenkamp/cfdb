@@ -168,8 +168,29 @@ class DatasetBase:
         """
         return utils.file_summary(self)
 
+    @property
+    def coords(self):
+        """
+        Return a tuple of coords.
+        """
+        return tuple(self[coord_name] for coord_name in self.coord_names)
 
-    def sel(self, sel: dict):
+    @property
+    def data_vars(self):
+        """
+        Return a tuple of data variables.
+        """
+        return tuple(self[var_name] for var_name in self.data_var_names)
+
+    @property
+    def variables(self):
+        """
+        Return a tuple of variables.
+        """
+        return tuple(self[var_name] for var_name in self.var_names)
+
+
+    def select(self, sel: dict):
         """
         Filter the dataset variables by a selection of the coordinate positions.
         """
@@ -200,7 +221,7 @@ class DatasetBase:
         return DatasetView(self, _sel)
 
 
-    def sel_loc(self, sel: dict):
+    def select_loc(self, sel: dict):
         """
         Filter the dataset variables by a selection of the coordinate locations.
         """
@@ -312,83 +333,90 @@ class DatasetBase:
         if not import_h5netcdf:
             raise ImportError('h5netcdf must be installed to save files to netcdf4.')
 
-        h5 = h5netcdf.File(file_path, 'w', **file_kwargs)
-
-        # dims/coords
-        for coord in self.coords:
-            name = coord.name
-            h5.dimensions[name] = coord.shape[0]
-            coord_len = coord.shape[0]
-            chunk_len = coord.chunk_shape[0]
-            if chunk_len > coord_len:
-                chunk_shape = (coord_len,)
-            else:
-                chunk_shape = (chunk_len,)
-
-            h5_coord = h5.create_variable(name, (name,), coord.dtype_encoded, compression=compression, chunks=chunk_shape, fillvalue=coord.fillvalue)
-            attrs = deepcopy(coord.attrs.data)
-            dtype_decoded, dtype_encoded = utils.parse_dtype_names(coord.dtype_decoded, coord.dtype_encoded)
-            if coord.step is not None:
-                attrs['step'] = coord.step
-            if coord.scale_factor is not None:
-                attrs['scale_factor'] = coord.scale_factor
-            elif coord.dtype_decoded.kind == 'f' and coord.dtype_encoded.kind in ('u', 'i'):
-                attrs['scale_factor'] = 1
-            if coord.add_offset is not None:
-                attrs['add_offset'] = coord.add_offset
-            elif coord.dtype_decoded.kind == 'f' and coord.dtype_encoded.kind in ('u', 'i'):
-                attrs['add_offset'] = 0
-            if coord.dtype_decoded.kind == 'M':
-                units = utils.parse_cf_time_units(coord.dtype_decoded)
-                calendar = "proleptic_gregorian"
-                attrs['units'] = units
-                attrs['calendar'] = calendar
-                attrs['standard_name'] = 'time'
-
-            attrs.update({'dtype_decoded': dtype_decoded, 'dtype_encoded': dtype_encoded, 'dtype': dtype_encoded, '_FillValue': coord.fillvalue})
-            h5_coord.attrs.update(attrs)
-
-            for write_chunk, data in coord.iter_chunks(decoded=False):
-                h5_coord[write_chunk] = data
-
-        # Data vars
-        for data_var in self.data_vars:
-            name = data_var.name
-            chunk_shape = []
-            for s, cs in zip(data_var.shape, data_var.chunk_shape):
-                if cs > s:
-                    chunk_shape.append(s)
+        with h5netcdf.File(file_path, 'w', **file_kwargs) as h5:
+            # dims/coords
+            for coord in self.coords:
+                name = coord.name
+                h5.dimensions[name] = coord.shape[0]
+                coord_len = coord.shape[0]
+                chunk_len = coord.chunk_shape[0]
+                if chunk_len > coord_len:
+                    chunk_shape = (coord_len,)
                 else:
-                    chunk_shape.append(cs)
+                    chunk_shape = (chunk_len,)
+    
+                h5_coord = h5.create_variable(name, (name,), coord.dtype_encoded, compression=compression, chunks=chunk_shape, fillvalue=coord.fillvalue)
+                attrs = deepcopy(coord.attrs.data)
+                dtype_decoded, dtype_encoded = utils.parse_dtype_names(coord.dtype_decoded, coord.dtype_encoded)
+                if coord.step is not None:
+                    attrs['step'] = coord.step
+                if coord.scale_factor is not None:
+                    attrs['scale_factor'] = coord.scale_factor
+                elif coord.dtype_decoded.kind == 'f' and coord.dtype_encoded.kind in ('u', 'i'):
+                    attrs['scale_factor'] = 1
+                if coord.add_offset is not None:
+                    attrs['add_offset'] = coord.add_offset
+                elif coord.dtype_decoded.kind == 'f' and coord.dtype_encoded.kind in ('u', 'i'):
+                    attrs['add_offset'] = 0
+                if coord.dtype_decoded.kind == 'M':
+                    units = utils.parse_cf_time_units(coord.dtype_decoded)
+                    calendar = "proleptic_gregorian"
+                    attrs['units'] = units
+                    attrs['calendar'] = calendar
+                    attrs['standard_name'] = 'time'
 
-            h5_data_var = h5.create_variable(name, data_var.coord_names, data_var.dtype_encoded, compression=compression, chunks=tuple(chunk_shape), fillvalue=data_var.fillvalue)
-            attrs = deepcopy(data_var.attrs.data)
-            dtype_decoded, dtype_encoded = utils.parse_dtype_names(data_var.dtype_decoded, data_var.dtype_encoded)
-            if data_var.scale_factor is not None:
-                attrs['scale_factor'] = data_var.scale_factor
-            elif data_var.dtype_decoded.kind == 'f' and data_var.dtype_encoded.kind in ('u', 'i'):
-                attrs['scale_factor'] = 1
-            if data_var.add_offset is not None:
-                attrs['add_offset'] = data_var.add_offset
-            elif data_var.dtype_decoded.kind == 'f' and data_var.dtype_encoded.kind in ('u', 'i'):
-                attrs['add_offset'] = 0
-            if data_var.dtype_decoded.kind == 'M':
-                units = utils.parse_cf_time_units(data_var.dtype_decoded)
-                calendar = "proleptic_gregorian"
-                attrs['units'] = units
-                attrs['calendar'] = calendar
-                attrs['standard_name'] = 'time'
+                if coord.fillvalue is not None:
+                    attrs['_FillValue'] = coord.fillvalue
 
-            attrs.update({'dtype_decoded': dtype_decoded, 'dtype_encoded': dtype_encoded, 'dtype': dtype_encoded, '_FillValue': data_var.fillvalue})
-            h5_data_var.attrs.update(attrs)
+                attrs.update({'dtype_decoded': dtype_decoded, 'dtype_encoded': dtype_encoded, 'dtype': dtype_encoded})
+                try:
+                    h5_coord.attrs.update(attrs)
+                except Exception as err:
+                    print(attrs)
+                    raise err
 
-            for write_chunk, data in data_var.iter_chunks(decoded=False):
-                h5_data_var[write_chunk] = data
+                for write_chunk, data in coord.iter_chunks(decoded=False):
+                    h5_coord[write_chunk] = data
+    
+            # Data vars
+            for data_var in self.data_vars:
+                name = data_var.name
+                chunk_shape = []
+                for s, cs in zip(data_var.shape, data_var.chunk_shape):
+                    if cs > s:
+                        chunk_shape.append(s)
+                    else:
+                        chunk_shape.append(cs)
+    
+                h5_data_var = h5.create_variable(name, data_var.coord_names, data_var.dtype_encoded, compression=compression, chunks=tuple(chunk_shape), fillvalue=data_var.fillvalue)
+                attrs = deepcopy(data_var.attrs.data)
+                dtype_decoded, dtype_encoded = utils.parse_dtype_names(data_var.dtype_decoded, data_var.dtype_encoded)
+                if data_var.scale_factor is not None:
+                    attrs['scale_factor'] = data_var.scale_factor
+                elif data_var.dtype_decoded.kind == 'f' and data_var.dtype_encoded.kind in ('u', 'i'):
+                    attrs['scale_factor'] = 1
+                if data_var.add_offset is not None:
+                    attrs['add_offset'] = data_var.add_offset
+                elif data_var.dtype_decoded.kind == 'f' and data_var.dtype_encoded.kind in ('u', 'i'):
+                    attrs['add_offset'] = 0
+                if data_var.dtype_decoded.kind == 'M':
+                    units = utils.parse_cf_time_units(data_var.dtype_decoded)
+                    calendar = "proleptic_gregorian"
+                    attrs['units'] = units
+                    attrs['calendar'] = calendar
+                    attrs['standard_name'] = 'time'
 
-        # Add global attrs
-        h5.attrs.update(self.attrs.data)
+                if coord.fillvalue is not None:
+                    attrs['_FillValue'] = data_var.fillvalue
 
-        h5.close()
+                attrs.update({'dtype_decoded': dtype_decoded, 'dtype_encoded': dtype_encoded, 'dtype': dtype_encoded})
+                h5_data_var.attrs.update(attrs)
+    
+                for write_chunk, data in data_var.iter_chunks(decoded=False):
+                    h5_data_var[write_chunk] = data
+    
+            # Add global attrs
+            h5.attrs.update(self.attrs.data)
 
 
 class Dataset(DatasetBase):
@@ -401,7 +429,7 @@ class Dataset(DatasetBase):
         """
         self._blt = open_blt
         self.writable = self._blt.writable
-        self.file_path = file_path
+        self.file_path = pathlib.Path(file_path)
         self.is_open = True
 
         if hasattr(self._blt, 'load_items'):
@@ -503,27 +531,6 @@ class Dataset(DatasetBase):
         return tuple(k for k, v in self._sys_meta.variables.items() if isinstance(v, data_models.DataVariable))
 
 
-    @property
-    def coords(self):
-        """
-        Return a tuple of coords.
-        """
-        return tuple(self[coord_name] for coord_name in self.coord_names)
-
-    @property
-    def data_vars(self):
-        """
-        Return a tuple of data variables.
-        """
-        return tuple(self[var_name] for var_name in self.data_var_names)
-
-    @property
-    def variables(self):
-        """
-        Return a tuple of variables.
-        """
-        return tuple(self[var_name] for var_name in self.var_names)
-
     def prune(self, timestamp=None, reindex=False):
         """
         Prunes deleted data from the file. Returns the number of removed items. The method can also prune remove keys/values older than the timestamp. The user can also reindex the booklet file. False does no reindexing, True increases the n_buckets to a preassigned value, or an int of the n_buckets. True can only be used if the default n_buckets were used at original initialisation.
@@ -597,17 +604,17 @@ class DatasetView(DatasetBase):
         """
         return tuple(k for k, v in self._sys_meta.variables.items() if isinstance(v, data_models.DataVariable) if k in self._sel)
 
-    @property
-    def coords(self):
-        return tuple(self[coord_name][self._sel[coord_name]] for coord_name in self.coord_names if coord_name in self._sel)
+    # @property
+    # def coords(self):
+    #     return tuple(self[coord_name][self._sel[coord_name]] for coord_name in self.coord_names if coord_name in self._sel)
 
-    @property
-    def data_vars(self):
-        return tuple(self[var_name][self._sel[var_name]] for var_name in self.data_var_names if var_name in self._sel)
+    # @property
+    # def data_vars(self):
+    #     return tuple(self[var_name][self._sel[var_name]] for var_name in self.data_var_names if var_name in self._sel)
 
-    @property
-    def variables(self):
-        return tuple(self[var_name][self._sel[var_name]] for var_name in self.var_names if var_name in self._sel)
+    # @property
+    # def variables(self):
+    #     return tuple(self[var_name][self._sel[var_name]] for var_name in self.var_names if var_name in self._sel)
 
 
 
@@ -689,7 +696,7 @@ def open_dataset(file_path: Union[str, pathlib.Path], flag: str = "r", compressi
     else:
         create = False
 
-    return Dataset(file_path, open_blt, create, compression, compression_level)
+    return Dataset(fp, open_blt, create, compression, compression_level)
 
 
 def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
@@ -754,7 +761,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
     else:
         create = False
 
-    return EDataset(file_path, open_blt, create, compression, compression_level)
+    return EDataset(fp, open_blt, create, compression, compression_level)
 
 
 

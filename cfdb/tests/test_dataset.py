@@ -10,7 +10,7 @@ import uuid6 as uuid
 import numpy as np
 from time import time
 import pathlib
-from cfdb import open_dataset, open_edataset
+from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb
 import ebooklet
 import h5netcdf
 
@@ -142,7 +142,7 @@ def test_data_var_creation():
         assert np.allclose(data_var.data, data_var_data)
 
 
-def test_sel():
+def test_select():
     with open_dataset(file_path) as ds:
         data_var = ds[name]
         view1 = data_var[sel]
@@ -151,10 +151,10 @@ def test_sel():
         view2 = data_var.loc[loc_sel]
         assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(5, 14))])
 
-        view3 = ds.sel(ds_sel)
+        view3 = ds.select(ds_sel)
         assert np.allclose(view3[name].data, data_var_data[sel])
 
-        view4 = ds.sel_loc(ds_loc_sel)
+        view4 = ds.select_loc(ds_loc_sel)
         assert np.allclose(view4[name].data, data_var_data[(slice(4, 7), slice(5, 14))])
 
 def test_rechunker_assignment():
@@ -236,6 +236,11 @@ def test_edataset():
     # remote_index_path.unlink()
 
 
+def test_cfdb_to_netcdf4():
+    cfdb_to_netcdf4(file_path, nc_file_path, sel_loc=loc_sel)
+
+def test_netcdf4_to_cfdb():
+    netcdf4_to_cfdb(nc_file_path, new_file_path)
 
 
 # open_conn = remote_conn.open('w')

@@ -1959,6 +1959,7 @@ def file_summary(ds):
             dim_name = var.name
             dtype_name = var.dtype_decoded
             dim_len = var.shape[0]
+            # print(var.data)
             first_value = format_value(var.data[0])
             last_value = format_value(var.data[-1])
             spacing = value_indent - name_indent - len(dim_name)
