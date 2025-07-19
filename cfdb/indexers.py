@@ -287,11 +287,8 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
     """
     starts = tuple(s.start for s in slices)
     stops = tuple(s.stop for s in slices)
-    # chunk_iter1 = rechunkit.chunk_range(starts, stops, var_chunk_shape, clip_ends=False)
     chunk_iter2 = rechunkit.chunk_range(starts, stops, var_chunk_shape, clip_ends=clip_ends)
-    # for full_chunk, partial_chunk in zip(chunk_iter1, chunk_iter2):
     for partial_chunk in chunk_iter2:
-        # starts_chunk = tuple(s.start for s in full_chunk)
         starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(var_chunk_shape, partial_chunk))
         new_key = utils.make_var_chunk_key(var_name, starts_chunk)
 

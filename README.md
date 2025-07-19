@@ -107,6 +107,73 @@ Since there are no data variable templates (yet), we need to use the generic cre
 
 Assigning data to data variables is different to coordinates. Data variables can only be expanded via the coordinates themselves. Assignment and selection is performed by the [basic numpy indexing](https://numpy.org/doc/stable/user/basics.indexing.html#basic-indexing), but not the [advanced indexing](https://numpy.org/doc/stable/user/basics.indexing.html#advanced-indexing).
 
+The example shown above is the simplest way of assigning data to a data variable, but it's not a preferred method when datasets are very large. The recommended way to write (and read) data is to iterate over the chunks:
+
+```python
+with cfdb.open_dataset(file_path, flag='w') as ds:
+    data_var = ds[name]
+    for chunk_slices in data_var.iter_chunks(include_data=False):
+        data_var[chunk_slices] = data_var_data[chunk_slices]
+```
+
+This is a bit of a contrived example given that data_var_data is a single in-memory numpy array, but in many cases your data source will be much larger or in many pieces. The chunk_slices is a tuple of index slices that the data chunk covers. It is the same indexing that can be passed to a numpy ndarray.
+
+Reading data uses the same "iter_chunks" method. This ensures that memory usage is kept to a minimum:
+
+```python
+with cfdb.open_dataset(file_path, flag='r') as ds:
+    data_var = ds[name]
+    for chunk_slices, data in data_var.iter_chunks():
+        print(chunk_slices)
+        print(data.shape)
+```
+
+There's a groupby method that works similarly to the iter_chunks method except that it requires one or more coordinate names (like pandas or xarray):
+
+```python
+with cfdb.open_dataset(file_path, flag='r') as ds:
+    data_var = ds[name]
+    for slices, data in data_var.groupby('latitude'):
+        print(slices)
+        print(data.shape)
+```
+
+#### Rechunking
+All data for variables are stored as chunks of data. For example, the shape of your data may be 2000 x 2000, but the data are stored in 100 x 100 chunks. This is done for a variety of reasons including the ability to compress data. When a variable is created, either the user can define their own chunk shape or cfdb will determine the chunk shape automatically. 
+
+The chunk shape defined in the variable might be good for some use cases but not others. The user might have specific use cases where they want a specific chunking; for example the groupby operation listed in the last example. In that example, the user wanted to iterate over each latitude but with all of the other coordinates (in this case the full time coordinate). A groupby operation is a common rechunking example, but the user might need chunks in many different shapes.
+
+The [rechunkit package](https://github.com/mullenkamp/rechunkit) is used under the hood to rechunk the data in cfdb. It is exposed in cfdb via the "rechunker" method in a variable. The Rechunker class has several methods to help the user decide the chunk shape.
+
+```python
+new_chunk_shape = (41, 41)
+
+with cfdb.open_dataset(file_path) as ds:
+    data_var = ds[name]
+    rechunker = data_var.rechunker()
+    alt_chunk_shape = rechunker.guess_chunk_shape(2**8)
+    n_chunks = rechunker.calc_n_chunks()
+    print(n_chunks)
+    n_reads, n_writes = rechunker.calc_n_reads_rechunker(new_chunk_shape)
+    print(n_reads, n_writes)
+    rechunk = rechunker.rechunk(new_chunk_shape)
+
+    for slices, data in rechunk:
+        print(slices)
+        print(data.shape)
+```
+
+#### Serializers
+The datasets can be serialized to netcdf4 via the to_netcdf4 method. You must have the [h5netcdf package](https://h5netcdf.org/) installed for netcdf4. It can also be copied to another cfdb file.
+
+```python
+with open_dataset(file_path) as ds:
+    new_ds = ds.copy(new_file_path)
+    print(new_ds)
+    new_ds.close()
+    ds.to_netcdf4(nc_file_path)
+```
+
 
 
 ## License

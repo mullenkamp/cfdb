@@ -89,7 +89,7 @@ time_data = np.linspace(0, 199, 200, dtype='datetime64[D]')
 
 air_data = np.linspace(0, 3999.9, 40000, dtype='float32').reshape(200, 200)
 
-era5_path = '/home/mike/data/ecmwf/era5-land/reanalysis-era5-land.2m_temperature.1950-01-01.1957-12-31.nc'
+era5_path = '/home/mike/data/ecmwf/reanalysis-era5-land/reanalysis-era5-land.total_precipitation.1950-01-01!1957-12-31.nc'
 
 ###################################################
 ### Functions
@@ -509,156 +509,6 @@ h5 = h5netcdf.File(era5_path, 'r')
 
 ds = open_dataset(new_path, 'n')
 
-inverted_coords = []
-dims = tuple(h5.dims)
-for dim in dims:
-    h5_coord = h5[dim]
-    dtype_encoded = h5_coord.dtype
-    attrs = dict(h5_coord.attrs)
-    input_params = {}
-    for attr, value in h5_coord.attrs.items():
-        if attr == 'scale_factor':
-            input_params['scale_factor'] = float(attrs.pop(attr))
-        elif attr == 'add_offset':
-            input_params['add_offset'] = float(attrs.pop(attr))
-        elif attr == '_FillValue':
-            if value is not None:
-                input_params['fillvalue'] = int(attrs.pop(attr))
-        elif attr == 'missing_value':
-            del attrs['missing_value']
-        elif isinstance(value, np.bytes_):
-            attrs[attr] = str(value.astype(str))
-        elif isinstance(value, np.floating):
-            attrs[attr] = float(value)
-        elif isinstance(value, np.integer):
-            attrs[attr] = int(value)
-        elif isinstance(value, np.str_):
-            attrs[attr] = str(value)
-
-    if 'scale_factor' in input_params:
-        dtype_decoded = np.dtype('float64')
-    elif 'units' in attrs:
-        units = attrs['units']
-        if ' since ' in units:
-            freq, start_date = units.split(' since ')
-            freq_code = inv_time_units_dict[freq]
-            origin_date = np.datetime64(start_date, freq_code)
-            unix_date = np.datetime64('1970-01-01', freq_code)
-            # origin_diff = (unix_date - origin_date).astype(dtype_encoded)
-            units = f'{freq} since {str(unix_date)}'
-            if freq_code not in ('M', 'D', 'h', 'm'):
-                dtype_encoded = np.dtype('int64')
-            dtype_decoded = origin_date.dtype
-        else:
-            dtype_decoded = dtype_encoded
-    else:
-        dtype_decoded = dtype_encoded
-
-    chunk_start = (0,)
-    chunk_stop = h5_coord.shape
-    chunk_shape = h5_coord.chunks
-    if chunk_shape is None:
-        chunk_shape = rechunkit.guess_chunk_shape(chunk_stop, dtype_encoded)
-
-    data = h5_coord[()]
-    h5_coord_diff = np.diff(data)
-    if h5_coord_diff[0] > 0:
-        order_check = np.all(h5_coord_diff > 0)
-        inverted = False
-    else:
-        order_check = np.all(h5_coord_diff < 0)
-        inverted = True
-
-    inverted_coords.append(inverted)
-
-    if not order_check:
-        raise ValueError('Either the coordinate values are not increasing/decreasing or they are not unique.')
-
-    data = h5_coord[()]
-
-    if inverted:
-        data.sort()
-
-    if dtype_decoded.kind == 'M':
-        data = data + origin_date
-
-    coord = ds.create.coord.generic(dim, data=data, dtype_decoded=dtype_decoded, dtype_encoded=dtype_encoded, chunk_shape=chunk_shape, **input_params)
-    coord.attrs.update(attrs)
-
-    # chunks_iter = rechunkit.chunk_range(chunk_start, chunk_stop, chunk_shape)
-    # for chunk_slices in chunks_iter:
-    #     data = h5_coord[chunk_slices]
-    #     coord.append(data)
-
-inverted_coords = tuple(inverted_coords)
-is_inverted = any(inverted_coords)
-
-for var_name in h5.variables:
-    if var_name not in dims:
-        h5_var = h5[var_name]
-        dtype_encoded = h5_var.dtype
-        attrs = dict(h5_var.attrs)
-        input_params = {}
-        for attr, value in h5_var.attrs.items():
-            if attr == 'scale_factor':
-                input_params['scale_factor'] = float(attrs.pop(attr))
-            elif attr == 'add_offset':
-                input_params['add_offset'] = float(attrs.pop(attr))
-            elif attr == '_FillValue':
-                if value is not None:
-                    input_params['fillvalue'] = int(attrs.pop(attr))
-            elif attr == 'missing_value':
-                del attrs['missing_value']
-            elif isinstance(value, np.bytes_):
-                attrs[attr] = str(value.astype(str))
-            elif isinstance(value, np.floating):
-                attrs[attr] = float(value)
-            elif isinstance(value, np.integer):
-                attrs[attr] = int(value)
-            elif isinstance(value, np.str_):
-                attrs[attr] = str(value)
-
-        if 'scale_factor' in input_params:
-            dtype_decoded = np.dtype('float64')
-        elif 'units' in attrs:
-            units = attrs['units']
-            if ' since ' in units:
-                freq, start_date = units.split(' since ')
-                freq_code = inv_time_units_dict[freq]
-                origin_date = np.datetime64(start_date, freq_code)
-                unix_date = np.datetime64('1970-01-01', freq_code)
-                origin_diff = (unix_date - origin_date).astype(dtype_encoded)
-                units = f'{freq} since {str(unix_date)}'
-                if freq_code not in ('M', 'D', 'h', 'm'):
-                    dtype_encoded = np.dtype('int64')
-                dtype_decoded = origin_date.dtype
-            else:
-                dtype_decoded = dtype_encoded
-        else:
-            dtype_decoded = dtype_encoded
-
-        chunk_start = tuple(0 for i in range(len(h5_var.shape)))
-        chunk_stop = h5_var.shape
-        chunk_shape = h5_var.chunks
-        if chunk_shape is None:
-            chunk_shape = rechunkit.guess_chunk_shape(chunk_stop, dtype_encoded)
-
-        data_var = ds.create.data_var.generic(var_name, h5_var.dimensions, dtype_decoded=dtype_decoded, dtype_encoded=dtype_encoded, chunk_shape=chunk_shape, **input_params)
-        data_var.attrs.update(attrs)
-
-        chunks_iter = rechunkit.chunk_range(chunk_start, chunk_stop, chunk_shape)
-        for chunk_slices in chunks_iter:
-            if is_inverted:
-                source_slices = tuple(slice(s - cs.stop, s - cs.start) if inverted else cs for inverted, cs, s in zip(inverted_coords, chunk_slices, chunk_stop))
-                data = np.flip(h5_var[source_slices], np.nonzero(inverted_coords)[0])
-            else:
-                data = h5_var[chunk_slices]
-            if not np.all(data == data_var.fillvalue):
-                # data_var.set_chunk(chunk_slices, data, False)
-                data_var.set(chunk_slices, data, False)
-
-ds.attrs.update(dict(h5.attrs))
-
 ds.close()
 
 
@@ -686,6 +536,9 @@ if np.allclose(view2.data, t2m._encoder.decode(h5_var[h5_sel]), equal_nan=True):
 ds_view = ds.select(ds_sel)
 ds_view.to_netcdf4('/home/mike/data/cache/cfdb/nc_test.nc')
 
+ds_view = ds.select_loc(ds_sel_loc)
+ds_view.to_netcdf4('/home/mike/data/cache/cfdb/nc_test.nc')
+
 ds.to_netcdf4('/home/mike/data/cache/cfdb/nc_test.nc')
 
 
@@ -704,7 +557,7 @@ cfdb_path = new_path
 netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=None)
 netcdf4_to_cfdb(era5_path, new_path, sel=ds_sel, sel_loc=None)
 netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=ds_sel_loc)
-
+cfdb_to_netcdf4(new_path, '/home/mike/data/cache/cfdb/nc_test.nc')
 
 
 

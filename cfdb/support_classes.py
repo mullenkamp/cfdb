@@ -65,6 +65,7 @@ class Rechunker:
             shape of the chunk
         """
         chunk_shape = rechunkit.guess_chunk_shape(self._var.shape, self._var.dtype_encoded, target_chunk_size)
+
         return chunk_shape
 
     def calc_ideal_read_chunk_shape(self, target_chunk_shape: Tuple[int, ...]):
@@ -556,14 +557,16 @@ class Variable:
         # TODO
 
 
-    def iter_chunks(self, decoded=True):
+    def iter_chunks(self, include_data=True, decoded=True):
         """
-        Iterate through the chunks of the variable and return numpy arrays associated with the index slices. This should be the main way for users to get large amounts of data from a variable. The "ends" of the data will be clipped to the shape of the variable (i.e. not all chunks will be the chunk_shape).
+        Iterate through the chunks of the variable and return numpy arrays associated with the index slices (Optional). This should be the main way for users to get large amounts of data from a variable. The "ends" of the data will be clipped to the shape of the variable (i.e. not all chunks will be the chunk_shape).
 
         Parameters
         ----------
         decoded: bool
             Should the data be decoded?
+        include_data: bool
+            Should the data be included in the output?
 
         Returns
         -------
@@ -577,19 +580,29 @@ class Variable:
         blank = self._make_blank_chunk_array(decoded)
 
         slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
-        for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
-            # print(target_chunk, source_chunk, blt_key)
-            b1 = self._blt.get(blt_key)
-            if b1 is None:
-                blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
-                yield target_chunk, blank[blank_slices]
-            else:
-                if decoded:
-                    data = self._encoder.decode(self._encoder.from_bytes(b1))
-                else:
-                    data = self._encoder.from_bytes(b1)
 
-                yield target_chunk, data[source_chunk]
+        if include_data:
+            for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
+                # print(target_chunk, source_chunk, blt_key)
+                b1 = self._blt.get(blt_key)
+                if b1 is None:
+                    blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
+                    yield target_chunk, blank[blank_slices]
+                else:
+                    if decoded:
+                        data = self._encoder.decode(self._encoder.from_bytes(b1))
+                    else:
+                        data = self._encoder.from_bytes(b1)
+
+                    yield target_chunk, data[source_chunk]
+        else:
+            starts = tuple(s.start for s in slices)
+            stops = tuple(s.stop for s in slices)
+            chunk_iter2 = rechunkit.chunk_range(starts, stops, self.chunk_shape)
+            for partial_chunk in chunk_iter2:
+                target_chunk = tuple(slice(s.start - start, s.stop - start) for start, s in zip(starts, partial_chunk))
+
+                yield target_chunk
 
     def __iter__(self):
         return self.iter_chunks()
@@ -859,7 +872,7 @@ class Coordinate(CoordinateView):
 
     def append(self, data):
         """
-        Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue. 
+        Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue.
         """
         if not self.writable:
             raise ValueError('Dataset is not writable.')
@@ -977,14 +990,14 @@ class DataVariableView(Variable):
         self.set(sel, data)
 
 
-    def groupby(self, coord_names: Iterable, max_mem: int=2**27, decoded=True):
+    def groupby(self, coord_names: Union[str, Iterable], max_mem: int=2**27, decoded=True):
         """
         This method takes one or more coord names to group by and returns a generator. This generator will return chunks of data according to these groupings with the associated tuple of slices. The more max_mem provided, the more efficient the chunking.
         This is effectively the rechunking method where each coord name supplied is set to 1 and all other coords are set to their full their full length.
 
         Parameters
         ----------
-        coord_names: Iterable
+        coord_names: str or Iterable
             The coord names to group by.
         max_mem: int
             The max allocated memory to perform the chunking operation in bytes. This will only be as large as necessary for an optimum size chunk for the rechunking.

@@ -6,7 +6,7 @@ Created on Tue Jan  7 11:25:06 2025
 @author: mike
 """
 import booklet
-from typing import Union
+from typing import Union, List
 import pathlib
 import msgspec
 import weakref
@@ -62,50 +62,10 @@ class DatasetBase:
     def __contains__(self, key):
         return key in self.var_names
 
-    # def get(self, var_name):
-    #     """
-
-    #     """
-    #     if not isinstance(var_name, str):
-    #         raise TypeError('var_name must be a string.')
-
-    #     if var_name not in self:
-    #         raise ValueError(f'The Variable {var_name} does not exist.')
-
-    #     if self._sel is not None:
-    #         if var_name not in self._sel:
-    #             raise ValueError(f'The Variable {var_name} does not exist in view.')
-
-    #     if var_name not in self._var_cache:
-    #         var_meta = self._sys_meta.variables[var_name]
-    #         if isinstance(var_meta, data_models.DataVariable):
-    #             var = sc.DataVariable(var_name, self)
-    #         else:
-    #             var = sc.Coordinate(var_name, self)
-    #         self._var_cache[var_name] = var
-
-    #     if self._sel is None:
-    #         return self._var_cache[var_name]
-    #     else:
-    #         return self._var_cache[var_name][self._sel[var_name]]
-
-        # var_meta = self._sys_meta.variables[var_name]
-        # if isinstance(var_meta, data_models.DataVariable):
-        #     var = sc.DataVariable(var_name, self)
-        # else:
-        #     var = sc.Coordinate(var_name, self)
-
-        # return var
-
 
     def __getitem__(self, key):
         return self.get(key)
 
-    # def __setitem__(self, key, value):
-    #     if isinstance(value, sc.Variable):
-    #         setattr(self, key, value)
-    #     else:
-    #         raise TypeError('Assigned value must be a Variable or Coordinate object.')
 
     def __delitem__(self, key):
         if key not in self:
@@ -223,7 +183,7 @@ class DatasetBase:
 
     def select_loc(self, sel: dict):
         """
-        Filter the dataset variables by a selection of the coordinate locations.
+        Filter the dataset variables by a selection of the coordinate locations/values.
         """
         ## Checks on input
         coord_names = self.coord_names
@@ -303,7 +263,7 @@ class DatasetBase:
     #     return x1
 
 
-    def copy(self, file_path):
+    def copy(self, file_path: Union[str, pathlib.Path], include_data_vars: List[str]=None, exclude_data_vars: List[str]=None):
         """
 
         """
@@ -311,14 +271,18 @@ class DatasetBase:
 
         new_ds = open_dataset(file_path, 'n', compression=self.compression, compression_level=self.compression_level, **kwargs)
 
-        for coord in self.coords:
-            new_coord = new_ds.create.coord.like(coord.name, coord, True)
+        data_var_names, coord_names = utils.filter_var_names(self, include_data_vars, exclude_data_vars)
+
+        for coord_name in coord_names:
+            coord = self[coord_name]
+            new_coord = new_ds.create.coord.like(coord_name, coord, True)
             new_coord.attrs.update(coord.attrs.data)
 
-        for data_var in self.data_vars:
-            new_data_var = new_ds.create.data_var.like(data_var.name, data_var)
+        for data_var_name in data_var_names:
+            data_var = self[data_var_name]
+            new_data_var = new_ds.create.data_var.like(data_var_name, data_var)
             new_data_var.attrs.update(data_var.attrs.data)
-            for write_chunk, data in data_var.iter_chunks(False):
+            for write_chunk, data in data_var.iter_chunks(decoded=False):
                 new_data_var.set(write_chunk, data, False)
 
         new_ds.attrs.update(self.attrs.data)
@@ -326,26 +290,28 @@ class DatasetBase:
         return new_ds
 
 
-    def to_netcdf4(self, file_path: Union[str, pathlib.Path], compression: str='gzip', **file_kwargs):
+    def to_netcdf4(self, file_path: Union[str, pathlib.Path], compression: str='gzip', include_data_vars: List[str]=None, exclude_data_vars: List[str]=None, **file_kwargs):
         """
         Save a dataset to a netcdf4 file using h5netcdf.
         """
         if not import_h5netcdf:
             raise ImportError('h5netcdf must be installed to save files to netcdf4.')
 
+        data_var_names, coord_names = utils.filter_var_names(self, include_data_vars, exclude_data_vars)
+
         with h5netcdf.File(file_path, 'w', **file_kwargs) as h5:
             # dims/coords
-            for coord in self.coords:
-                name = coord.name
-                h5.dimensions[name] = coord.shape[0]
+            for coord_name in coord_names:
+                coord = self[coord_name]
+                h5.dimensions[coord_name] = coord.shape[0]
                 coord_len = coord.shape[0]
                 chunk_len = coord.chunk_shape[0]
                 if chunk_len > coord_len:
                     chunk_shape = (coord_len,)
                 else:
                     chunk_shape = (chunk_len,)
-    
-                h5_coord = h5.create_variable(name, (name,), coord.dtype_encoded, compression=compression, chunks=chunk_shape, fillvalue=coord.fillvalue)
+
+                h5_coord = h5.create_variable(coord_name, (coord_name,), coord.dtype_encoded, compression=compression, chunks=chunk_shape, fillvalue=coord.fillvalue)
                 attrs = deepcopy(coord.attrs.data)
                 dtype_decoded, dtype_encoded = utils.parse_dtype_names(coord.dtype_decoded, coord.dtype_encoded)
                 if coord.step is not None:
@@ -377,18 +343,18 @@ class DatasetBase:
 
                 for write_chunk, data in coord.iter_chunks(decoded=False):
                     h5_coord[write_chunk] = data
-    
+
             # Data vars
-            for data_var in self.data_vars:
-                name = data_var.name
+            for data_var_name in data_var_names:
+                data_var = self[data_var_name]
                 chunk_shape = []
                 for s, cs in zip(data_var.shape, data_var.chunk_shape):
                     if cs > s:
                         chunk_shape.append(s)
                     else:
                         chunk_shape.append(cs)
-    
-                h5_data_var = h5.create_variable(name, data_var.coord_names, data_var.dtype_encoded, compression=compression, chunks=tuple(chunk_shape), fillvalue=data_var.fillvalue)
+
+                h5_data_var = h5.create_variable(data_var_name, data_var.coord_names, data_var.dtype_encoded, compression=compression, chunks=tuple(chunk_shape), fillvalue=data_var.fillvalue)
                 attrs = deepcopy(data_var.attrs.data)
                 dtype_decoded, dtype_encoded = utils.parse_dtype_names(data_var.dtype_decoded, data_var.dtype_encoded)
                 if data_var.scale_factor is not None:
@@ -411,10 +377,10 @@ class DatasetBase:
 
                 attrs.update({'dtype_decoded': dtype_decoded, 'dtype_encoded': dtype_encoded, 'dtype': dtype_encoded})
                 h5_data_var.attrs.update(attrs)
-    
+
                 for write_chunk, data in data_var.iter_chunks(decoded=False):
                     h5_data_var[write_chunk] = data
-    
+
             # Add global attrs
             h5.attrs.update(self.attrs.data)
 
@@ -706,7 +672,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
                   compression_level: int=1,
                   **kwargs):
     """
-    Open a cfdb that is linked with a remote S3 database. 
+    Open a cfdb that is linked with a remote S3 database.
 
     Parameters
     -----------
