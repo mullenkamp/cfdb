@@ -233,6 +233,30 @@ default_attrs = dict(
 ### Functions
 
 
+def filter_var_names(ds, include_data_vars, exclude_data_vars):
+    """
+
+    """
+    if include_data_vars is not None:
+        if isinstance(include_data_vars, str):
+            include_data_vars = [include_data_vars]
+        data_var_names = set(include_data_vars)
+    elif exclude_data_vars is not None:
+        if isinstance(exclude_data_vars, str):
+            exclude_data_vars = [exclude_data_vars]
+        data_var_names_all = set(ds.data_var_names)
+        data_var_names = data_var_names_all.difference(set(exclude_data_vars))
+    else:
+        data_var_names = set(ds.data_var_names)
+
+    coord_names = set()
+    for data_var_name in data_var_names:
+        data_var = ds[data_var_name]
+        coord_names.update(data_var.coord_names)
+
+    return data_var_names, coord_names
+
+
 def parse_cf_time_units(dtype_decoded):
     """
 
@@ -1959,6 +1983,7 @@ def file_summary(ds):
             dim_name = var.name
             dtype_name = var.dtype_decoded
             dim_len = var.shape[0]
+            # print(var.data)
             first_value = format_value(var.data[0])
             last_value = format_value(var.data[-1])
             spacing = value_indent - name_indent - len(dim_name)

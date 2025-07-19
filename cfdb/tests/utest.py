@@ -9,6 +9,10 @@ from itertools import count
 import msgspec
 import pathlib
 
+from cfdb import open_dataset, open_edataset
+import h5netcdf
+import rechunkit
+
 ###################################################
 ### Parameters
 
@@ -85,6 +89,7 @@ time_data = np.linspace(0, 199, 200, dtype='datetime64[D]')
 
 air_data = np.linspace(0, 3999.9, 40000, dtype='float32').reshape(200, 200)
 
+era5_path = '/home/mike/data/ecmwf/reanalysis-era5-land/reanalysis-era5-land.total_precipitation.1950-01-01!1957-12-31.nc'
 
 ###################################################
 ### Functions
@@ -482,37 +487,77 @@ temp_var.attrs.update({
 h5.close()
 
 
+# fillvalue_dict = {'int8': -128, 'int16': -32768, 'int32': -2147483648, 'int64': -9223372036854775808, 'float32': np.nan, 'float64': np.nan, 'str': ''}
+
+time_units_dict = {
+    'M': 'months',
+    'D': 'days',
+    'h': 'hours',
+    'm': 'minutes',
+    's': 'seconds',
+    'ms': 'milliseconds',
+    'us': 'microseconds',
+    'ns': 'nanoseconds',
+    }
+
+inv_time_units_dict = {value: key for key, value in time_units_dict.items()}
+
+new_path = pathlib.Path('/home/mike/data/cache/cfdb/era5_test.cfdb')
 
 
+h5 = h5netcdf.File(era5_path, 'r')
+
+ds = open_dataset(new_path, 'n')
+
+ds.close()
 
 
+sel = (slice(24, 25), slice(50, 52), slice(50, 52))
+h5_sel = (slice(24, 25), slice(78, 80), slice(50, 52))
+loc_sel = (slice('1950-01-02T01', '1950-01-02T03'), slice(-42.30, -42.10), slice(171.30, 171.50))
+ds_sel = {'longitude': 60, 'latitude': 70, 'time': slice(40, 100)}
+ds_sel = {'time': slice(24, 25)}
+ds_sel_loc = {'time': slice('1950-01-02T01', '1950-01-02T03')}
+
+ds = open_dataset(new_path)
+
+t2m = ds['t2m']
+view1 = t2m[sel]
+
+if np.allclose(view1.data, t2m._encoder.decode(h5_var[sel]), equal_nan=True):
+    print('Booo!')
+
+view2 = t2m.loc[loc_sel]
+
+if np.allclose(view2.data, t2m._encoder.decode(h5_var[h5_sel]), equal_nan=True):
+    print('Yay!')
 
 
+ds_view = ds.select(ds_sel)
+ds_view.to_netcdf4('/home/mike/data/cache/cfdb/nc_test.nc')
+
+ds_view = ds.select_loc(ds_sel_loc)
+ds_view.to_netcdf4('/home/mike/data/cache/cfdb/nc_test.nc')
+
+ds.to_netcdf4('/home/mike/data/cache/cfdb/nc_test.nc')
 
 
+lat = ds['latitude'].data
+lon = ds['longitude'].data
 
 
+h5_lat = h5['latitude'][:]
+h5_lon = h5['longitude'][:]
+h5_time = h5['time']
 
 
+nc_path = era5_path
+cfdb_path = new_path
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=None)
+netcdf4_to_cfdb(era5_path, new_path, sel=ds_sel, sel_loc=None)
+netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=ds_sel_loc)
+cfdb_to_netcdf4(new_path, '/home/mike/data/cache/cfdb/nc_test.nc')
 
 
 

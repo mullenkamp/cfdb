@@ -10,7 +10,7 @@ import uuid6 as uuid
 import numpy as np
 from time import time
 import pathlib
-from cfdb import open_dataset, open_edataset
+from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb
 import ebooklet
 import h5netcdf
 
@@ -33,6 +33,7 @@ fillvalue = None
 scale_factor = 0.1
 add_offset = None
 sel = (slice(1, 4), slice(2, 5))
+sel2 = (slice(1, 1), slice(2, 5))
 loc_sel = (slice(0.4, 0.7), slice('1970-01-06', '1970-01-15'))
 ds_sel = {'latitude': slice(1, 4), 'time': slice(2, 5)}
 ds_loc_sel = {'latitude': slice(0.4, 0.7), 'time': slice('1970-01-06', '1970-01-15')}
@@ -142,7 +143,7 @@ def test_data_var_creation():
         assert np.allclose(data_var.data, data_var_data)
 
 
-def test_sel():
+def test_select():
     with open_dataset(file_path) as ds:
         data_var = ds[name]
         view1 = data_var[sel]
@@ -151,11 +152,16 @@ def test_sel():
         view2 = data_var.loc[loc_sel]
         assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(5, 14))])
 
-        view3 = ds.sel(ds_sel)
+        view3 = ds.select(ds_sel)
         assert np.allclose(view3[name].data, data_var_data[sel])
 
-        view4 = ds.sel_loc(ds_loc_sel)
+        view4 = ds.select_loc(ds_loc_sel)
         assert np.allclose(view4[name].data, data_var_data[(slice(4, 7), slice(5, 14))])
+
+        try:
+            view_fail = data_var[sel2]
+        except ValueError:
+            pass
 
 def test_rechunker_assignment():
     with open_dataset(file_path, flag='w') as ds:
@@ -192,6 +198,7 @@ def test_rechunker_assignment():
 def test_serialize():
     with open_dataset(file_path) as ds:
         new_ds = ds.copy(new_file_path)
+        print(new_ds)
         new_ds.close()
         ds.to_netcdf4(nc_file_path)
 
@@ -236,6 +243,11 @@ def test_edataset():
     # remote_index_path.unlink()
 
 
+def test_cfdb_to_netcdf4():
+    cfdb_to_netcdf4(file_path, nc_file_path, sel_loc=ds_loc_sel)
+
+def test_netcdf4_to_cfdb():
+    netcdf4_to_cfdb(nc_file_path, new_file_path)
 
 
 # open_conn = remote_conn.open('w')
