@@ -8,11 +8,11 @@ Created on Tue Nov 14 13:21:10 2023
 import numpy as np
 import rechunkit
 
-from . import utils
-# import utils
+# from . import utils
+import utils
 
-sup = np.testing.suppress_warnings()
-sup.filter(FutureWarning)
+# sup = np.testing.suppress_warnings()
+# sup.filter(FutureWarning)
 
 ########################################################
 ### Parameters
@@ -28,10 +28,12 @@ def loc_index_numeric(key, coord_data):
     """
 
     """
-    if coord_data.dtype.kind == 'f':
-        label_idx = np.nonzero(np.isclose(coord_data, key))[0][0]
-    else:
-        label_idx = np.searchsorted(coord_data, key)
+    # if coord_data.dtype.kind == 'f':
+    #     label_idx = np.nonzero(np.isclose(coord_data, key))[0][0]
+    # else:
+    #     label_idx = np.searchsorted(coord_data, key)
+
+    label_idx = np.searchsorted(coord_data, key)
 
     return int(label_idx)
 
@@ -42,8 +44,9 @@ def loc_index_str(key, coord_data):
     """
     if coord_data.dtype.kind == 'M':
         key = np.array(key, dtype=coord_data.dtype)
-
-    label_idx = np.searchsorted(coord_data, key)
+        label_idx = loc_index_numeric(key, coord_data)
+    else:
+        label_idx = np.nonzero(coord_data == key)[0][0]
 
     return int(label_idx)
 
@@ -55,7 +58,6 @@ def loc_index_slice(slice_obj, coord_data):
     start = slice_obj.start
     stop = slice_obj.stop
 
-    ## use np.searchsorted because coordinates are sorted
     if start is None:
         start_idx = None
     else:
@@ -64,11 +66,10 @@ def loc_index_slice(slice_obj, coord_data):
         else:
             start_idx = loc_index_numeric(start, coord_data)
 
-    ## stop_idx should include the stop label as per pandas
     if stop is None:
         stop_idx = None
     else:
-        if isinstance(start, str):
+        if isinstance(stop, str):
             stop_idx = loc_index_str(stop, coord_data)
         else:
             stop_idx = loc_index_numeric(stop, coord_data)

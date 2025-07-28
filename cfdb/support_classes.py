@@ -13,10 +13,11 @@ import zstandard as zstd
 import math
 from typing import Set, Optional, Dict, Tuple, List, Union, Any, Iterable
 from copy import deepcopy
+import itertools
 import rechunkit
 
-from . import utils, indexers
-# import utils, indexers
+# from . import utils, indexers
+import utils, indexers
 
 ###################################################
 ### Parameters
@@ -606,6 +607,18 @@ class Variable:
 
     def __iter__(self):
         return self.iter_chunks()
+
+
+    def items(self, decoded=True):
+        """
+        Iterate through all indexes.
+        """
+        for target_chunk, data in self.iter_chunks(decoded=True):
+            data_starts = tuple(s.start for s in target_chunk)
+            for index in itertools.product(*(range(s.start, s.stop) for s in target_chunk)):
+                data_index = tuple(i - ds for i, ds in zip(index, data_starts))
+
+                yield index, data[data_index]
 
 
     def get_chunk(self, sel=None, decoded=True, missing_none=False):

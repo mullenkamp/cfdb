@@ -24,8 +24,8 @@ try:
 except ImportError:
     import_ebooklet = False
 
-from . import utils, indexers, data_models, creation, support_classes as sc
-# import utils, indexers, data_models, creation, support_classes as sc
+# from . import utils, indexers, data_models, creation, support_classes as sc
+import utils, indexers, data_models, creation, support_classes as sc
 
 
 ############################################

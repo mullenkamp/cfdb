@@ -8,13 +8,23 @@ from collections import Counter, deque
 from itertools import count
 import msgspec
 import pathlib
+import io
+import os
+import math
+import ebooklet
+try:
+    import tomllib as toml
+except ImportError:
+    import tomli as toml
 
-from cfdb import open_dataset, open_edataset
+from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb
 import h5netcdf
 import rechunkit
 
 ###################################################
 ### Parameters
+
+script_path = pathlib.Path(os.path.realpath(os.path.dirname(__file__)))
 
 # source_shape = (30, 30)
 source_shape = (30, 30, 30)
@@ -94,6 +104,16 @@ era5_path = '/home/mike/data/ecmwf/reanalysis-era5-land/reanalysis-era5-land.tot
 ###################################################
 ### Functions
 
+
+def find_nearest_idx(array, value):
+    idx = np.searchsorted(array, value, side="left")
+    if idx > 0 and (idx == len(array) or math.fabs(value - array[idx-1]) < math.fabs(value - array[idx])):
+        return idx-1
+    else:
+        return idx
+
+
+
 d
 
 ###################################################
@@ -138,7 +158,7 @@ view1.data
 
 self.attrs['test_attr'] = ['test']
 
-view2 = self1.sel(ds_sel)
+view2 = self1.select(ds_sel)
 
 
 self1.close()
@@ -149,6 +169,13 @@ self = self1[name]
 
 
 new_ds = view2.copy(new_file_path)
+
+
+for index, data in self.items():
+    print(index)
+
+
+
 
 
 ##############################
@@ -558,6 +585,75 @@ netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=None)
 netcdf4_to_cfdb(era5_path, new_path, sel=ds_sel, sel_loc=None)
 netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=ds_sel_loc)
 cfdb_to_netcdf4(new_path, '/home/mike/data/cache/cfdb/nc_test.nc')
+
+try:
+    with io.open(script_path.joinpath('s3_config.toml'), "rb") as f:
+        conn_config = toml.load(f)['connection_config']
+
+    endpoint_url = conn_config['endpoint_url']
+    access_key_id = conn_config['access_key_id']
+    access_key = conn_config['access_key']
+except:
+    endpoint_url = os.environ['endpoint_url']
+    access_key_id = os.environ['access_key_id']
+    access_key = os.environ['access_key']
+
+bucket = 'achelous'
+# db_key = uuid.uuid8().hex[-13:]
+db_key = new_path.name
+base_url = 'https://b2.tethys-ts.xyz/file/' + bucket + '/'
+db_url = base_url +  db_key
+
+remote_conn = ebooklet.S3Connection(access_key_id, access_key, db_key, bucket, endpoint_url=endpoint_url, db_url=db_url)
+
+ds = open_edataset(remote_conn, new_path, flag='w')
+changes = ds.changes()
+changes.push()
+ds.close()
+
+
+ds = open_edataset(remote_conn, new_path, flag='r')
+view1 = ds.select_loc(ds_sel_loc)
+t2m = ds['tp']
+view2 = t2m.loc[loc_sel]
+
+
+print(view1['tp'].data)
+
+ds.load()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

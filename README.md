@@ -174,7 +174,10 @@ with open_dataset(file_path) as ds:
     ds.to_netcdf4(nc_file_path)
 ```
 
-
+## TODO
+- Implement shapely geometries (point, line, polygon) as data types. These will be very useful as coordinates.
+- Remove the .loc method/class and replace it with a .select method like for the dataset.
+    - Create three different methods on coordinates: nearest, inner, and outer. These will do the coordinate selection based on those three different options. This will make it easier when I implement shapely geometry as data types.
 
 ## License
 

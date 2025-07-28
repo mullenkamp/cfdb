@@ -28,8 +28,8 @@ import booklet
 # import numcodecs
 # import hdf5plugin
 
-from . import data_models
-# import data_models
+# from . import data_models
+import data_models
 
 ########################################################
 ### Parmeters
