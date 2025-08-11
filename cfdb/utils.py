@@ -16,7 +16,7 @@ from copy import deepcopy
 # import xarray as xr
 # from time import time
 # from datetime import datetime
-import cftime
+# import cftime
 import math
 import rechunkit
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
@@ -28,8 +28,8 @@ import booklet
 # import numcodecs
 # import hdf5plugin
 
-# from . import data_models
-import data_models
+from . import data_models
+# import data_models
 
 ########################################################
 ### Parmeters
@@ -683,7 +683,7 @@ def parse_scale_offset(scale_factor, add_offset, dtype_decoded):
     return scale_factor, add_offset
 
 
-def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool = False):
+def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool = False, dim: str=None):
     """
 
     """
@@ -742,7 +742,12 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
 
     # enc = data_models.Encoding(dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
 
-    var = data_models.CoordinateVariable(shape=(0,), chunk_shape=chunk_shape, origin=0, step=step, dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
+    if isinstance(dim, str):
+        dim0 = data_models.Dim(dim)
+    else:
+        dim0 = None
+
+    var = data_models.CoordinateVariable(shape=(0,), chunk_shape=chunk_shape, origin=0, step=step, dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset, dim=dim0)
 
     return name, var
 
@@ -816,20 +821,20 @@ def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str
 #     return output
 
 
-def decode_datetime(data, units=None, calendar='gregorian'):
-    """
+# def decode_datetime(data, units=None, calendar='gregorian'):
+#     """
 
-    """
-    if units is None:
-        output = data.astype('datetime64[s]')
-    else:
-        if '1970-01-01' in units:
-            time_unit = units.split()[0]
-            output = data.astype(time_str_conversion[time_unit])
-        else:
-            output = cftime.num2pydate(data, units, calendar).astype('datetime64[s]')
+#     """
+#     if units is None:
+#         output = data.astype('datetime64[s]')
+#     else:
+#         if '1970-01-01' in units:
+#             time_unit = units.split()[0]
+#             output = data.astype(time_str_conversion[time_unit])
+#         else:
+#             output = cftime.num2pydate(data, units, calendar).astype('datetime64[s]')
 
-    return output
+#     return output
 
 
 # def encode_data(data, dtype_encoded, fillvalue, add_offset, scale_factor, compressor) -> bytes:

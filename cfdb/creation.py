@@ -6,12 +6,47 @@ Created on Thu Feb 13 17:08:09 2025
 @author: mike
 """
 import numpy as np
-from typing import Set, Optional, Dict, Tuple, List, Union, Any
+from typing import Set, Optional, Dict, Tuple, List, Union, AnyStr
+import pyproj
 
-# from . import utils, support_classes as sc
-import utils, support_classes as sc
+from . import utils, support_classes as sc
+# import utils, support_classes as sc
 
 #################################################
+
+
+class CRS:
+    """
+
+    """
+    def __init__(self, dataset):
+        """
+
+        """
+        self._dataset = dataset
+
+    def from_user_input(self, crs: str | int | pyproj.CRS, x_dim: str, y_dim: str):
+        """
+
+        """
+        ## Check coords
+        coord_names = self._dataset.coord_names
+        if x_dim not in coord_names:
+            raise ValueError(f'{x_dim} not in coords: {coord_names}')
+        if y_dim not in coord_names:
+            raise ValueError(f'{y_dim} not in coords: {coord_names}')
+
+        ## Parse crs
+        crs0 = pyproj.CRS.from_user_input(crs)
+
+        ## Update the metadata
+        self._sys_meta.crs = crs0.to_string()
+        self._sys_meta.variables[x_dim].dim = 'x'
+        self._sys_meta.variables[y_dim].dim = 'y'
+
+        self._dataset.crs = crs0 # Probably needs to change in the future...
+
+        return crs0
 
 
 class Coord:
@@ -29,7 +64,7 @@ class Coord:
         # self._compressor = compressor
 
 
-    def generic(self, name: str, data: np.ndarray | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, chunk_shape: Tuple[int] | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool=False):
+    def generic(self, name: str, data: np.ndarray | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, chunk_shape: Tuple[int] | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool=False, dim: str=None):
         """
         The generic method to create a coordinate.
 
@@ -63,7 +98,7 @@ class Coord:
 
         # print(params)
 
-        name, var = utils.parse_coord_inputs(name, data, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset, step=step)
+        name, var = utils.parse_coord_inputs(name, data, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset, step=step, dim=dim)
 
         ## Var init process
         self._dataset._sys_meta.variables[name] = var
@@ -169,6 +204,13 @@ class Coord:
         coord.attrs.update(utils.default_attrs['altitude'])
 
         return coord
+
+
+    def xy_from_crs(self, crs: Union[str, int, pyproj.CRS], x_name: str=None, y_name: str=None):
+        """
+
+        """
+
 
 
 class DataVar:

@@ -11,6 +11,7 @@ import pathlib
 import msgspec
 import weakref
 from copy import deepcopy
+import pyproj
 
 try:
     import h5netcdf
@@ -24,8 +25,8 @@ try:
 except ImportError:
     import_ebooklet = False
 
-# from . import utils, indexers, data_models, creation, support_classes as sc
-import utils, indexers, data_models, creation, support_classes as sc
+from . import utils, indexers, data_models, creation, support_classes as sc
+# import utils, indexers, data_models, creation, support_classes as sc
 
 
 ############################################
@@ -427,6 +428,11 @@ class Dataset(DatasetBase):
         self._finalizers = [weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta)]
 
         self.attrs = sc.Attributes(self._blt, '_', self.writable, self._finalizers)
+
+        if self._sys_meta.crs is None:
+            self.crs = None
+        else:
+            self.crs = pyproj.CRS.from_user_input(self._sys_meta.crs)
 
         self._var_cache = weakref.WeakValueDictionary()
 

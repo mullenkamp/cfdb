@@ -15,9 +15,10 @@ from typing import Set, Optional, Dict, Tuple, List, Union, Any, Iterable
 from copy import deepcopy
 import itertools
 import rechunkit
+import pyproj
 
-# from . import utils, indexers
-import utils, indexers
+from . import utils, indexers, dtypes
+# import utils, indexers, dtypes
 
 ###################################################
 ### Parameters
@@ -26,16 +27,6 @@ attrs_key = '_{var_name}.attrs'
 
 ###################################################
 ### Classes
-
-
-class Categorical:
-    """
-    This class and dtype should be similar to the pandas categorical dtype. Preferably, all string arrays should be cat dtypes. In the CF conventions, this is equivelant to `flags <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#flags>`_. The CF conventions of assigning the attrs flag_values and flag_meanings should be used for compatability.
-    As in the CF conventions, two python lists can be used (one int in increasing order from 0 as the index, and the other as the string values). The string values would have no sorted order. They would be assigned the int index as they are assigned.
-    This class should replace the fixed-length numpy unicode class for data variables.
-    At the moment, I don't want to implement this until I've got the rest of the package implemented.
-    """
-    # TODO
 
 
 class Rechunker:
@@ -124,7 +115,7 @@ class Rechunker:
         return rechunkit.calc_n_reads_rechunker(self._var.shape, self._var.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
 
 
-    def rechunk(self, target_chunk_shape, max_mem: int=2**27, decoded=True):
+    def rechunk(self, target_chunk_shape, max_mem: int=2**27):
         """
         This method takes a target chunk_shape and max memory size and returns a generator that converts to the new target chunk shape. It optimises the rechunking by using an in-memory numpy ndarray with a size defined by the max_mem.
 
@@ -142,16 +133,28 @@ class Rechunker:
         """
         self._var.load()
 
-        func = lambda sel: self._var.get_chunk(sel, decoded=False)
+        func = lambda sel: self._var.get_chunk(sel)
 
-        rechunkit1 = rechunkit.rechunker(func, self._var.shape, self._var.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+        np_dtype = self._var.dtype.np_dtype
 
-        if decoded:
-            for slices, encoded_data in rechunkit1:
-                yield slices, self._var._encoder.decode(encoded_data)
+        if self._var.dtype.itemsize is None:
+            itemsize = self._var.estimate_itemsize()
+
+            if itemsize is None:
+                raise ValueError('Variable is empty, so no rechunking is possible.')
         else:
-            for slices, encoded_data in rechunkit1:
-                yield slices, encoded_data
+            itemsize = self._var.dtype.itemsize
+
+        if self.dtype.transcoder is None:
+            rechunkit1 = rechunkit.rechunker(func, self._var.shape, np_dtype, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+
+            for slices, data_decoded in rechunkit1:
+                yield slices, data_decoded
+        else:
+            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self.dtype.transcoder.dest_dtype, self.dtype.transcoder.dest_dtype.itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+
+            for slices, data_decoded in rechunkit1:
+                yield slices, data_decoded
 
 
 class Attributes:
@@ -316,142 +319,17 @@ class Compressor:
         return self._dctx.decompress(data)
 
 
-class Encoding:
-    """
+# TODO - I'll probably need something more specific for cfdb than pyproj CRS directly
+# class CRS:
+#     """
 
-    """
-    def __init__(self, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset, compressor):
-        # self._encoding = msgspec.to_builtins(var_encoding)
-        # self._encoding = var_encoding
-        self.compressor = compressor
-        self.chunk_shape = chunk_shape
-        self.dtype_decoded = dtype_decoded
-        self.dtype_encoded = dtype_encoded
-        self.fillvalue = fillvalue
-        self.scale_factor = scale_factor
-        self.add_offset = add_offset
-        # for key, val in self._encoding.items():
-        #     setattr(self, key, val)
+#     """
+#     def __init__(self, crs: pyproj.CRS):
+#         """
 
-    # def get(self, key, default=None):
-    #     return self._encoding.get(key, default)
-
-    # def __getitem__(self, key):
-    #     return self._encoding[key]
-
-    # def __setitem__(self, key, value):
-    #     if key in utils.enc_fields:
-    #         self._encoding[key] = value
-    #         if self._writable:
-    #             self._attrs[key] = value
-    #     else:
-    #         raise ValueError(f'key must be one of {utils.enc_fields}.')
-
-    # def clear(self):
-    #     keys = list(self._encoding.keys())
-    #     self._encoding.clear()
-    #     if self._writable:
-    #         for key in keys:
-    #             del self._attrs[key]
-
-    # def keys(self):
-    #     return self._encoding.keys()
-
-    # def values(self):
-    #     return self._encoding.values()
-
-    # def items(self):
-    #     return self._encoding.items()
-
-    # def pop(self, key, default=None):
-    #     if self._writable:
-    #         if key in self._attrs:
-    #             del self._attrs[key]
-    #     return self._encoding.pop(key, default)
-
-    # def update(self, other=()):
-    #     key_values = {**other}
-    #     for key, value in key_values.items():
-    #         if key in utils.enc_fields:
-    #             self._encoding[key] = value
-    #             if self._writable:
-    #                 self._attrs[key] = value
-
-    # def __delitem__(self, key):
-    #     del self._encoding[key]
-    #     if self._writable:
-    #         del self._attrs[key]
-
-    # def __contains__(self, key):
-    #     return key in self._encoding
-
-    # def __iter__(self):
-    #     return self._encoding.__iter__()
-
-    # def __repr__(self):
-    #     return make_attrs_repr(self, name_indent, value_indent, 'Encodings')
+#         """
 
 
-    def to_bytes(self, encoded_array: np.ndarray) -> bytes:
-        """
-        from encoded array to bytes
-        """
-        return self.compressor.compress(encoded_array.tobytes())
-
-    def from_bytes(self, data: bytes, count=-1, offset=0) -> np.ndarray:
-        """
-        from bytes to encoded array. The count and offset are from the np.frombuffer function, but are currently unused because it's too hard at the moment.
-        """
-        b1 = bytearray(self.compressor.decompress(data))
-        encoded_array = np.frombuffer(b1, dtype=self.dtype_encoded, count=count, offset=offset).reshape(self.chunk_shape)
-
-        return encoded_array
-
-
-    def encode(self, array: np.ndarray):
-        """
-        decoded array to encoded array.
-        """
-        if array.dtype != self.dtype_decoded:
-            raise TypeError('The data dtype does not match the assigned dtype_decoded.')
-
-        if self.dtype_encoded != self.dtype_decoded:
-
-            # if data.dtype.kind == 'M':
-            #     data = data.astype(self.dtype_encoded)
-
-            if isinstance(self.add_offset, (int, float)):
-                array = array - self.add_offset
-
-            if isinstance(self.scale_factor, (int, float)):
-                # precision = int(np.abs(np.log10(self.scale_factor)))
-                array = np.round(array/self.scale_factor)
-
-            if isinstance(self.fillvalue, int) and (self.dtype_decoded.kind == 'f'):
-                array[np.isnan(array)] = self.fillvalue
-
-            array = array.astype(self.dtype_encoded)
-
-        return array
-
-
-    def decode(self, array: np.ndarray):
-        """
-        encoded array into decode array
-        """
-        if self.dtype_encoded != self.dtype_decoded:
-            array = array.astype(self.dtype_decoded)
-
-            if isinstance(self.fillvalue, int) and (self.dtype_decoded.kind == 'f'):
-                array[np.isclose(array, self.fillvalue)] = np.nan
-
-            if isinstance(self.scale_factor, (int, float)):
-                array = array * self.scale_factor
-
-            if isinstance(self.add_offset, (int, float)):
-                array = array + self.add_offset
-
-        return array
 
 
 class Variable:
@@ -472,11 +350,11 @@ class Variable:
         # self.encoding = msgspec.to_builtins(self._sys_meta.variables[self.name].encoding)
         self.chunk_shape = self._var_meta.chunk_shape
         # self.origin = self._var_meta.origin
-        self.dtype_decoded = np.dtype(self._var_meta.dtype_decoded)
-        self.dtype_encoded = np.dtype(self._var_meta.dtype_encoded)
-        self.fillvalue = self._var_meta.fillvalue
-        self.scale_factor = self._var_meta.scale_factor
-        self.add_offset = self._var_meta.add_offset
+        # self.dtype_decoded = np.dtype(self._var_meta.dtype_decoded)
+        # self.dtype_encoded = np.dtype(self._var_meta.dtype_encoded)
+        # self.fillvalue = self._var_meta.fillvalue
+        # self.scale_factor = self._var_meta.scale_factor
+        # self.add_offset = self._var_meta.add_offset
         if hasattr(self._var_meta, 'coords'):
             self.coord_names = self._var_meta.coords
             self.ndims = len(self.coord_names)
@@ -491,7 +369,9 @@ class Variable:
 
         self._sel = sel
 
-        self._encoder = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, dataset._compressor)
+        # self._encoder = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, dataset._compressor)
+        self.compressor = dataset._compressor
+        self.dtype = dtypes.dtype(**self._var_meta.dtype)
         self.loc = indexers.LocationIndexer(self)
         self._finalizers = dataset._finalizers
         self.writable = dataset.writable
@@ -545,6 +425,22 @@ class Variable:
         Initialize a Rechunker class to assist in rechunking the variable.
         """
         return Rechunker(self)
+
+    def estimate_itemsize(self):
+        """
+
+        """
+        if self.dtype.itemsize is None:
+            coord_origins = self.get_coord_origins()
+            slices = indexers.index_combo_all(None, coord_origins, self.shape)
+            starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(self.chunk_shape, slices))
+            blt_key = utils.make_var_chunk_key(self.name, starts_chunk)
+            b1 = self._blt.get(blt_key)
+            if b1 is not None:
+                itemsize = len(b1)/math.prod(self._var.chunk_shape)
+                self.dtype.itemsize = itemsize
+
+        return self.dtype.itemsize
 
 
     def __getitem__(self, sel):
@@ -621,7 +517,7 @@ class Variable:
                 yield index, data[data_index]
 
 
-    def get_chunk(self, sel=None, decoded=True, missing_none=False):
+    def get_chunk(self, sel=None, missing_none=False):
         """
         Get data from one chunk. The method will return the first chunk parsed from sel.
 
@@ -629,8 +525,6 @@ class Variable:
         ----------
         sel: tuple of slices, ints
             The selection based on index positions.
-        decoded: bool
-            Should the data be decoded?
         missing_none: bool
             If chunk is missing, should the method return None or a blank array (filled with the fillvalue)?
 
@@ -648,13 +542,9 @@ class Variable:
         if missing_none and b1 is None:
             return None
         elif b1 is None:
-            return self._make_blank_chunk_array(decoded)
+            return self._make_blank_chunk_array()
         else:
-            encoded_data = self._encoder.from_bytes(b1)
-            if decoded:
-                return self._encoder.decode(encoded_data)
-            else:
-                return encoded_data
+            return self.dtype.loads(b1)
 
 
     def get_coord_origins(self):
@@ -714,6 +604,13 @@ class CoordinateView(Variable):
             self._data = target
 
         return self._data
+
+    @property
+    def dim(self):
+        """
+
+        """
+        return self._var_meta.dim
 
 
     def get(self, sel):
