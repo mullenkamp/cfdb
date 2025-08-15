@@ -165,6 +165,8 @@ class Geometry(DataType):
         self.dtype_encoded = np.dtypes.StringDType(na_object=None)
         self.precision = int(precision)
         self.itemsize = None
+        self._decoder = msgspec.msgpack.Decoder()
+        self._encoder = msgspec.msgpack.Encoder()
 
 
     def encode(self, data: np.ndarray) -> np.ndarray:
@@ -180,7 +182,7 @@ class Geometry(DataType):
         """
 
         """
-        return msgspec.msgpack.encode(data.tolist())
+        return self._encoder.encode(data.tolist())
 
 
     def dumps(self, data: np.ndarray) -> bytes:
@@ -194,7 +196,7 @@ class Geometry(DataType):
         """
 
         """
-        return np.asarray(msgspec.msgpack.decode(data_bytes), dtype=self.dtype_encoded).reshape(chunk_shape)
+        return np.asarray(self._decoder.decode(data_bytes), dtype=self.dtype_encoded).reshape(chunk_shape)
 
 
     def decode(self, data: np.ndarray) -> np.ndarray:
@@ -353,19 +355,22 @@ class String(DataType):
         self.dtype_decoded = np.dtypes.StringDType(na_object=None)
         self.precision = None
         self.itemsize = None
+        self._decoder = msgspec.msgpack.Decoder()
+        self._encoder = msgspec.msgpack.Encoder()
 
 
     def dumps(self, data: np.ndarray):
         """
 
         """
-        return msgspec.msgpack.encode(data.tolist())
+        return self._encoder.encode(data.tolist())
+
 
     def loads(self, data_bytes: bytes, chunk_shape: tuple=None):
         """
 
         """
-        data = np.asarray(msgspec.msgpack.decode(data_bytes), dtype=self.dtype_decoded).reshape(chunk_shape)
+        data = np.asarray(self._decoder.decode(data_bytes), dtype=self.dtype_decoded).reshape(chunk_shape)
 
         return data
 

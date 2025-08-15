@@ -25,24 +25,24 @@ class CRS:
         """
         self._dataset = dataset
 
-    def from_user_input(self, crs: str | int | pyproj.CRS, x_dim: str, y_dim: str):
+    def from_user_input(self, crs: str | int | pyproj.CRS, x_coord: str, y_coord: str):
         """
 
         """
         ## Check coords
         coord_names = self._dataset.coord_names
-        if x_dim not in coord_names:
-            raise ValueError(f'{x_dim} not in coords: {coord_names}')
-        if y_dim not in coord_names:
-            raise ValueError(f'{y_dim} not in coords: {coord_names}')
+        if x_coord not in coord_names:
+            raise ValueError(f'{x_coord} not in coords: {coord_names}')
+        if y_coord not in coord_names:
+            raise ValueError(f'{y_coord} not in coords: {coord_names}')
 
         ## Parse crs
         crs0 = pyproj.CRS.from_user_input(crs)
 
         ## Update the metadata
         self._sys_meta.crs = crs0.to_string()
-        self._sys_meta.variables[x_dim].dim = 'x'
-        self._sys_meta.variables[y_dim].dim = 'y'
+        self._sys_meta.variables[x_coord].axis = data_models.Axis('x')
+        self._sys_meta.variables[y_coord].axis = data_models.Axis('y')
 
         self._dataset.crs = crs0 # Probably needs to change in the future...
 
@@ -216,7 +216,7 @@ class Coord:
         return coord
 
 
-    def xy_from_crs(self, crs: Union[str, int, pyproj.CRS], x_name: str=None, y_name: str=None):
+    def xy_from_crs(self, crs: Union[str, int, pyproj.CRS], x_name: str=None, y_name: str=None, **kwargs):
         """
 
         """
@@ -303,6 +303,7 @@ class Creator:
         """
         self.coord = Coord(dataset)
         self.data_var = DataVar(dataset)
+        self.crs = CRS(dataset)
 
 
 

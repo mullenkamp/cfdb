@@ -49,7 +49,12 @@ time_str_conversion = {'days': 'datetime64[D]',
 
 # enc_fields = ('units', 'calendar', 'dtype', 'missing_value', '_FillValue', 'add_offset', 'scale_factor', 'dtype_decoded', 'dtype_encoded', 'compression')
 
-fillvalue_dict = {'int8': -128, 'int16': -32768, 'int32': -2147483648, 'int64': -9223372036854775808, 'float32': np.nan, 'float64': np.nan, 'str': None}
+fillvalue_dict = {
+    'int8': -128,
+    'int16': -32768,
+    'int32': -2147483648,
+    'int64': -9223372036854775808
+    }
 
 var_chunk_key_str = '{var_name}!{dims}'
 
@@ -76,23 +81,23 @@ default_compression_levels = {'zstd': 1, 'lz4': 1}
 default_n_buckets = 144013
 
 time_dtype_params = {
-    'datetime64[M]': {'name': 'time', 'dtype_encoded': 'int16', 'name': 'datetime64[M]', 'offset': 841},
-    'datetime64[D]': {'name': 'time', 'dtype_encoded': 'int32', 'name': 'datetime64[D]', 'offset': 25568},
-    'datetime64[h]': {'name': 'time', 'dtype_encoded': 'int32', 'name': 'datetime64[h]', 'offset': 613609},
-    'datetime64[m]': {'name': 'time', 'dtype_encoded': 'int32', 'name': 'datetime64[m]', 'offset': 36816481},
-    'datetime64[s]': {'name': 'time', 'dtype_encoded': 'int64', 'name': 'datetime64[s]', 'offset': 2208988801},
-    'datetime64[ms]': {'name': 'time', 'dtype_encoded': 'int64', 'name': 'datetime64[ms]', 'offset': 2208988800001},
-    'datetime64[us]': {'name': 'time', 'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': 2208988800000001},
-    'datetime64[ns]': {'name': 'time', 'dtype_encoded': 'int64', 'name': 'datetime64[ns]', 'offset': 631152000000000001},
+    'datetime64[M]': {'dtype_encoded': 'int16', 'name': 'datetime64[M]', 'offset': -841},
+    'datetime64[D]': {'dtype_encoded': 'int32', 'name': 'datetime64[D]', 'offset': -25568},
+    'datetime64[h]': {'dtype_encoded': 'int32', 'name': 'datetime64[h]', 'offset': -613609},
+    'datetime64[m]': {'dtype_encoded': 'int32', 'name': 'datetime64[m]', 'offset': -36816481},
+    'datetime64[s]': {'dtype_encoded': 'int64', 'name': 'datetime64[s]', 'offset': -2208988801},
+    'datetime64[ms]': {'dtype_encoded': 'int64', 'name': 'datetime64[ms]', 'offset': -2208988800001},
+    'datetime64[us]': {'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': -2208988800000001},
+    'datetime64[ns]': {'dtype_encoded': 'int64', 'name': 'datetime64[ns]', 'offset': -631152000000000001},
     }
 
 default_dtype_params = {
-    'lon': {'precision': 6, 'name': 'float64', 'offset': 180000001, 'dtype_encoded': 'int32'},
-    'lat': {'precision': 6, 'name': 'float64', 'offset': 90000001, 'dtype_encoded': 'int32'},
-    'height': {'dtype_encoded': 'int32', 'offset': 1, 'precision': 3, 'name': 'float64'},
-    'altitude': {'dtype_encoded': 'int32', 'offset': 11000001, 'precision': 3, 'name': 'float64'},
+    'lon': {'precision': 6, 'name': 'float64', 'offset': -180.000001, 'dtype_encoded': 'int32'},
+    'lat': {'precision': 6, 'name': 'float64', 'offset': -90.000001, 'dtype_encoded': 'int32'},
+    'height': {'dtype_encoded': 'int32', 'offset': -1, 'precision': 3, 'name': 'float64'},
+    'altitude': {'dtype_encoded': 'int32', 'offset': -11000.001, 'precision': 3, 'name': 'float64'},
     'time': time_dtype_params['datetime64[m]'],
-    'modified_date': {'name': 'modified_date', 'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': -1756684800000000},
+    'modified_date': {'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': 1756684800000000},
     'band': {'name': 'uint8'},
     'censor_code': {'name': 'uint8'},
                  # 'bore_top_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
@@ -169,86 +174,20 @@ default_attrs = dict(
         # 'calendar': 'proleptic_gregorian',
         'axis': 'T',
         },
+    censor_code = {
+        'long_name': 'data censor code',
+        'standard_name': 'status_flag',
+        'flag_values': '0 1 2 3 4 5',
+        'flag_meanings': 'greater_than less_than not_censored non-detect present_but_not_quantified unknown'
+        },
+    band = {
+        'long_name': 'band number',
+        },
     )
 
 #########################################################
 ### Classes
 
-
-
-
-# class ChunkIterator:
-#     """
-#     Class to iterate through list of chunks of a given dataset
-#     """
-#     def __init__(self, chunks, shape, source_sel=None):
-#         self._shape = shape
-#         rank = len(shape)
-
-#         # if not dset.chunks:
-#         #     # can only use with chunked datasets
-#         #     raise TypeError("Chunked dataset required")
-
-#         self._layout = chunks
-#         if source_sel is None:
-#             # select over entire dataset
-#             slices = []
-#             for dim in range(rank):
-#                 slices.append(slice(0, self._shape[dim]))
-#             self._sel = tuple(slices)
-#         else:
-#             if isinstance(source_sel, slice):
-#                 self._sel = (source_sel,)
-#             else:
-#                 self._sel = source_sel
-#         if len(self._sel) != rank:
-#             raise ValueError("Invalid selection - selection region must have same rank as dataset")
-#         self._chunk_index = []
-#         for dim in range(rank):
-#             s = self._sel[dim]
-#             if s.start < 0 or s.stop > self._shape[dim] or s.stop <= s.start:
-#                 raise ValueError("Invalid selection - selection region must be within dataset space")
-#             index = s.start // self._layout[dim]
-#             self._chunk_index.append(index)
-
-#     def __iter__(self):
-#         return self
-
-#     def __next__(self):
-#         rank = len(self._shape)
-#         slices = []
-#         if rank == 0 or self._chunk_index[0] * self._layout[0] >= self._sel[0].stop:
-#             # ran past the last chunk, end iteration
-#             raise StopIteration()
-
-#         for dim in range(rank):
-#             s = self._sel[dim]
-#             start = self._chunk_index[dim] * self._layout[dim]
-#             stop = (self._chunk_index[dim] + 1) * self._layout[dim]
-#             # adjust the start if this is an edge chunk
-#             if start < s.start:
-#                 start = s.start
-#             if stop > s.stop:
-#                 stop = s.stop  # trim to end of the selection
-#             s = slice(start, stop, 1)
-#             slices.append(s)
-
-#         # bump up the last index and carry forward if we run outside the selection
-#         dim = rank - 1
-#         while dim >= 0:
-#             s = self._sel[dim]
-#             self._chunk_index[dim] += 1
-
-#             chunk_end = self._chunk_index[dim] * self._layout[dim]
-#             if chunk_end < s.stop:
-#                 # we still have room to extend along this dimensions
-#                 return tuple(slices)
-
-#             if dim > 0:
-#                 # reset to the start and continue iterating with higher dimension
-#                 self._chunk_index[dim] = 0
-#             dim -= 1
-#         return tuple(slices)
 
 
 #########################################################

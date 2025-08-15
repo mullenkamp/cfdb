@@ -74,11 +74,9 @@ class DataType(msgspec.Struct):
     """
     name: str
     precision: Union[int, float, None] = None
-    # crs: Union[str, None] = None
-    # transcoder: Union[Transcoder, None] = None
     dtype_encoded: Union[str, None] = None
     offset: Union[int, float, None] = None
-    fillvalue: Union[int, None]=None
+    fillvalue: Union[int, None] = None
 
 
 class DataVariable(msgspec.Struct, tag='data_var'):
