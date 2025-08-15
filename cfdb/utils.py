@@ -28,8 +28,8 @@ import booklet
 # import numcodecs
 # import hdf5plugin
 
-from . import data_models
-# import data_models
+from . import data_models, dtypes
+# import data_models, dtypes
 
 ########################################################
 ### Parmeters
@@ -49,7 +49,7 @@ time_str_conversion = {'days': 'datetime64[D]',
 
 # enc_fields = ('units', 'calendar', 'dtype', 'missing_value', '_FillValue', 'add_offset', 'scale_factor', 'dtype_decoded', 'dtype_encoded', 'compression')
 
-fillvalue_dict = {'int8': -128, 'int16': -32768, 'int32': -2147483648, 'int64': -9223372036854775808, 'float32': np.nan, 'float64': np.nan, 'str': ''}
+fillvalue_dict = {'int8': -128, 'int16': -32768, 'int32': -2147483648, 'int64': -9223372036854775808, 'float32': np.nan, 'float64': np.nan, 'str': None}
 
 var_chunk_key_str = '{var_name}!{dims}'
 
@@ -75,21 +75,43 @@ compression_options = ('zstd', 'lz4')
 default_compression_levels = {'zstd': 1, 'lz4': 1}
 default_n_buckets = 144013
 
-default_params = {'lon': {'name': 'longitude', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
-                 'lat': {'name': 'latitude', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.0000001, 'dtype_decoded': 'float32'},
-                 'height': {'name': 'height', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.001, 'dtype_decoded': 'float32'},
-                 'altitude': {'name': 'altitude', 'dtype_encoded': 'int32', 'fillvalue': -2147483648, 'scale_factor': 0.001, 'dtype_decoded': 'float32'},
-                 'time': {'name': 'time', 'dtype_encoded': 'int64', 'dtype_decoded': 'datetime64[s]'},
-                 'modified_date': {'name': 'modified_date', 'dtype_encoded': 'datetime64[us]', 'dtype_decoded': 'datetime64[us]'},
-                 'band': {'name': 'band', 'dtype_decoded': 'uint8', 'dtype_encoded': 'uint8', 'fillvalue': 0},
-                 # 'chunk_day': {'dtype_encoded': 'int32'},
-                 # 'chunk_date': {'fillvalue': -99999999, 'units': "days since 1970-01-01 00:00:00"},
-                 'censor_code': {'name': 'censor_code', 'dtype_decoded': 'uint8', 'dtype_encoded': 'uint8', 'fillvalue': 0},
+time_dtype_params = {
+    'datetime64[M]': {'name': 'time', 'dtype_encoded': 'int16', 'name': 'datetime64[M]', 'offset': 841},
+    'datetime64[D]': {'name': 'time', 'dtype_encoded': 'int32', 'name': 'datetime64[D]', 'offset': 25568},
+    'datetime64[h]': {'name': 'time', 'dtype_encoded': 'int32', 'name': 'datetime64[h]', 'offset': 613609},
+    'datetime64[m]': {'name': 'time', 'dtype_encoded': 'int32', 'name': 'datetime64[m]', 'offset': 36816481},
+    'datetime64[s]': {'name': 'time', 'dtype_encoded': 'int64', 'name': 'datetime64[s]', 'offset': 2208988801},
+    'datetime64[ms]': {'name': 'time', 'dtype_encoded': 'int64', 'name': 'datetime64[ms]', 'offset': 2208988800001},
+    'datetime64[us]': {'name': 'time', 'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': 2208988800000001},
+    'datetime64[ns]': {'name': 'time', 'dtype_encoded': 'int64', 'name': 'datetime64[ns]', 'offset': 631152000000000001},
+    }
+
+default_dtype_params = {
+    'lon': {'precision': 6, 'name': 'float64', 'offset': 180000001, 'dtype_encoded': 'int32'},
+    'lat': {'precision': 6, 'name': 'float64', 'offset': 90000001, 'dtype_encoded': 'int32'},
+    'height': {'dtype_encoded': 'int32', 'offset': 1, 'precision': 3, 'name': 'float64'},
+    'altitude': {'dtype_encoded': 'int32', 'offset': 11000001, 'precision': 3, 'name': 'float64'},
+    'time': time_dtype_params['datetime64[m]'],
+    'modified_date': {'name': 'modified_date', 'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': -1756684800000000},
+    'band': {'name': 'uint8'},
+    'censor_code': {'name': 'uint8'},
                  # 'bore_top_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_bottom_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_depth': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 0.1},
                  # 'reference_level': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 1},
                  }
+
+default_var_params = {
+    'lon': {'name': 'longitude', 'axis': 'x'},
+    'lat': {'name': 'latitude', 'axis': 'y'},
+    'height': {'name': 'height', 'axis': 'z'},
+    'altitude': {'name': 'altitude', 'axis': 'z'},
+    'time': {'name': 'time', 'axis': 't'},
+    'modified_date': {'name': 'modified_date'},
+    'band': {'name': 'band'},
+    'censor_code': {'name': 'censor_code'},
+    }
+
 
 # base_attrs = {'station_id': {'cf_role': "timeseries_id", 'description': 'The unique ID associated with the geometry for a single result.'},
 #               'lat': {'standard_name': "latitude", 'units': "degrees_north"},
@@ -385,14 +407,14 @@ def check_var_name(var_name):
     return False
 
 
-def coord_data_step_check(data: np.ndarray, dtype_decoded: np.dtype, step: int | float | bool = False):
+def coord_data_step_check(data: np.ndarray, dtype: dtypes.DataType, step: int | float | bool = False):
     """
 
     """
     # diff = np.diff(data)
     if isinstance(step, bool):
         diff = np.diff(data)
-        if dtype_decoded == 'f':
+        if dtype.kind == 'f':
             step = float(np.round(diff[0], 5))
             if not np.allclose(step, diff):
                 raise ValueError('step is set to True, but the data does not seem to be regular.')
@@ -431,7 +453,7 @@ def coord_data_step_check(data: np.ndarray, dtype_decoded: np.dtype, step: int |
     return step, int(num)
 
 
-def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype_decoded, shape):
+def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype, shape):
     """
 
     """
@@ -444,10 +466,10 @@ def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype_dec
     if len(np.unique(data)) < shape[0]:
         raise ValueError('The data for coords must be unique.')
 
-    if dtype_decoded.kind in ('f', 'u', 'i', 'M'):
+    if dtype.kind in ('f', 'u', 'i', 'M'):
         data.sort()
         if step:
-            step, num = coord_data_step_check(data, dtype_decoded, step)
+            step, num = coord_data_step_check(data, dtype, step)
             # data = np.linspace(data[0], data[-1], num + 1, dtype=dtype_decoded)
         else:
             step = None
@@ -457,13 +479,13 @@ def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype_dec
     return step
 
 
-def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype_decoded: np.dtype = None, source_step: int | float | None = None):
+def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType = None, source_step: int | float | None = None):
     """
 
     """
     # new_shape = new_data.shape
     # new_dtype_decoded = new_data.dtype
-    new_data = np.asarray(new_data, dtype=source_dtype_decoded)
+    new_data = np.asarray(new_data, dtype=source_dtype.dtype_decoded)
 
     # if source_dtype_decoded != new_dtype_decoded:
     #     raise TypeError('The data dtype does not match the originally assigned dtype.')
@@ -471,7 +493,7 @@ def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sour
     # print(source_data)
 
     if source_data.size > 0:
-        if source_dtype_decoded.kind != 'U':
+        if source_dtype.kind != 'U':
             last = source_data[-1]
 
             if not np.all(last < new_data):
@@ -479,9 +501,9 @@ def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sour
 
             new_data.sort()
             if source_step:
-                new_step, new_num = coord_data_step_check(new_data, source_dtype_decoded, source_step)
+                new_step, new_num = coord_data_step_check(new_data, source_dtype, source_step)
 
-                new_data = np.linspace(source_data[0], new_data[-1], len(source_data) + new_num + 1, dtype=source_dtype_decoded)
+                new_data = np.linspace(source_data[0], new_data[-1], len(source_data) + new_num + 1, dtype=source_dtype.dtype_decoded)
             else:
                 new_data = np.append(source_data, new_data)
 
@@ -494,24 +516,24 @@ def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sour
             new_data = np.append(source_data, new_data)
 
     else:
-        _ = init_coord_data_checks(new_data, source_step, source_dtype_decoded, new_data.shape)
+        _ = init_coord_data_checks(new_data, source_step, source_dtype, new_data.shape)
 
     return new_data
 
 
-def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype_decoded: np.dtype = None, source_step: int | float | None = None):
+def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType = None, source_step: int | float | None = None):
     """
 
     """
     # new_shape = new_data.shape
     # new_dtype_decoded = new_data.dtype
-    new_data = np.asarray(new_data, dtype=source_dtype_decoded)
+    new_data = np.asarray(new_data, dtype=source_dtype.dtype_decoded)
 
     # if source_dtype_decoded != new_dtype_decoded:
     #     raise TypeError('The data dtype does not match the originally assigned dtype.')
 
     if source_data.size > 0:
-        if source_dtype_decoded.kind != 'U':
+        if source_dtype.kind != 'U':
             first = source_data[0]
 
             if not np.all(first > new_data):
@@ -519,9 +541,9 @@ def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sou
 
             new_data.sort()
             if source_step:
-                new_step, new_num = coord_data_step_check(new_data, source_dtype_decoded, source_step)
+                new_step, new_num = coord_data_step_check(new_data, source_dtype, source_step)
 
-                new_data = np.linspace(new_step[0], source_data[-1], len(source_data) + new_num + 1, dtype=source_dtype_decoded)
+                new_data = np.linspace(new_step[0], source_data[-1], len(source_data) + new_num + 1, dtype=source_dtype.dtype_decoded)
             else:
                 new_data = np.append(new_data, source_data)
         else:
@@ -533,7 +555,7 @@ def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sou
             new_data = np.append(new_data, source_data)
 
     else:
-        new_data, new_step = init_coord_data_checks(new_data, source_step, source_dtype_decoded, new_data.shape)
+        new_data, new_step = init_coord_data_checks(new_data, source_step, source_dtype, new_data.shape)
 
     return new_data
 
@@ -683,7 +705,7 @@ def parse_scale_offset(scale_factor, add_offset, dtype_decoded):
     return scale_factor, add_offset
 
 
-def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: Tuple[int] | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool = False, dim: str=None):
+def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: Tuple[int] | None = None, dtype: str | np.dtype | dtypes.DataType | None = None, step: int | float | bool = False, axis: str=None):
     """
 
     """
@@ -691,25 +713,34 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
     if not check_var_name(name):
         raise ValueError(f'{name} is not a valid variable name.')
 
+    ## Parse dtype
+    if isinstance(dtype, (str, np.dtype)):
+        dtype = dtypes.dtype(dtype)
+
     ## Check data, shape, dtype, and step
     if isinstance(data, np.ndarray):
-        dtype_decoded = data.dtype
+        if not isinstance(dtype, dtypes.DataType):
+            np_dtype = data.dtype
+            dtype = dtypes.dtype(np_dtype)
 
-        step = init_coord_data_checks(data, step, dtype_decoded, data.shape)
+        step = init_coord_data_checks(data, step, dtype, data.shape)
 
         # if dtype_decoded.kind == 'M':
         #     dtype_encoded = dtype_decoded
 
         ## dtype encoding
-        dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
+        # dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
 
     else:
-        ## dtype encoding
-        dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
+        if dtype is None:
+            raise TypeError('dtype must not be None.')
 
-        if dtype_decoded.kind in ('u', 'i') and isinstance(step, (float, np.floating)):
+        ## dtype encoding
+        # dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
+
+        if dtype.kind in ('u', 'i') and isinstance(step, (float, np.floating)):
             if not step.is_integer():
-                raise ValueError('If the dtype_decoded is an integer, then step must be an integer.')
+                raise ValueError('If the dtype is an integer, then step must be an integer.')
             else:
                 step = int(step)
         elif isinstance(step, bool):
@@ -727,32 +758,44 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
         if not all([isinstance(c, int) for c in chunk_shape]):
             raise TypeError('chunk_shape must be a tuple of ints.')
     elif chunk_shape is None:
-        chunk_shape = rechunkit.guess_chunk_shape((1000000,), dtype_encoded, 2**20)
+        if dtype.dtype_encoded is None:
+            itemsize = dtype.itemsize
+            if itemsize is None:
+                if dtype.name == 'str':
+                    itemsize = 12
+                else:
+                    itemsize = 60
+        else:
+            itemsize = dtype.dtype_encoded.itemsize
+
+        chunk_shape = rechunkit.guess_chunk_shape((1000000,), itemsize, 2**20)
     else:
         raise TypeError('chunk_shape must be either a tuple of ints or None.')
 
     ## fillvalue
-    fillvalue = parse_fillvalue(fillvalue, dtype_encoded)
+    # fillvalue = parse_fillvalue(fillvalue, dtype_encoded)
 
     ## Scale and offset
-    scale_factor, add_offset = parse_scale_offset(scale_factor, add_offset, dtype_decoded)
+    # scale_factor, add_offset = parse_scale_offset(scale_factor, add_offset, dtype_decoded)
 
     ## Save metadata
-    dtype_decoded_name, dtype_encoded_name = parse_dtype_names(dtype_decoded, dtype_encoded)
+    # dtype_decoded_name, dtype_encoded_name = parse_dtype_names(dtype_decoded, dtype_encoded)
 
     # enc = data_models.Encoding(dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
 
-    if isinstance(dim, str):
-        dim0 = data_models.Dim(dim)
+    if isinstance(axis, str):
+        axis0 = data_models.Axis(axis)
     else:
-        dim0 = None
+        axis0 = None
 
-    var = data_models.CoordinateVariable(shape=(0,), chunk_shape=chunk_shape, origin=0, step=step, dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset, dim=dim0)
+    dtype_dict = dtype.to_dict()
+
+    var = data_models.CoordinateVariable(shape=(0,), chunk_shape=chunk_shape, origin=0, step=step, dtype=dtype_dict, axis=axis0)
 
     return name, var
 
 
-def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str,...], dtype_decoded: str | np.dtype, dtype_encoded: str | np.dtype | None = None, chunk_shape: Tuple[int] | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None):
+def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str,...], dtype: str | np.dtype | dtypes.DataType, chunk_shape: Tuple[int] | None = None):
     """
     Function to process the inputs to a variable creation function.
     """
@@ -778,29 +821,42 @@ def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str
             shape.append(coord.shape[0])
 
     ## dtypes
-    dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
+    # dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
+    if isinstance(dtype, (str, np.dtype)):
+        dtype = dtypes.dtype(dtype)
+    elif not isinstance(dtype, dtypes.DataType):
+        raise TypeError('dtype must be either a str, np.dtype, or cfdb.dtype.')
 
     ## Guess the chunk_shape from the dtype
     if isinstance(chunk_shape, tuple):
         if not all([isinstance(c, int) for c in chunk_shape]):
             raise TypeError('chunk_shape must be a tuple of ints.')
     elif chunk_shape is None:
-        chunk_shape = rechunkit.guess_chunk_shape(shape, dtype_encoded, 2**21)
+        if dtype.dtype_encoded is None:
+            itemsize = dtype.itemsize
+            if itemsize is None:
+                if dtype.name == 'str':
+                    itemsize = 12
+                else:
+                    itemsize = 60
+        else:
+            itemsize = dtype.dtype_encoded.itemsize
+        chunk_shape = rechunkit.guess_chunk_shape(shape, itemsize, 2**21)
     else:
         raise TypeError('chunk_shape must be either a tuple of ints or None.')
 
     ## fillvalue
-    fillvalue = parse_fillvalue(fillvalue, dtype_encoded)
+    # fillvalue = parse_fillvalue(fillvalue, dtype_encoded)
 
     ## Scale and offset
-    scale_factor, add_offset = parse_scale_offset(scale_factor, add_offset, dtype_decoded)
+    # scale_factor, add_offset = parse_scale_offset(scale_factor, add_offset, dtype_decoded)
 
     ## Save metadata
-    dtype_decoded_name, dtype_encoded_name = parse_dtype_names(dtype_decoded, dtype_encoded)
+    # dtype_decoded_name, dtype_encoded_name = parse_dtype_names(dtype_decoded, dtype_encoded)
 
     # enc = data_models.Encoding(dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
 
-    var = data_models.DataVariable(coords=tuple(coords), chunk_shape=chunk_shape, dtype_encoded=dtype_encoded_name, dtype_decoded=dtype_decoded_name, fillvalue=fillvalue, scale_factor=scale_factor, add_offset=add_offset)
+    var = data_models.DataVariable(coords=tuple(coords), chunk_shape=chunk_shape, dtype=dtype.to_dict())
 
     return name, var
 
@@ -1708,7 +1764,7 @@ def data_variable_summary(ds):
     type1 = type(ds)
 
     if ds:
-        summ_dict = {'name': ds.name, 'dims order': '(' + ', '.join(ds.coord_names) + ')', 'shape': str(ds.shape), 'chunk size': str(ds.chunk_shape)}
+        summ_dict = {'name': ds.name, 'dtype': ds.dtype.name, 'dims order': '(' + ', '.join(ds.coord_names) + ')', 'shape': str(ds.shape), 'chunk size': str(ds.chunk_shape)}
 
         summary = f"""<cfdb.{type1.__name__}>"""
 
@@ -1718,7 +1774,7 @@ def data_variable_summary(ds):
 
         for coord in ds.coords:
             coord_name = coord.name
-            dtype_name = coord.dtype_decoded
+            dtype_name = coord.dtype.name
             dim_len = coord.shape[0]
             first_value = format_value(coord.data[0])
             spacing = value_indent - name_indent - len(coord_name)
@@ -1757,7 +1813,7 @@ def coordinate_summary(ds):
             last_value = ''
 
         # summ_dict = {'name': name, 'dtype encoded': dtype_name, 'dtype decoded': dtype_decoded, 'chunk size': str(ds.chunks), 'dim length': str(dim_len), 'values': f"""{first_value} ... {last_value}"""}
-        summ_dict = {'name': name, 'shape': str(ds.shape), 'chunk shape': str(ds.chunk_shape), 'values': f"""{first_value} ... {last_value}"""}
+        summ_dict = {'name': name, 'dtype': ds.dtype.name, 'shape': str(ds.shape), 'chunk shape': str(ds.chunk_shape), 'values': f"""{first_value} ... {last_value}"""}
 
         summary = f"""<cfdb.{type1.__name__}>"""
 
@@ -1986,7 +2042,7 @@ def file_summary(ds):
 
         for var in ds.coords:
             dim_name = var.name
-            dtype_name = var.dtype_decoded
+            dtype_name = var.dtype.name
             dim_len = var.shape[0]
             # print(var.data)
             first_value = format_value(var.data[0])
@@ -2002,7 +2058,7 @@ def file_summary(ds):
 
         for dv in ds.data_vars:
             dv_name = dv.name
-            dtype_name = dv.dtype_decoded
+            dtype_name = dv.dtype.name
             # shape = dv.shape
             dims = ', '.join(dv.coord_names)
             # first_value = format_value(dv[tuple(0 for i in range(len(shape)))])
@@ -2021,20 +2077,32 @@ def file_summary(ds):
     return summary
 
 
+def get_dtype_params(name, kwargs):
+    """
+
+    """
+    params = deepcopy(default_dtype_params[name])
+    params.update(kwargs)
+
+    return name, params
+
 def get_var_params(name, kwargs):
     """
 
     """
-    params = deepcopy(default_params[name])
-    params.update(kwargs)
+    if 'dtype' in kwargs:
+        dtype = dtypes.dtype(kwargs.pop('dtype'))
+    else:
+        dtype = dtypes.dtype(**default_dtype_params[name])
 
-    name = params.pop('name')
+    var_params = deepcopy(default_var_params[name])
+    var_params.update(kwargs)
 
-    return name, params
+    var_name = var_params.pop('name')
 
+    attrs = deepcopy(default_attrs[name])
 
-
-
+    return var_name, var_params, dtype, attrs
 
 
 

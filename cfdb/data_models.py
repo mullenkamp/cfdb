@@ -38,7 +38,7 @@ class Compressor(enum.Enum):
     lz4 = 'lz4'
 
 
-class Dim(enum.Enum):
+class Axis(enum.Enum):
     """
 
     """
@@ -68,26 +68,17 @@ class Dim(enum.Enum):
 #     #     return utils.decode_data(bytes_data, **self._encoding)
 
 
-# class Transcoder(msgspec.Struct):
-#     """
-
-#     """
-#     dtype_decoded: str
-#     dtype_encoded: str
-#     precision: int
-#     offset: int
-
-
 class DataType(msgspec.Struct):
     """
 
     """
     name: str
-    precision: Union[int, None] = None
+    precision: Union[int, float, None] = None
     # crs: Union[str, None] = None
     # transcoder: Union[Transcoder, None] = None
     dtype_encoded: Union[str, None] = None
-    offset: Union[int, None] = None
+    offset: Union[int, float, None] = None
+    fillvalue: Union[int, None]=None
 
 
 class DataVariable(msgspec.Struct, tag='data_var'):
@@ -110,7 +101,7 @@ class CoordinateVariable(msgspec.Struct, tag='coord'):
     origin: Union[int, None] = None
     step: Union[float, int, None] = None
     auto_increment: bool = False
-    dim: Union[Dim, None] = None
+    axis: Union[Axis, None] = None
     units: Union[str, None] = None
 
 

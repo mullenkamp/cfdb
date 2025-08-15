@@ -5,6 +5,7 @@ Created on Tue Jan  7 11:25:06 2025
 
 @author: mike
 """
+import numpy as np
 import booklet
 from typing import Union, List
 import pathlib
@@ -12,6 +13,7 @@ import msgspec
 import weakref
 from copy import deepcopy
 import pyproj
+import math
 
 try:
     import h5netcdf
@@ -26,7 +28,7 @@ except ImportError:
     import_ebooklet = False
 
 from . import utils, indexers, data_models, creation, support_classes as sc
-# import utils, indexers, data_models, creation, support_classes as sc
+# import utils, indexers, data_models, creation, dtypes, support_classes as sc
 
 
 ############################################
@@ -283,8 +285,29 @@ class DatasetBase:
             data_var = self[data_var_name]
             new_data_var = new_ds.create.data_var.like(data_var_name, data_var)
             new_data_var.attrs.update(data_var.attrs.data)
-            for write_chunk, data in data_var.iter_chunks(decoded=False):
-                new_data_var.set(write_chunk, data, False)
+
+            ## Write data
+            data_var.load()
+            coord_origins = data_var.get_coord_origins()
+            slices = indexers.index_combo_all(data_var._sel, coord_origins, data_var.shape)
+
+            for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, data_var.name, data_var.chunk_shape):
+                ts, b1 = self._blt.get_timestamp(blt_key, True, False)
+                if b1 is not None:
+                    target_shape = tuple(tc.stop - tc.start for tc in target_chunk)
+                    source_shape = tuple(sc.stop - sc.start for sc in source_chunk)
+
+                    new_key = utils.make_var_chunk_key(data_var_name, [tc.start for tc in target_chunk])
+
+                    if math.prod(target_shape) == math.prod(source_shape):
+                        new_data_var._blt.set(new_key, b1, ts, False)
+                    else:
+                        data = self.dtype.loads(self.compressor.decompress(b1), self.chunk_shape)
+                        data_b =  data_var.compressor.compress(data_var.dtype.dumps(data[source_chunk]))
+                        new_data_var._blt.set(new_key, data_b, ts, False)
+
+            # for write_chunk, data in data_var.iter_chunks():
+            #     new_data_var.set(write_chunk, data)
 
         new_ds.attrs.update(self.attrs.data)
 
@@ -312,30 +335,44 @@ class DatasetBase:
                 else:
                     chunk_shape = (chunk_len,)
 
-                h5_coord = h5.create_variable(coord_name, (coord_name,), coord.dtype_encoded, compression=compression, chunks=chunk_shape, fillvalue=coord.fillvalue)
                 attrs = deepcopy(coord.attrs.data)
-                dtype_decoded, dtype_encoded = utils.parse_dtype_names(coord.dtype_decoded, coord.dtype_encoded)
-                if coord.step is not None:
-                    attrs['step'] = coord.step
-                if coord.scale_factor is not None:
-                    attrs['scale_factor'] = coord.scale_factor
-                elif coord.dtype_decoded.kind == 'f' and coord.dtype_encoded.kind in ('u', 'i'):
-                    attrs['scale_factor'] = 1
-                if coord.add_offset is not None:
-                    attrs['add_offset'] = coord.add_offset
-                elif coord.dtype_decoded.kind == 'f' and coord.dtype_encoded.kind in ('u', 'i'):
-                    attrs['add_offset'] = 0
-                if coord.dtype_decoded.kind == 'M':
-                    units = utils.parse_cf_time_units(coord.dtype_decoded)
-                    calendar = "proleptic_gregorian"
-                    attrs['units'] = units
-                    attrs['calendar'] = calendar
-                    attrs['standard_name'] = 'time'
+                fillvalue = coord.dtype.fillvalue
+                if coord.dtype.dtype_encoded is None:
+                    if coord.dtype.kind in ('G', 'T'):
+                        dtype_encoded = np.dtypes.StringDType(na_object=None)
+                    elif coord.dtype.kind == 'u':
+                        dtype_encoded = coord.dtype.dtype_decoded
+                    elif coord.dtype.kind == 'i':
+                        dtype_encoded = coord.dtype.dtype_decoded
+                        if fillvalue is not None:
+                            fillvalue = utils.fillvalue_dict[dtype_encoded.name]
+                    elif coord.dtype.kind == 'M':
+                        units = utils.parse_cf_time_units(coord.dtype.dtype_decoded)
+                        attrs['units'] = units
+                        attrs['calendar'] = "proleptic_gregorian"
+                        attrs['standard_name'] = 'time'
+                        dtype_encoded = np.dtypes.Int64DType()
+                    else:
+                        dtype_encoded = coord.dtype.dtype_decoded
+                else:
+                    if coord.dtype.kind == 'M':
+                        units = utils.parse_cf_time_units(coord.dtype.dtype_decoded)
+                        attrs['units'] = units
+                        attrs['calendar'] = "proleptic_gregorian"
+                        attrs['standard_name'] = 'time'
+                        dtype_encoded = np.dtypes.Int64DType()
+                    else:
+                        dtype_encoded = coord.dtype.dtype_encoded
+                        attrs['add_offset'] = coord.dtype.offset
+                        attrs['scale_factor'] = 1/coord.dtype._factor
 
-                if coord.fillvalue is not None:
-                    attrs['_FillValue'] = coord.fillvalue
+                if fillvalue is not None:
+                    attrs['_FillValue'] = fillvalue
 
-                attrs.update({'dtype_decoded': dtype_decoded, 'dtype_encoded': dtype_encoded, 'dtype': dtype_encoded})
+                attrs.update({'dtype': dtype_encoded.name})
+
+                h5_coord = h5.create_variable(coord_name, (coord_name,), dtype_encoded, compression=compression, chunks=chunk_shape, fillvalue=fillvalue)
+
                 try:
                     h5_coord.attrs.update(attrs)
                 except Exception as err:
@@ -343,7 +380,7 @@ class DatasetBase:
                     raise err
 
                 for write_chunk, data in coord.iter_chunks(decoded=False):
-                    h5_coord[write_chunk] = data
+                    h5_coord[write_chunk] = data.astype(dtype_encoded)
 
             # Data vars
             for data_var_name in data_var_names:
@@ -355,32 +392,49 @@ class DatasetBase:
                     else:
                         chunk_shape.append(cs)
 
-                h5_data_var = h5.create_variable(data_var_name, data_var.coord_names, data_var.dtype_encoded, compression=compression, chunks=tuple(chunk_shape), fillvalue=data_var.fillvalue)
                 attrs = deepcopy(data_var.attrs.data)
-                dtype_decoded, dtype_encoded = utils.parse_dtype_names(data_var.dtype_decoded, data_var.dtype_encoded)
-                if data_var.scale_factor is not None:
-                    attrs['scale_factor'] = data_var.scale_factor
-                elif data_var.dtype_decoded.kind == 'f' and data_var.dtype_encoded.kind in ('u', 'i'):
-                    attrs['scale_factor'] = 1
-                if data_var.add_offset is not None:
-                    attrs['add_offset'] = data_var.add_offset
-                elif data_var.dtype_decoded.kind == 'f' and data_var.dtype_encoded.kind in ('u', 'i'):
-                    attrs['add_offset'] = 0
-                if data_var.dtype_decoded.kind == 'M':
-                    units = utils.parse_cf_time_units(data_var.dtype_decoded)
-                    calendar = "proleptic_gregorian"
-                    attrs['units'] = units
-                    attrs['calendar'] = calendar
-                    attrs['standard_name'] = 'time'
 
-                if coord.fillvalue is not None:
-                    attrs['_FillValue'] = data_var.fillvalue
+                fillvalue = data_var.dtype.fillvalue
+                if data_var.dtype.dtype_encoded is None:
+                    if data_var.dtype.kind in ('G', 'T'):
+                        dtype_encoded = np.dtypes.StringDType(na_object=None)
+                    elif data_var.dtype.kind == 'u':
+                        dtype_encoded = data_var.dtype.dtype_decoded
+                    elif data_var.dtype.kind == 'i':
+                        dtype_encoded = data_var.dtype.dtype_decoded
+                        if fillvalue is not None:
+                            fillvalue = utils.fillvalue_dict[dtype_encoded.name]
+                    elif data_var.dtype.kind == 'M':
+                        units = utils.parse_cf_time_units(data_var.dtype.dtype_decoded)
+                        attrs['units'] = units
+                        attrs['calendar'] = "proleptic_gregorian"
+                        # attrs['standard_name'] = 'time'
+                        dtype_encoded = np.dtypes.Int64DType()
+                    else:
+                        dtype_encoded = coord.dtype.dtype_decoded
+                else:
+                    if data_var.dtype.kind == 'M':
+                        units = utils.parse_cf_time_units(data_var.dtype.dtype_decoded)
+                        attrs['units'] = units
+                        attrs['calendar'] = "proleptic_gregorian"
+                        attrs['standard_name'] = 'time'
+                        dtype_encoded = np.dtypes.Int64DType()
+                    else:
+                        dtype_encoded = data_var.dtype.dtype_encoded
+                        attrs['add_offset'] = data_var.dtype.offset
+                        attrs['scale_factor'] = 1/data_var.dtype._factor
 
-                attrs.update({'dtype_decoded': dtype_decoded, 'dtype_encoded': dtype_encoded, 'dtype': dtype_encoded})
+                if fillvalue is not None:
+                    attrs['_FillValue'] = fillvalue
+
+                attrs.update({'dtype': dtype_encoded.name})
+
+                h5_data_var = h5.create_variable(data_var_name, data_var.coord_names, dtype_encoded, compression=compression, chunks=tuple(chunk_shape), fillvalue=fillvalue)
+
                 h5_data_var.attrs.update(attrs)
 
                 for write_chunk, data in data_var.iter_chunks(decoded=False):
-                    h5_data_var[write_chunk] = data
+                    h5_data_var[write_chunk] = data.astype(dtype_encoded)
 
             # Add global attrs
             h5.attrs.update(self.attrs.data)

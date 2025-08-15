@@ -10,7 +10,7 @@ import uuid6 as uuid
 import numpy as np
 from time import time
 import pathlib
-from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb
+from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb, dtypes
 import ebooklet
 import h5netcdf
 
@@ -126,7 +126,7 @@ def test_coord_creation():
 
         assert np.allclose(lat_coord.data, lat_data)
 
-        time_coord = ds.create.coord.time(data=time_data, dtype_decoded=time_data.dtype, dtype_encoded='int32')
+        time_coord = ds.create.coord.time(data=time_data, dtype=time_data.dtype)
         print(time_coord)
 
         assert np.all(time_coord.data == time_data)
@@ -135,8 +135,10 @@ def test_coord_creation():
 
 
 def test_data_var_creation():
+    data_dtype = dtypes.dtype(data_var_data.dtype, 1, 0, 4000)
+
     with open_dataset(file_path, flag='w') as ds:
-        data_var = ds.create.data_var.generic(name, coords, data_var_data.dtype, dtype_encoded, scale_factor=scale_factor, chunk_shape=(20, 20))
+        data_var = ds.create.data_var.generic(name, coords, data_dtype, chunk_shape=(20, 20))
         data_var[:] = data_var_data
         data_var.attrs['test'] = ['test1']
         print(data_var)
@@ -164,23 +166,25 @@ def test_select():
             pass
 
 def test_rechunker_assignment():
+    data_dtype = dtypes.dtype(data_var_data.dtype, 1, 0, 4000)
+
     with open_dataset(file_path, flag='w') as ds:
         data_var = ds[name]
 
-        data_var2 = ds.create.data_var.generic(name + '2', coords, data_var_data.dtype, dtype_encoded, scale_factor=scale_factor, chunk_shape=new_chunk_shape)
+        data_var2 = ds.create.data_var.generic(name + '2', coords, data_dtype, chunk_shape=new_chunk_shape)
 
         rechunker = data_var.rechunker()
-        rechunk = rechunker.rechunk(new_chunk_shape, decoded=False)
+        rechunk = rechunker.rechunk(new_chunk_shape)
 
         for write_chunk, data in rechunk:
-            data_var2.set(write_chunk, data, encode=False)
+            data_var2.set(write_chunk, data)
 
         assert np.allclose(data_var2.data, data_var_data)
 
         del ds[name + '2']
 
         rechunker = data_var.rechunker()
-        rechunk = rechunker.rechunk(new_chunk_shape, decoded=True)
+        rechunk = rechunker.rechunk(new_chunk_shape)
 
         new_data = np.full(data_var_data.shape, np.nan, data_var_data.dtype)
         for write_chunk, data in rechunk:

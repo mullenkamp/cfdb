@@ -16,6 +16,7 @@ from copy import deepcopy
 import itertools
 import rechunkit
 import pyproj
+import sys
 
 from . import utils, indexers, dtypes
 # import utils, indexers, dtypes
@@ -38,6 +39,24 @@ class Rechunker:
 
         """
         self._var = var
+
+
+    def _guess_itemsize(self):
+        """
+
+        """
+        if self._var.dtype.dtype_encoded is None:
+            if self._var.dtype.itemsize is None:
+                itemsize = self._var.infer_itemsize()
+
+                if itemsize is None:
+                    raise ValueError('Variable is empty, so no rechunking is possible.')
+            else:
+                itemsize = self._var.dtype.itemsize
+        else:
+            itemsize = self._var.dtype.dtype_encoded.itemsize
+
+        return itemsize
 
 
     def guess_chunk_shape(self, target_chunk_size: int):
@@ -70,8 +89,11 @@ class Rechunker:
         """
         Calculates the minimum ideal read chunk memory between a source and target.
         """
+        itemsize = self._guess_itemsize()
+
         ideal_read_chunk_shape = rechunkit.calc_ideal_read_chunk_shape(self._var.chunk_shape, target_chunk_shape)
-        return rechunkit.calc_ideal_read_chunk_mem(ideal_read_chunk_shape, self._var.dtype_encoded.itemsize)
+
+        return rechunkit.calc_ideal_read_chunk_mem(ideal_read_chunk_shape, itemsize)
 
     def calc_source_read_chunk_shape(self, target_chunk_shape: Tuple[int, ...], max_mem: int):
         """
@@ -88,7 +110,9 @@ class Rechunker:
         -------
         optimal chunk shape: tuple of ints
         """
-        return rechunkit.calc_source_read_chunk_shape(self._var.chunk_shape, target_chunk_shape, self._var.dtype_encoded.itemsize, max_mem)
+        itemsize = self._guess_itemsize()
+
+        return rechunkit.calc_source_read_chunk_shape(self._var.chunk_shape, target_chunk_shape, itemsize, max_mem)
 
     def calc_n_chunks(self):
         """
@@ -112,7 +136,12 @@ class Rechunker:
         tuple
             of n_reads, n_writes
         """
-        return rechunkit.calc_n_reads_rechunker(self._var.shape, self._var.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+        if self._var.dtype.dtype_encoded is None:
+            dtype = self._var.dtype
+        else:
+            dtype = self._var.dtype.dtype_encoded
+
+        return rechunkit.calc_n_reads_rechunker(self._var.shape, dtype, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
 
 
     def rechunk(self, target_chunk_shape, max_mem: int=2**27):
@@ -133,28 +162,22 @@ class Rechunker:
         """
         self._var.load()
 
-        func = lambda sel: self._var.get_chunk(sel)
+        itemsize = self._guess_itemsize()
 
-        np_dtype = self._var.dtype.np_dtype
+        if self._var.dtype.dtype_encoded is None:
+            func = lambda sel: self._var.get_chunk(sel)
 
-        if self._var.dtype.itemsize is None:
-            itemsize = self._var.estimate_itemsize()
-
-            if itemsize is None:
-                raise ValueError('Variable is empty, so no rechunking is possible.')
-        else:
-            itemsize = self._var.dtype.itemsize
-
-        if self.dtype.transcoder is None:
-            rechunkit1 = rechunkit.rechunker(func, self._var.shape, np_dtype, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self._var.dtype.dtype_decoded, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
 
             for slices, data_decoded in rechunkit1:
                 yield slices, data_decoded
         else:
-            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self.dtype.transcoder.dest_dtype, self.dtype.transcoder.dest_dtype.itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+            func = lambda sel: self._var._get_encoded_chunk(sel)
 
-            for slices, data_decoded in rechunkit1:
-                yield slices, data_decoded
+            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self._var.dtype.dtype_encoded, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+
+            for slices, data_encoded in rechunkit1:
+                yield slices, self._var.dtype.decode(data_encoded)
 
 
 class Attributes:
@@ -371,7 +394,7 @@ class Variable:
 
         # self._encoder = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, dataset._compressor)
         self.compressor = dataset._compressor
-        self.dtype = dtypes.dtype(**self._var_meta.dtype)
+        self.dtype = dtypes.dtype(**msgspec.to_builtins(self._var_meta.dtype))
         self.loc = indexers.LocationIndexer(self)
         self._finalizers = dataset._finalizers
         self.writable = dataset.writable
@@ -388,36 +411,35 @@ class Variable:
         return self.is_open
 
 
-    def _make_blank_sel_array(self, sel, coord_origins, decoded=True):
+    def _make_blank_sel_array(self, sel, coord_origins):
         """
 
         """
         new_shape = indexers.determine_final_array_shape(sel, coord_origins, self.shape)
 
-        if self.dtype_decoded.kind == 'f' and decoded:
-            fillvalue = np.nan
+        if self.dtype.kind in ('f', 'M', 'T', 'G'):
+            fillvalue = None
         else:
-            fillvalue = self.fillvalue
+            fillvalue = 0
 
-        if decoded:
-            return np.full(new_shape, fillvalue, self.dtype_decoded)
-        else:
-            return np.full(new_shape, fillvalue, self.dtype_encoded)
+        return np.full(new_shape, fillvalue, self.dtype.dtype_decoded)
 
 
     def _make_blank_chunk_array(self, decoded=True):
         """
 
         """
-        if self.dtype_decoded.kind == 'f' and decoded:
-            fillvalue = np.nan
+        if not decoded and self.dtype.dtype_encoded is not None:
+            dtype = self.dtype.dtype_encoded
         else:
-            fillvalue = self.fillvalue
+            dtype = self.dtype.dtype_decoded
 
-        if decoded:
-            return np.full(self.chunk_shape, fillvalue, self.dtype_decoded)
+        if dtype.kind in ('f', 'M', 'T', 'O') and decoded:
+            fillvalue = None
         else:
-            return np.full(self.chunk_shape, fillvalue, self.dtype_encoded)
+            fillvalue = 0
+
+        return np.full(self.chunk_shape, fillvalue, dtype)
 
 
     def rechunker(self):
@@ -426,18 +448,18 @@ class Variable:
         """
         return Rechunker(self)
 
-    def estimate_itemsize(self):
+    def infer_itemsize(self):
         """
 
         """
         if self.dtype.itemsize is None:
-            coord_origins = self.get_coord_origins()
-            slices = indexers.index_combo_all(None, coord_origins, self.shape)
-            starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(self.chunk_shape, slices))
-            blt_key = utils.make_var_chunk_key(self.name, starts_chunk)
-            b1 = self._blt.get(blt_key)
-            if b1 is not None:
-                itemsize = len(b1)/math.prod(self._var.chunk_shape)
+            chunk_bytes = self._get_raw_chunk()
+
+            if chunk_bytes is not None:
+                arr = self.dtype.loads(self.compressor.decompress(chunk_bytes))
+                chunk_bytes_len = math.sum([sys.getsizeof(a) for a in arr])
+
+                itemsize = math.ceil(chunk_bytes_len/len(arr))
                 self.dtype.itemsize = itemsize
 
         return self.dtype.itemsize
@@ -460,8 +482,6 @@ class Variable:
 
         Parameters
         ----------
-        decoded: bool
-            Should the data be decoded?
         include_data: bool
             Should the data be included in the output?
 
@@ -474,7 +494,12 @@ class Variable:
 
         coord_origins = self.get_coord_origins()
 
-        blank = self._make_blank_chunk_array(decoded)
+        if not decoded and self.dtype.dtype_encoded is not None:
+            func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
+            blank = self._make_blank_chunk_array(decoded)
+        else:
+            func = lambda x: self.dtype.loads(self.compressor.decompress(x), self.chunk_shape)
+            blank = self._make_blank_chunk_array()
 
         slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
 
@@ -486,10 +511,7 @@ class Variable:
                     blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
                     yield target_chunk, blank[blank_slices]
                 else:
-                    if decoded:
-                        data = self._encoder.decode(self._encoder.from_bytes(b1))
-                    else:
-                        data = self._encoder.from_bytes(b1)
+                    data = func(b1)
 
                     yield target_chunk, data[source_chunk]
         else:
@@ -517,6 +539,33 @@ class Variable:
                 yield index, data[data_index]
 
 
+    def _get_raw_chunk(self, sel=None):
+        """
+
+        """
+        if sel is None:
+            sel = self._sel
+        coord_origins = self.get_coord_origins()
+        slices = indexers.index_combo_all(sel, coord_origins, self.shape)
+        starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(self.chunk_shape, slices))
+        blt_key = utils.make_var_chunk_key(self.name, starts_chunk)
+        b1 = self._blt.get(blt_key)
+
+        return b1
+
+    def _get_encoded_chunk(self, sel=None, missing_none=False):
+        """
+
+        """
+        b1 = self._get_raw_chunk(sel)
+        if missing_none and b1 is None:
+            return None
+        elif b1 is None:
+            return self._make_blank_chunk_array(False)
+        else:
+            return self.dtype.from_bytes(self.compressor.decompress(b1), self.chunk_shape)
+
+
     def get_chunk(self, sel=None, missing_none=False):
         """
         Get data from one chunk. The method will return the first chunk parsed from sel.
@@ -532,19 +581,13 @@ class Variable:
         -------
         np.ndarray
         """
-        if sel is None:
-            sel = self._sel
-        coord_origins = self.get_coord_origins()
-        slices = indexers.index_combo_all(sel, coord_origins, self.shape)
-        starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(self.chunk_shape, slices))
-        blt_key = utils.make_var_chunk_key(self.name, starts_chunk)
-        b1 = self._blt.get(blt_key)
+        b1 = self._get_raw_chunk(sel)
         if missing_none and b1 is None:
             return None
         elif b1 is None:
             return self._make_blank_chunk_array()
         else:
-            return self.dtype.loads(b1)
+            return self.dtype.loads(self.compressor.decompress(b1), self.chunk_shape)
 
 
     def get_coord_origins(self):
@@ -606,11 +649,11 @@ class CoordinateView(Variable):
         return self._data
 
     @property
-    def dim(self):
+    def axis(self):
         """
 
         """
-        return self._var_meta.dim
+        return self._var_meta.axis
 
 
     def get(self, sel):
@@ -724,7 +767,9 @@ class Coordinate(CoordinateView):
         """
         chunk_len = self.chunk_shape[0]
 
-        mem_arr1 = np.full(self.chunk_shape, fill_value=self.fillvalue, dtype=self.dtype_encoded)
+        # mem_arr1 = np.full(self.chunk_shape, fill_value=self.fillvalue, dtype=self.dtype_encoded)
+
+        mem_arr1 = self._make_blank_chunk_array()
 
         # print(chunk_start)
 
@@ -748,12 +793,12 @@ class Coordinate(CoordinateView):
             # print(updated_data[coord_chunk_slice])
 
             mem_arr2 = mem_arr1.copy()
-            mem_arr2[mem_chunk_slice] = self._encoder.encode(updated_data[coord_chunk_slice])
+            mem_arr2[mem_chunk_slice] = updated_data[coord_chunk_slice]
 
             key = utils.make_var_chunk_key(self.name, (chunk_origin,))
             # print(key)
 
-            self._blt.set(key, self._encoder.to_bytes(mem_arr2))
+            self._blt.set(key, self.compressor.compress(self.dtype.dumps(mem_arr2)))
 
         self._data = updated_data
 
@@ -765,7 +810,7 @@ class Coordinate(CoordinateView):
         if not self.writable:
             raise ValueError('Dataset is not writable.')
 
-        updated_data = utils.prepend_coord_data_checks(data, self.data, self.dtype_decoded, self.step)
+        updated_data = utils.prepend_coord_data_checks(data, self.data, self.dtype, self.step)
 
         data_diff = updated_data.size - self.data.size
 
@@ -787,7 +832,7 @@ class Coordinate(CoordinateView):
         if not self.writable:
             raise ValueError('Dataset is not writable.')
 
-        updated_data = utils.append_coord_data_checks(data, self.data, self.dtype_decoded, self.step)
+        updated_data = utils.append_coord_data_checks(data, self.data, self.dtype, self.step)
 
         shape = (updated_data.size,)
 
@@ -840,7 +885,7 @@ class DataVariableView(Variable):
         return DataVariableView(self.name, self._dataset, slices)
 
 
-    def set(self, sel, data, encode=True):
+    def set(self, sel, data, decoded=True):
         """
         Set data based on index positions.
         """
@@ -849,7 +894,14 @@ class DataVariableView(Variable):
 
         coord_origins = self.get_coord_origins()
 
-        chunk_blank = self._make_blank_chunk_array(False)
+        if not decoded and self.dtype.dtype_encoded is not None:
+            read_func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
+            write_func = lambda x: self.compressor.compress(self.dtype.to_bytes(x))
+            chunk_blank = self._make_blank_chunk_array(decoded)
+        else:
+            read_func = lambda x: self.dtype.loads(self.compressor.decompress(x), self.chunk_shape)
+            write_func = lambda x: self.compressor.compress(self.dtype.dumps(x))
+            chunk_blank = self._make_blank_chunk_array()
 
         slices = indexers.check_sel_input_data(sel, data, coord_origins, self.shape)
 
@@ -861,13 +913,10 @@ class DataVariableView(Variable):
             if b1 is None:
                 new_data = chunk_blank.copy()
             else:
-                new_data = self._encoder.from_bytes(b1)
+                new_data = read_func(b1)
 
-            if encode:
-                new_data[source_chunk] = self._encoder.encode(data[target_chunk])
-            else:
-                new_data[source_chunk] = data[target_chunk]
-            self._blt.set(blt_key, self._encoder.to_bytes(new_data))
+            new_data[source_chunk] = data[target_chunk]
+            self._blt.set(blt_key, write_func(new_data))
 
 
     # def set_chunk(self, sel, data, encode=True):
@@ -900,7 +949,7 @@ class DataVariableView(Variable):
         self.set(sel, data)
 
 
-    def groupby(self, coord_names: Union[str, Iterable], max_mem: int=2**27, decoded=True):
+    def groupby(self, coord_names: Union[str, Iterable], max_mem: int=2**27):
         """
         This method takes one or more coord names to group by and returns a generator. This generator will return chunks of data according to these groupings with the associated tuple of slices. The more max_mem provided, the more efficient the chunking.
         This is effectively the rechunking method where each coord name supplied is set to 1 and all other coords are set to their full their full length.
@@ -940,16 +989,10 @@ class DataVariableView(Variable):
                 target_chunk_shape.append(coord.shape[0])
 
         # Do the chunking
-        func = lambda sel: self.get_chunk(sel, decoded=False)
+        rechunker = self.rechunker()
+        rechunkit1 = rechunker.rechunk(tuple(target_chunk_shape), max_mem)
 
-        rechunkit1 = rechunkit.rechunker(func, self.shape, self.dtype_encoded, self.chunk_shape, tuple(target_chunk_shape), max_mem, self._sel)
-
-        if decoded:
-            for slices, encoded_data in rechunkit1:
-                yield slices, self._encoder.decode(encoded_data)
-        else:
-            for slices, encoded_data in rechunkit1:
-                yield slices, encoded_data
+        return rechunkit1
 
 
     # def to_pandas(self):

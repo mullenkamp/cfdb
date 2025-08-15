@@ -10,6 +10,7 @@ import rechunkit
 import copy
 from typing import List, Union
 import pathlib
+import math
 
 try:
     import h5netcdf
@@ -17,8 +18,8 @@ try:
 except ImportError:
     import_h5netcdf = False
 
-from . import utils, main, indexers, support_classes as sc
-# import utils, main, indexers, support_classes as sc
+from . import utils, main, indexers, dtypes, support_classes as sc
+# import utils, main, indexers, dtypes, support_classes as sc
 
 ##########################################
 ### Parameters
@@ -92,9 +93,13 @@ def parse_attrs(attrs):
     input_params = {}
     for attr, value in copy.deepcopy(attrs).items():
         if attr == 'scale_factor':
-            input_params['scale_factor'] = float(attrs.pop(attr))
+            sf = float(attrs.pop(attr))
+            precision = math.log10(1/sf)
+            if precision.is_integer():
+                precision = int(precision)
+            input_params['precision'] = precision
         elif attr == 'add_offset':
-            input_params['add_offset'] = float(attrs.pop(attr))
+            input_params['offset'] = float(attrs.pop(attr))
         elif attr == '_FillValue':
             if value is not None:
                 input_params['fillvalue'] = int(attrs.pop(attr))
@@ -186,9 +191,9 @@ def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pat
                 h5_coord = h5[dim]
                 dtype_encoded = h5_coord.dtype
                 attrs = dict(h5_coord.attrs)
-                attrs, input_params = parse_attrs(attrs)
+                attrs, dtype_params = parse_attrs(attrs)
 
-                if 'scale_factor' in input_params:
+                if 'precision' in dtype_params and dtype_encoded.kind != 'f':
                     dtype_decoded = np.dtype('float64')
                 elif 'units' in attrs:
                     units, dtype_decoded, dtype_encoded, origin_date = parse_cf_dates(attrs['units'], dtype_encoded)
@@ -196,8 +201,9 @@ def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pat
                 else:
                     dtype_decoded = dtype_encoded
 
-                input_params['dtype_decoded'] = dtype_decoded
-                input_params['dtype_encoded'] = dtype_encoded
+                dtype_params['name'] = dtype_decoded
+                if dtype_decoded != dtype_encoded:
+                    dtype_params['dtype_encoded'] = dtype_encoded
 
                 # chunk_start = (0,)
                 shape = h5_coord.shape
@@ -205,6 +211,7 @@ def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pat
                 if chunk_shape is None:
                     chunk_shape = rechunkit.guess_chunk_shape(shape, dtype_encoded)
 
+                input_params = {}
                 input_params['chunk_shape'] = chunk_shape
 
                 data = h5_coord[()]
@@ -227,20 +234,12 @@ def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pat
                     data.sort()
 
                 ## Decode data if necessary
+                dtype1 = dtypes.dtype(**dtype_params)
+
                 if dtype_decoded.kind == 'M':
                     data = data + origin_date
-                elif 'scale_factor' in input_params:
-                    if 'add_offset' in input_params:
-                        add_offset = input_params['add_offset']
-                    else:
-                        add_offset = None
-                    if 'fillvalue' in input_params:
-                        fillvalue = input_params['fillvalue']
-                    else:
-                        fillvalue = None
-                    encoding = sc.Encoding(chunk_shape, dtype_decoded, dtype_encoded, fillvalue, input_params['scale_factor'], add_offset, None)
-
-                    data = encoding.decode(data)
+                elif dtype1.dtype_encoded is not None:
+                    data = dtype1.decode(data)
 
                 ## Selection
                 if isinstance(sel, dict):
@@ -276,15 +275,19 @@ def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pat
                 h5_var = h5[var_name]
                 dtype_encoded = h5_var.dtype
                 attrs = dict(h5_var.attrs)
-                attrs, input_params = parse_attrs(attrs)
+                attrs, dtype_params = parse_attrs(attrs)
 
-                if 'scale_factor' in input_params:
+                if 'precision' in dtype_params and dtype_encoded.kind != 'f':
                     dtype_decoded = np.dtype('float64')
                 elif 'units' in attrs:
                     units, dtype_decoded, dtype_encoded, origin_date = parse_cf_dates(attrs['units'], dtype_encoded)
                     attrs['units'] = units
                 else:
                     dtype_decoded = dtype_encoded
+
+                dtype_params['name'] = dtype_decoded
+                if dtype_decoded != dtype_encoded:
+                    dtype_params['dtype_encoded'] = dtype_encoded
 
                 var_sel = tuple(sel_dict[dim] for dim in h5_var.dimensions)
 
@@ -296,14 +299,16 @@ def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pat
                 if chunk_shape is None:
                     chunk_shape = rechunkit.guess_chunk_shape(shape, dtype_encoded)
 
-                data_var = ds.create.data_var.generic(var_name, h5_var.dimensions, dtype_decoded=dtype_decoded, dtype_encoded=dtype_encoded, chunk_shape=chunk_shape, **input_params)
+                dtype1 = dtypes.dtype(**dtype_params)
+
+                data_var = ds.create.data_var.generic(var_name, h5_var.dimensions, dtype=dtype1, chunk_shape=chunk_shape)
                 data_var.attrs.update(attrs)
 
                 h5_reader = H5DataVarReader(h5_var, inverted_coords, shape)
 
-                chunks_iter = rechunkit.rechunker(h5_reader.get, shape, dtype_encoded, chunk_shape, chunk_shape, max_mem, var_sel)
+                chunks_iter = rechunkit.rechunker(h5_reader.get, shape, dtype_encoded, dtype_encoded.itemsize, chunk_shape, chunk_shape, max_mem, var_sel)
                 for chunk_slices, encoded_data in chunks_iter:
-                    if not np.all(encoded_data == data_var.fillvalue):
+                    if not np.all(encoded_data == dtype1.fillvalue):
                         data_var.set(chunk_slices, encoded_data, False)
 
 

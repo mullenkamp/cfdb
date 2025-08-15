@@ -9,8 +9,8 @@ import numpy as np
 from typing import Set, Optional, Dict, Tuple, List, Union, AnyStr
 import pyproj
 
-from . import utils, support_classes as sc
-# import utils, support_classes as sc
+from . import utils, dtypes, data_models, support_classes as sc
+# import utils, dtypes, data_models, support_classes as sc
 
 #################################################
 
@@ -64,7 +64,7 @@ class Coord:
         # self._compressor = compressor
 
 
-    def generic(self, name: str, data: np.ndarray | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, chunk_shape: Tuple[int] | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool=False, dim: str=None):
+    def generic(self, name: str, data: np.ndarray | None = None, dtype: str | np.dtype | dtypes.DataType | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, axis: str=None):
         """
         The generic method to create a coordinate.
 
@@ -88,17 +88,27 @@ class Coord:
             As decribed by the scale_factor.
         step: int, float, or None
             If the coordinate data is regular (hourly for example), then assign a step to ensure the coordinate will always stay regular.
+        axis: str or None
+            The physical axis representation of the coordinate. I.e. x, y, z, t. There cannot be duplicate axes in coordinates.
 
         Returns
         -------
         cfdb.Coordinate
         """
-        if name in self._dataset._sys_meta.variables:
-            raise ValueError(f"Dataset already contains the variable {name}.")
+        if isinstance(axis, str):
+            axis = axis.lower()
+            axis1 = data_models.Axis(axis)
+
+        for var_name, var in self._dataset._sys_meta.variables.items():
+            if name == var_name:
+                raise ValueError(f"Dataset already contains the variable {name}.")
+            if isinstance(axis, str):
+                if var.axis == axis1:
+                    raise ValueError(f"axis {axis} already exists.")
 
         # print(params)
 
-        name, var = utils.parse_coord_inputs(name, data, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset, step=step, dim=dim)
+        name, var = utils.parse_coord_inputs(name, data, chunk_shape, dtype, step=step, axis=axis)
 
         ## Var init process
         self._dataset._sys_meta.variables[name] = var
@@ -114,9 +124,9 @@ class Coord:
         self._dataset._var_cache[name] = coord
 
         ## Add attributes to datetime vars
-        if coord.dtype_decoded.kind == 'M':
-            coord.attrs['units'] = utils.parse_cf_time_units(coord.dtype_decoded)
-            coord.attrs['calendar'] = 'proleptic_gregorian'
+        # if coord.dtype_decoded.kind == 'M':
+        #     coord.attrs['units'] = utils.parse_cf_time_units(coord.dtype_decoded)
+        #     coord.attrs['calendar'] = 'proleptic_gregorian'
 
         return coord
 
@@ -130,7 +140,7 @@ class Coord:
         else:
             data = None
 
-        new_coord = self.generic(name, data, dtype_decoded=coord.dtype_decoded, dtype_encoded=coord.dtype_encoded, chunk_shape=coord.chunk_shape, fillvalue=coord.fillvalue, scale_factor=coord.scale_factor, add_offset=coord.add_offset, step=coord.step)
+        new_coord = self.generic(name, data, dtype=coord.dtype, chunk_shape=coord.chunk_shape, step=coord.step, axis=coord.axis)
 
         return new_coord
 
@@ -140,12 +150,12 @@ class Coord:
         """
         Create a latitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('lat', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('lat', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['lat'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
 
@@ -154,12 +164,12 @@ class Coord:
         """
         Create a longitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('lon', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('lon', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['lon'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
 
@@ -168,12 +178,12 @@ class Coord:
         """
         Create a time coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('time', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('time', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['time'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
 
@@ -182,12 +192,12 @@ class Coord:
         """
         Create a height coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('height', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('height', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['height'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
 
@@ -196,12 +206,12 @@ class Coord:
         """
         Create a altitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('altitude', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('altitude', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['altitude'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
 
@@ -228,7 +238,7 @@ class DataVar:
         # self._compressor = compressor
 
 
-    def generic(self, name: str, coords: Tuple[str], dtype_decoded: str | np.dtype, dtype_encoded: str | np.dtype | None = None, chunk_shape: Tuple[int] | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None):
+    def generic(self, name: str, coords: Tuple[str], dtype: str | np.dtype | dtypes.DataType, chunk_shape: Tuple[int] | None = None):
         """
         The generic method to create a Data Variable.
 
@@ -256,7 +266,7 @@ class DataVar:
         cfdb.DataVariable
         """
         ## Check base inputs
-        name, var = utils.parse_var_inputs(self._dataset._sys_meta, name, coords, dtype_decoded, dtype_encoded, chunk_shape, fillvalue, scale_factor, add_offset)
+        name, var = utils.parse_var_inputs(self._dataset._sys_meta, name, coords, dtype, chunk_shape)
 
         ## Var init process
         self._dataset._sys_meta.variables[name] = var
@@ -267,9 +277,9 @@ class DataVar:
         self._dataset._var_cache[name] = data_var
 
         ## Add attributes to datetime vars
-        if data_var.dtype_decoded.kind == 'M':
-            data_var.attrs['units'] = utils.parse_cf_time_units(data_var.dtype_decoded)
-            data_var.attrs['calendar'] = 'proleptic_gregorian'
+        # if data_var.dtype_decoded.kind == 'M':
+        #     data_var.attrs['units'] = utils.parse_cf_time_units(data_var.dtype_decoded)
+        #     data_var.attrs['calendar'] = 'proleptic_gregorian'
 
         return data_var
 
@@ -278,7 +288,7 @@ class DataVar:
         """
         Create a Data Variable based on the parameters of another Data Variable. A new unique name must be passed.
         """
-        new_data_var = self.generic(name, data_var.coord_names, dtype_decoded=data_var.dtype_decoded, dtype_encoded=data_var.dtype_encoded, chunk_shape=data_var.chunk_shape, fillvalue=data_var.fillvalue, scale_factor=data_var.scale_factor, add_offset=data_var.add_offset)
+        new_data_var = self.generic(name, data_var.coord_names, dtype=data_var.dtype, chunk_shape=data_var.chunk_shape)
 
         return new_data_var
 
