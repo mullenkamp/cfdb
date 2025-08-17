@@ -18,8 +18,8 @@ import rechunkit
 import pyproj
 import sys
 
-from . import utils, indexers, dtypes
-# import utils, indexers, dtypes
+from . import utils, indexers, dtypes, data_models
+# import utils, indexers, dtypes, data_models
 
 ###################################################
 ### Parameters
@@ -548,22 +548,23 @@ class Variable:
         coord_origins = self.get_coord_origins()
         slices = indexers.index_combo_all(sel, coord_origins, self.shape)
         starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(self.chunk_shape, slices))
+        slices2 = tuple(slice(0, min(pc.stop - sc, sc + cs)) for sc, cs, pc in zip(starts_chunk, self.chunk_shape, slices))
         blt_key = utils.make_var_chunk_key(self.name, starts_chunk)
         b1 = self._blt.get(blt_key)
 
-        return b1
+        return b1, slices2
 
     def _get_encoded_chunk(self, sel=None, missing_none=False):
         """
 
         """
-        b1 = self._get_raw_chunk(sel)
+        b1, output_slices = self._get_raw_chunk(sel)
         if missing_none and b1 is None:
             return None
         elif b1 is None:
-            return self._make_blank_chunk_array(False)
+            return self._make_blank_chunk_array(False)[output_slices]
         else:
-            return self.dtype.from_bytes(self.compressor.decompress(b1), self.chunk_shape)
+            return self.dtype.from_bytes(self.compressor.decompress(b1), self.chunk_shape)[output_slices]
 
 
     def get_chunk(self, sel=None, missing_none=False):
@@ -581,13 +582,13 @@ class Variable:
         -------
         np.ndarray
         """
-        b1 = self._get_raw_chunk(sel)
+        b1, output_slices = self._get_raw_chunk(sel)
         if missing_none and b1 is None:
             return None
         elif b1 is None:
-            return self._make_blank_chunk_array()
+            return self._make_blank_chunk_array()[output_slices]
         else:
-            return self.dtype.loads(self.compressor.decompress(b1), self.chunk_shape)
+            return self.dtype.loads(self.compressor.decompress(b1), self.chunk_shape)[output_slices]
 
 
     def get_coord_origins(self):
@@ -616,7 +617,7 @@ class Variable:
     def load(self):
         """
         This method only applies if the dataset has been open as an EDataset.
-        Load the chunks from the remote into the local file based on the selection. If not selection has been made, then it will load in all the chunks.
+        Load the chunks from the remote into the local file based on the selection. If no selection has been made, then it will load in all the chunks.
         """
         if self._has_load_items:
             coord_origins = self.get_coord_origins()
@@ -628,6 +629,22 @@ class Variable:
             # self._blt.sync()
             if failures:
                 raise Exception(failures)
+
+    @property
+    def units(self):
+        return getattr(self._var_meta, 'units')
+
+    def update_units(self, units: str | None):
+        """
+
+        """
+        if self.writable:
+            if isinstance(units, str) or units is None:
+                self._var_meta.units = units
+            else:
+                raise TypeError(f'{units}')
+        else:
+            raise ValueError('dataset is not writable.')
 
 
 class CoordinateView(Variable):
@@ -709,7 +726,51 @@ class CoordinateView(Variable):
     def shape(self):
         return tuple(s.stop - s.start for s in self._sel)
 
+    def update_step(self, step: int | float | bool):
+        """
 
+        """
+        if self.writable:
+            if len(self.data) > 0:
+                step = utils.coord_data_step_check(self.data, self.dtype, step)
+
+            if self.dtype.kind in ('u', 'i'):
+                if isinstance(step, (float, np.floating)):
+                    if step.is_integer():
+                        step = int(step)
+                    else:
+                        raise ValueError('If the dtype is an integer, then step must be an integer.')
+
+            elif isinstance(step, bool):
+                step = None
+            elif isinstance(step, np.floating):
+                step = float(round(step, 5))
+            else:
+                raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
+
+            self._var_meta.step = step
+        else:
+            raise ValueError('dataset is not writable.')
+
+
+    def update_axis(self, axis: str | None):
+        """
+
+        """
+        if self.writable:
+            if isinstance(axis, str):
+                axis = axis.lower()
+                axis1 = data_models.Axis(axis)
+
+                for var_name, var in self._sys_meta.variables.items():
+                    if var.axis == axis1:
+                        raise ValueError(f"axis {axis} already exists.")
+
+                self._var_meta.axis = axis1
+            else:
+                self._var_meta.axis = None
+        else:
+            raise ValueError('dataset is not writable.')
 
 
     # def copy(self, to_file=None, name: str=None, include_attrs=True, **kwargs):

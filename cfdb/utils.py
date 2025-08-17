@@ -350,46 +350,54 @@ def coord_data_step_check(data: np.ndarray, dtype: dtypes.DataType, step: int | 
     """
 
     """
-    # diff = np.diff(data)
+    diff = np.diff(data)
     if isinstance(step, bool):
-        diff = np.diff(data)
+        # diff = np.diff(data)
         if dtype.kind == 'f':
             step = float(np.round(diff[0], 5))
             if not np.allclose(step, diff):
-                raise ValueError('step is set to True, but the data does not seem to be regular.')
+                # raise ValueError('step is set to True, but the data does not seem to be regular.')
+                step = None
             # data = np.linspace(data[0], data[-1], len(diff) + 1, dtype=dtype_decoded)
-        else:
-            step = int(diff[0])
+        elif dtype.kind in ('u', 'i', 'M'):
+            if dtype.kind == 'M':
+                step = int(diff[0].astype(int))
+            else:
+                step = int(diff[0])
 
             if not np.all(np.equal(step, diff)):
-                raise ValueError('step is set to True, but the data does not seem to be regular.')
+                # raise ValueError('step is set to True, but the data does not seem to be regular.')
+                step = None
+        else:
+            step = None
     elif isinstance(step, (float, np.floating)):
+        step = float(round(step, 5))
         if step <= 0:
             raise ValueError('step must be greater than 0.')
-        # if not np.allclose(step, diff):
-        #     raise ValueError('step does not seem to be the interval of the data.')
-        step = float(round(step, 5))
+        if not np.allclose(step, diff):
+            raise ValueError('step does not seem to be the interval of the data.')
         # num = round((data[-1] - data[0])/step, 5)
         # if not num.is_integer():
         #     raise ValueError('The step is not a multiple of the difference between the first and last values of the data.')
 
         # data = np.linspace(data[0], data[-1], int(num) + 1, dtype=dtype_decoded)
     elif isinstance(step, (int, np.integer)):
-        if step <= 0:
-            raise ValueError('step must be greater than 0.')
-        # if not np.all(np.equal(step, diff)):
-        #     raise ValueError('step is set to True, but the data does not seem to be regular.')
         step = int(step)
 
+        if step <= 0:
+            raise ValueError('step must be greater than 0.')
+        if not np.all(np.equal(step, diff)):
+            raise ValueError('step does not seem to be the interval of the data.')
+
         # data = np.linspace(data[0], data[-1], int(num) + 1, dtype=dtype_decoded)
-    else:
+    elif step is not None:
         raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
 
-    num = round((data[-1] - data[0])/step, 5)
-    if not num.is_integer():
-        raise ValueError('The step is not a multiple of the difference between the first and last values of the data.')
+    # num = round((data[-1] - data[0])/step, 5)
+    # if not num.is_integer():
+    #     raise ValueError('The step is not a multiple of the difference between the first and last values of the data.')
 
-    return step, int(num)
+    return step
 
 
 def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype, shape):
@@ -408,7 +416,7 @@ def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype, sh
     if dtype.kind in ('f', 'u', 'i', 'M'):
         data.sort()
         if step:
-            step, num = coord_data_step_check(data, dtype, step)
+            step = coord_data_step_check(data, dtype, step)
             # data = np.linspace(data[0], data[-1], num + 1, dtype=dtype_decoded)
         else:
             step = None
@@ -440,9 +448,9 @@ def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sour
 
             new_data.sort()
             if source_step:
-                new_step, new_num = coord_data_step_check(new_data, source_dtype, source_step)
+                _ = coord_data_step_check(new_data, source_dtype, source_step)
 
-                new_data = np.linspace(source_data[0], new_data[-1], len(source_data) + new_num + 1, dtype=source_dtype.dtype_decoded)
+                new_data = np.linspace(source_data[0], new_data[-1], len(source_data) + len(new_data), dtype=source_dtype.dtype_decoded)
             else:
                 new_data = np.append(source_data, new_data)
 
@@ -480,9 +488,9 @@ def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sou
 
             new_data.sort()
             if source_step:
-                new_step, new_num = coord_data_step_check(new_data, source_dtype, source_step)
+                _ = coord_data_step_check(new_data, source_dtype, source_step)
 
-                new_data = np.linspace(new_step[0], source_data[-1], len(source_data) + new_num + 1, dtype=source_dtype.dtype_decoded)
+                new_data = np.linspace(new_data[0], source_data[-1], len(source_data) + len(new_data), dtype=source_dtype.dtype_decoded)
             else:
                 new_data = np.append(new_data, source_data)
         else:
@@ -494,7 +502,7 @@ def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sou
             new_data = np.append(new_data, source_data)
 
     else:
-        new_data, new_step = init_coord_data_checks(new_data, source_step, source_dtype, new_data.shape)
+        _ = init_coord_data_checks(new_data, source_step, source_dtype, new_data.shape)
 
     return new_data
 
@@ -677,16 +685,15 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
         ## dtype encoding
         # dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
 
-        if dtype.kind in ('u', 'i') and isinstance(step, (float, np.floating)):
-            if not step.is_integer():
-                raise ValueError('If the dtype is an integer, then step must be an integer.')
-            else:
-                step = int(step)
+        if dtype.kind in ('u', 'i'):
+            if isinstance(step, (float, np.floating)):
+                if step.is_integer():
+                    step = int(step)
+                else:
+                    raise ValueError('If the dtype is an integer, then step must be an integer.')
+
         elif isinstance(step, bool):
-            if step:
-                raise TypeError('If data is not passed, then step cannot be set to True')
-            else:
-                step = None
+            step = None
         elif isinstance(step, np.floating):
             step = float(round(step, 5))
         else:

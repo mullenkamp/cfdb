@@ -40,9 +40,9 @@ class CRS:
         crs0 = pyproj.CRS.from_user_input(crs)
 
         ## Update the metadata
-        self._sys_meta.crs = crs0.to_string()
-        self._sys_meta.variables[x_coord].axis = data_models.Axis('x')
-        self._sys_meta.variables[y_coord].axis = data_models.Axis('y')
+        self._dataset._sys_meta.crs = crs0.to_string()
+        self._dataset._sys_meta.variables[x_coord].axis = data_models.Axis('x')
+        self._dataset._sys_meta.variables[y_coord].axis = data_models.Axis('y')
 
         self._dataset.crs = crs0 # Probably needs to change in the future...
 
@@ -86,8 +86,8 @@ class Coord:
             If dtype_decoded is a float and dtype_encoded is an int, then the stored values are encoded = int(round((decoded - add_offset)/scale_factor)).
         add_offset: int, float, or None
             As decribed by the scale_factor.
-        step: int, float, or None
-            If the coordinate data is regular (hourly for example), then assign a step to ensure the coordinate will always stay regular.
+        step: int, float, or bool
+            If the coordinate data is regular (hourly for example), then assign a step to ensure the coordinate will always stay regular. False will not set a step, while True will attempt to figure out the step from the input data (if passed).
         axis: str or None
             The physical axis representation of the coordinate. I.e. x, y, z, t. There cannot be duplicate axes in coordinates.
 
@@ -146,7 +146,7 @@ class Coord:
 
 
 
-    def latitude(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def latitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a latitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
@@ -160,7 +160,7 @@ class Coord:
         return coord
 
 
-    def longitude(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def longitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a longitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
@@ -174,7 +174,7 @@ class Coord:
         return coord
 
 
-    def time(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def time(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a time coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
@@ -188,7 +188,7 @@ class Coord:
         return coord
 
 
-    def height(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def height(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a height coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
@@ -202,7 +202,7 @@ class Coord:
         return coord
 
 
-    def altitude(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def altitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a altitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """

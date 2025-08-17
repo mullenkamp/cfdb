@@ -131,6 +131,13 @@ class DatasetBase:
         """
         return utils.file_summary(self)
 
+    # def update_crs(self, crs: str | int | pyproj.CRS, x_coord: str, y_coord: str):
+    #     """
+
+    #     """
+    #     if self.writable:
+    #         self.create
+
     @property
     def coords(self):
         """
