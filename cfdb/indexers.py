@@ -396,7 +396,6 @@ class LocationIndexer:
         return self.variable.get(idx)
 
 
-
     def __setitem__(self, key, data):
         """
 
