@@ -960,12 +960,14 @@ class DataVariableView(Variable):
             read_func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
             write_func = lambda x: self.compressor.compress(self.dtype.to_bytes(x))
             chunk_blank = self._make_blank_chunk_array(decoded)
+
+            slices, data = indexers.check_sel_input_data(sel, data, coord_origins, self.shape, self.dtype.dtype_encoded)
         else:
             read_func = lambda x: self.dtype.loads(self.compressor.decompress(x), self.chunk_shape)
             write_func = lambda x: self.compressor.compress(self.dtype.dumps(x))
             chunk_blank = self._make_blank_chunk_array()
 
-        slices = indexers.check_sel_input_data(sel, data, coord_origins, self.shape)
+            slices, data = indexers.check_sel_input_data(sel, data, coord_origins, self.shape, self.dtype.dtype_decoded)
 
         if self._sel is not None:
             slices = tuple(slice(s.start, s.stop) if ss.start is None else slice(ss.start + s.start, ss.start + s.stop) for ss, s in zip(self._sel, slices))

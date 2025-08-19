@@ -258,10 +258,10 @@ class DTypeTranscoder(DataType):
         """
 
         """
-        if self._factor is not None:
-            data_encoded = (np.round((data_decoded - self.offset)  * self._factor)).astype(self.dtype_encoded)
-        else:
+        if self._factor is None:
             data_encoded = (data_decoded - self.offset).astype(self.dtype_encoded)
+        else:
+            data_encoded = (np.round((data_decoded - self.offset) * self._factor)).astype(self.dtype_encoded)
 
         return data_encoded
 
@@ -277,10 +277,10 @@ class DTypeTranscoder(DataType):
         elif self.dtype_decoded.kind == 'f':
             data_decoded[data_decoded == self.fillvalue] = np.nan
 
-        if self._factor is not None:
-            data_decoded = (data_decoded / self._factor)  + self.offset
-        else:
+        if self._factor is None:
             data_decoded = data_decoded + self.offset
+        else:
+            data_decoded = (data_decoded / self._factor)  + self.offset
 
         return data_decoded
 
@@ -288,7 +288,7 @@ class DTypeTranscoder(DataType):
         """
 
         """
-        data = np.frombuffer(data_bytes, dtype=self.dtype_encoded).reshape(chunk_shape)
+        data = np.frombuffer(bytearray(data_bytes), dtype=self.dtype_encoded).reshape(chunk_shape)
 
         return data
 
@@ -304,10 +304,11 @@ class DTypeTranscoder(DataType):
 
         """
         if self.dtype_encoded is None:
-            if self._factor is not None:
-                return data.round(self.precision).tobytes()
-            else:
+            if self._factor is None:
                 return data.tobytes()
+            else:
+                return data.round(self.precision).tobytes()
+
         else:
             data_encoded = self.encode(data)
             return self.to_bytes(data_encoded)

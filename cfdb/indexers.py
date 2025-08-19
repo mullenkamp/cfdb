@@ -300,17 +300,19 @@ def slices_to_chunks_keys(slices, var_name, var_chunk_shape, clip_ends=True):
 
 
 
-def check_sel_input_data(sel, input_data, coord_origins, shape):
+def check_sel_input_data(sel, input_data, coord_origins, shape, dtype):
     """
 
     """
     slices = index_combo_all(sel, coord_origins, shape)
     slices_shape = tuple(s.stop - s.start for s in slices)
 
-    if input_data.shape != slices_shape:
-        raise ValueError('The selection shape is not equal to the input data.')
+    data = np.asarray(input_data, dtype=dtype).reshape(slices_shape)
 
-    return slices
+    # if input_data.shape != slices_shape:
+    #     raise ValueError('The selection shape is not equal to the input data.')
+
+    return slices, data
 
 
 

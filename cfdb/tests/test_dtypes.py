@@ -20,7 +20,7 @@ int_data2 = np.arange(4, 13)
 bool_data = np.zeros((9,), 'bool')
 bool_data[4] = True
 
-str_data = np.array(['hello', 'egggggsssss'], np.dtypes.StringDType)
+str_data = np.array(['hello', 'egggggsssss'], np.dtypes.StringDType())
 
 meta = {
     'point': {'precision': 1},
@@ -33,7 +33,21 @@ meta = {
     'bool': {},
     'int16': {},
     'int64': {'min_value': 0, 'max_value': 20},
-    'StringDType128': {},
+    'str': {},
+    }
+
+test_values = {
+    'point': shapely.Point(1.0, 2.0),
+    'linestring': shapely.LineString([(1.0, 2.0), (2.6, 3.8)]),
+    'polygon': shapely.Polygon([(1.0, 2.0), (2.8, 3.1), (1.8, 0)]),
+    'float64': 10.6,
+    'float32': 100.6,
+    'datetime64[D]': np.array(201, dtype='datetime64[D]'),
+    'datetime64[h]': np.array(201, dtype='datetime64[h]'),
+    'bool': True,
+    'int16': 14,
+    'int64': 14,
+    'str': 'big string',
     }
 
 
@@ -49,7 +63,7 @@ def test_dtypes(data):
     np_dtype = data.dtype
     if np_dtype.name == 'object':
         name = data[0].geom_type.lower()
-    elif 'str' in np_dtype.name:
+    elif np_dtype.name == 'StringDType128':
         name = 'str'
     else:
         name = np_dtype.name
@@ -67,7 +81,17 @@ def test_dtypes(data):
     else:
         assert (new_data == data).all()
 
-    new_data[0] = 0
+    test_value = test_values[name]
+    new_data[0] = test_value
+
+    data_b = dtype1.dumps(new_data)
+    new_data2 = dtype1.loads(data_b)
+
+    if 'float' in name:
+        assert np.isclose(new_data2[0], test_value)
+    else:
+        assert new_data[0] == test_value
+
 
 
 

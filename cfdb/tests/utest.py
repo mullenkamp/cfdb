@@ -99,7 +99,8 @@ time_data = np.linspace(0, 199, 200, dtype='datetime64[D]')
 
 air_data = np.linspace(0, 3999.9, 40000, dtype='float32').reshape(200, 200)
 
-era5_path = '/home/mike/data/ecmwf/reanalysis-era5-land/reanalysis-era5-land.total_precipitation.1950-01-01!1957-12-31.nc'
+# era5_path = '/home/mike/data/ecmwf/reanalysis-era5-land/reanalysis-era5-land.total_precipitation.1950-01-01!1957-12-31.nc'
+era5_path = '/home/mike/data/ecmwf/era5-land/reanalysis-era5-land.2m_temperature.1950-01-01.1957-12-31.nc'
 
 ###################################################
 ### Functions
@@ -540,6 +541,7 @@ ds.close()
 
 
 sel = (slice(24, 25), slice(50, 52), slice(50, 52))
+sel = (slice(24, 25), slice(50, 52), slice(50, 52))
 h5_sel = (slice(24, 25), slice(78, 80), slice(50, 52))
 loc_sel = (slice('1950-01-02T01', '1950-01-02T03'), slice(-42.30, -42.10), slice(171.30, 171.50))
 ds_sel = {'longitude': 60, 'latitude': 70, 'time': slice(40, 100)}
@@ -586,6 +588,8 @@ netcdf4_to_cfdb(era5_path, new_path, sel=ds_sel, sel_loc=None)
 netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=ds_sel_loc)
 cfdb_to_netcdf4(new_path, '/home/mike/data/cache/cfdb/nc_test.nc')
 
+ds = open_dataset(new_path)
+
 try:
     with io.open(script_path.joinpath('s3_config.toml'), "rb") as f:
         conn_config = toml.load(f)['connection_config']
@@ -613,25 +617,28 @@ ds.close()
 
 
 ds = open_edataset(remote_conn, new_path, flag='r')
-view1 = ds.select_loc(ds_sel_loc)
-t2m = ds['tp']
+t2m = ds['t2m']
+view0 = t2m[200]
 view2 = t2m.loc[loc_sel]
+view1 = ds.select_loc(ds_sel_loc)
+
 
 
 print(view1['tp'].data)
 
 ds.load()
 
+ds.close()
 
 
+ds = open_dataset(new_path, 'w')
 
+t2m = ds['t2m']
+view0 = t2m[200, 71, 71]
 
+t2m[200, 70, 70] = 290
 
-
-
-
-
-
+view0.data
 
 
 

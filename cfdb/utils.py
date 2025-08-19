@@ -1734,7 +1734,7 @@ def data_variable_summary(ds):
     type1 = type(ds)
 
     if ds:
-        summ_dict = {'name': ds.name, 'dtype': ds.dtype.name, 'dims order': '(' + ', '.join(ds.coord_names) + ')', 'shape': str(ds.shape), 'chunk size': str(ds.chunk_shape)}
+        summ_dict = {'name': ds.name, 'dtype': ds.dtype.name, 'dims order': '(' + ', '.join(ds.coord_names) + ')', 'shape': str(ds.shape), 'chunk shape': str(ds.chunk_shape)}
 
         summary = f"""<cfdb.{type1.__name__}>"""
 
