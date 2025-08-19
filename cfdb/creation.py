@@ -6,12 +6,47 @@ Created on Thu Feb 13 17:08:09 2025
 @author: mike
 """
 import numpy as np
-from typing import Set, Optional, Dict, Tuple, List, Union, Any
+from typing import Set, Optional, Dict, Tuple, List, Union, AnyStr
+import pyproj
 
-from . import utils, support_classes as sc
-# import utils, support_classes as sc
+from . import utils, dtypes, data_models, support_classes as sc
+# import utils, dtypes, data_models, support_classes as sc
 
 #################################################
+
+
+class CRS:
+    """
+
+    """
+    def __init__(self, dataset):
+        """
+
+        """
+        self._dataset = dataset
+
+    def from_user_input(self, crs: str | int | pyproj.CRS, x_coord: str, y_coord: str):
+        """
+
+        """
+        ## Check coords
+        coord_names = self._dataset.coord_names
+        if x_coord not in coord_names:
+            raise ValueError(f'{x_coord} not in coords: {coord_names}')
+        if y_coord not in coord_names:
+            raise ValueError(f'{y_coord} not in coords: {coord_names}')
+
+        ## Parse crs
+        crs0 = pyproj.CRS.from_user_input(crs)
+
+        ## Update the metadata
+        self._dataset._sys_meta.crs = crs0.to_string()
+        self._dataset._sys_meta.variables[x_coord].axis = data_models.Axis('x')
+        self._dataset._sys_meta.variables[y_coord].axis = data_models.Axis('y')
+
+        self._dataset.crs = crs0 # Probably needs to change in the future...
+
+        return crs0
 
 
 class Coord:
@@ -29,7 +64,7 @@ class Coord:
         # self._compressor = compressor
 
 
-    def generic(self, name: str, data: np.ndarray | None = None, dtype_decoded: str | np.dtype | None = None, dtype_encoded: str | np.dtype | None = None, chunk_shape: Tuple[int] | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None, step: int | float | bool=False):
+    def generic(self, name: str, data: np.ndarray | None = None, dtype: str | np.dtype | dtypes.DataType | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, axis: str=None):
         """
         The generic method to create a coordinate.
 
@@ -51,19 +86,29 @@ class Coord:
             If dtype_decoded is a float and dtype_encoded is an int, then the stored values are encoded = int(round((decoded - add_offset)/scale_factor)).
         add_offset: int, float, or None
             As decribed by the scale_factor.
-        step: int, float, or None
-            If the coordinate data is regular (hourly for example), then assign a step to ensure the coordinate will always stay regular.
+        step: int, float, or bool
+            If the coordinate data is regular (hourly for example), then assign a step to ensure the coordinate will always stay regular. False will not set a step, while True will attempt to figure out the step from the input data (if passed).
+        axis: str or None
+            The physical axis representation of the coordinate. I.e. x, y, z, t. There cannot be duplicate axes in coordinates.
 
         Returns
         -------
         cfdb.Coordinate
         """
-        if name in self._dataset._sys_meta.variables:
-            raise ValueError(f"Dataset already contains the variable {name}.")
+        if isinstance(axis, str):
+            axis = axis.lower()
+            axis1 = data_models.Axis(axis)
+
+        for var_name, var in self._dataset._sys_meta.variables.items():
+            if name == var_name:
+                raise ValueError(f"Dataset already contains the variable {name}.")
+            if isinstance(axis, str):
+                if var.axis == axis1:
+                    raise ValueError(f"axis {axis} already exists.")
 
         # print(params)
 
-        name, var = utils.parse_coord_inputs(name, data, chunk_shape, dtype_decoded, dtype_encoded, fillvalue, scale_factor, add_offset, step=step)
+        name, var = utils.parse_coord_inputs(name, data, chunk_shape, dtype, step=step, axis=axis)
 
         ## Var init process
         self._dataset._sys_meta.variables[name] = var
@@ -79,9 +124,9 @@ class Coord:
         self._dataset._var_cache[name] = coord
 
         ## Add attributes to datetime vars
-        if coord.dtype_decoded.kind == 'M':
-            coord.attrs['units'] = utils.parse_cf_time_units(coord.dtype_decoded)
-            coord.attrs['calendar'] = 'proleptic_gregorian'
+        # if coord.dtype_decoded.kind == 'M':
+        #     coord.attrs['units'] = utils.parse_cf_time_units(coord.dtype_decoded)
+        #     coord.attrs['calendar'] = 'proleptic_gregorian'
 
         return coord
 
@@ -95,80 +140,126 @@ class Coord:
         else:
             data = None
 
-        new_coord = self.generic(name, data, dtype_decoded=coord.dtype_decoded, dtype_encoded=coord.dtype_encoded, chunk_shape=coord.chunk_shape, fillvalue=coord.fillvalue, scale_factor=coord.scale_factor, add_offset=coord.add_offset, step=coord.step)
+        new_coord = self.generic(name, data, dtype=coord.dtype, chunk_shape=coord.chunk_shape, step=coord.step, axis=coord.axis)
 
         return new_coord
 
 
-
-    def latitude(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def latitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a latitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('lat', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('lat', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['lat'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
 
 
-    def longitude(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def longitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a longitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('lon', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('lon', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['lon'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
 
 
-    def time(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def time(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a time coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('time', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('time', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['time'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
 
 
-    def height(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def height(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a height coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('height', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('height', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['height'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
 
 
-    def altitude(self, data: np.ndarray | None = None, step: int | float | bool=False, **kwargs):
+    def altitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a altitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, params = utils.get_var_params('altitude', kwargs)
+        name, var_params, dtype, attrs = utils.get_var_params('altitude', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, step=step, **params)
-        coord.attrs.update(utils.default_attrs['altitude'])
+        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord.attrs.update(attrs)
 
         return coord
+
+
+    # def xy_from_crs(self, crs: Union[str, int, pyproj.CRS], x_coord: str=None, y_coord: str=None, x_data: np.ndarray | None = None, y_data: np.ndarray | None = None, **kwargs):
+    #     """
+
+    #     """
+    #     ## Parse crs
+    #     crs0 = pyproj.CRS.from_user_input(crs)
+
+    #     coord_dict = {}
+    #     for axis in crs0.axis_info:
+    #         abbrev = axis.abbrev
+    #         # units = axis.unit_name
+    #         direction = axis.direction
+    #         if direction == 'north':
+    #             if not isinstance(y_coord, str):
+    #                 y_coord = utils.crs_name_dict[abbrev]
+    #             if abbrev == 'Lat':
+    #                 name, var_params, dtype, attrs = utils.get_var_params('latitude')
+    #             else:
+    #                 name, var_params, dtype, attrs = utils.get_var_params('y')
+    #             coord_dict[name] = (y_coord, var_params, dtype, attrs)
+    #         elif direction == 'east':
+    #             if not isinstance(x_coord, str):
+    #                 x_coord = utils.crs_name_dict[abbrev]
+    #             if abbrev == 'Lon':
+    #                 name, var_params, dtype, attrs = utils.get_var_params('longitude')
+    #             else:
+    #                 name, var_params, dtype, attrs = utils.get_var_params('x')
+    #             coord_dict[name] = (x_coord, var_params, dtype, attrs)
+
+    #     ## Create coordinates
+    #     for name in coord_dict:
+    #         coord_name, var_params, dtype, attrs = coord_dict[name]
+    #         if name == 'latitude':
+    #             _ = self.generic(coord_name, y_data, dtype=dtype, **kwargs)
+    #         elif name == 'longitude':
+    #             _ = self.generic(coord_name, x_data, dtype=dtype, **kwargs)
+
+    #     ## Update the metadata for crs
+    #     self._dataset._sys_meta.crs = crs0.to_string()
+    #     self._dataset._sys_meta.variables[x_coord].axis = data_models.Axis('x')
+    #     self._dataset._sys_meta.variables[y_coord].axis = data_models.Axis('y')
+
+    #     self._dataset.crs = crs0 # Probably needs to change in the future...
+
+    #     return crs0
 
 
 class DataVar:
@@ -186,7 +277,7 @@ class DataVar:
         # self._compressor = compressor
 
 
-    def generic(self, name: str, coords: Tuple[str], dtype_decoded: str | np.dtype, dtype_encoded: str | np.dtype | None = None, chunk_shape: Tuple[int] | None = None, fillvalue: Union[int, float, str] = None, scale_factor: Union[float, int, None] = None, add_offset: Union[float, int, None] = None):
+    def generic(self, name: str, coords: Tuple[str], dtype: str | np.dtype | dtypes.DataType, chunk_shape: Tuple[int] | None = None):
         """
         The generic method to create a Data Variable.
 
@@ -214,7 +305,7 @@ class DataVar:
         cfdb.DataVariable
         """
         ## Check base inputs
-        name, var = utils.parse_var_inputs(self._dataset._sys_meta, name, coords, dtype_decoded, dtype_encoded, chunk_shape, fillvalue, scale_factor, add_offset)
+        name, var = utils.parse_var_inputs(self._dataset._sys_meta, name, coords, dtype, chunk_shape)
 
         ## Var init process
         self._dataset._sys_meta.variables[name] = var
@@ -225,9 +316,9 @@ class DataVar:
         self._dataset._var_cache[name] = data_var
 
         ## Add attributes to datetime vars
-        if data_var.dtype_decoded.kind == 'M':
-            data_var.attrs['units'] = utils.parse_cf_time_units(data_var.dtype_decoded)
-            data_var.attrs['calendar'] = 'proleptic_gregorian'
+        # if data_var.dtype_decoded.kind == 'M':
+        #     data_var.attrs['units'] = utils.parse_cf_time_units(data_var.dtype_decoded)
+        #     data_var.attrs['calendar'] = 'proleptic_gregorian'
 
         return data_var
 
@@ -236,7 +327,7 @@ class DataVar:
         """
         Create a Data Variable based on the parameters of another Data Variable. A new unique name must be passed.
         """
-        new_data_var = self.generic(name, data_var.coord_names, dtype_decoded=data_var.dtype_decoded, dtype_encoded=data_var.dtype_encoded, chunk_shape=data_var.chunk_shape, fillvalue=data_var.fillvalue, scale_factor=data_var.scale_factor, add_offset=data_var.add_offset)
+        new_data_var = self.generic(name, data_var.coord_names, dtype=data_var.dtype, chunk_shape=data_var.chunk_shape)
 
         return new_data_var
 
@@ -251,6 +342,7 @@ class Creator:
         """
         self.coord = Coord(dataset)
         self.data_var = DataVar(dataset)
+        self.crs = CRS(dataset)
 
 
 

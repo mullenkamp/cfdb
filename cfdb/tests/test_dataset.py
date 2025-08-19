@@ -10,9 +10,9 @@ import uuid6 as uuid
 import numpy as np
 from time import time
 import pathlib
-from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb
 import ebooklet
 import h5netcdf
+from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb, dtypes
 
 ###################################################
 ### Parameters
@@ -26,25 +26,26 @@ new_file_path = script_path.joinpath('test2.blt')
 nc_file_path = script_path.joinpath('test1.nc')
 
 name = 'air_temp'
-coords = ('latitude', 'time')
-dtype_encoded = 'int32'
-chunk_shape = (20, 30)
-fillvalue = None
-scale_factor = 0.1
-add_offset = None
-sel = (slice(1, 4), slice(2, 5))
-sel2 = (slice(1, 1), slice(2, 5))
-loc_sel = (slice(0.4, 0.7), slice('1970-01-06', '1970-01-15'))
+coords = ('latitude', 'longitude', 'time')
+# dtype_encoded = 'int32'
+chunk_shape = (20, 30, 10)
+# fillvalue = None
+# scale_factor = 0.1
+# add_offset = None
+sel = (slice(1, 4), slice(None, None), slice(2, 5))
+sel2 = (slice(1, 1), slice(None, None), slice(2, 5))
+loc_sel = (slice(0.4, 0.7), slice(None, None), slice('1970-01-04', '1970-01-10'))
 ds_sel = {'latitude': slice(1, 4), 'time': slice(2, 5)}
-ds_loc_sel = {'latitude': slice(0.4, 0.7), 'time': slice('1970-01-06', '1970-01-15')}
+ds_loc_sel = {'latitude': slice(0.4, 0.7), 'time': slice('1970-01-04', '1970-01-10')}
 
-lat_data = np.linspace(0, 19.9, 200, dtype='float32')
-other_lat_data = np.linspace(-10, -1, 10, dtype='float32')
-time_data = np.linspace(0, 199, 200, dtype='datetime64[D]')
+lat_data = np.linspace(0, 9.9, 100, dtype='float32')
+lon_data = np.linspace(-5, 4.9, 100, dtype='float32')
+other_lat_data = np.linspace(-1, -0.1, 10, dtype='float32')
+time_data = np.linspace(0, 10, 10, dtype='datetime64[D]')
 
-data_var_data = np.linspace(0, 3999.9, 40000, dtype='float32').reshape(200, 200)
+data_var_data = np.linspace(0, 9999.9, 100000, dtype='float32').reshape(100, 100, 10)
 
-new_chunk_shape = (41, 41)
+new_chunk_shape = (41, 41, 10)
 
 ## EDataset
 try:
@@ -116,6 +117,14 @@ def cleanup(request):
 
 def test_coord_creation():
     with open_dataset(file_path, flag='n') as ds:
+        _ = ds.create.coord.height()
+        del ds['height']
+        _ = ds.create.coord.altitude()
+        del ds['altitude']
+        # _ = ds.create.coord.xy_from_crs(2193)
+        # del ds['x']
+        # del ds['y']
+
         lat_coord = ds.create.coord.latitude(data=lat_data, chunk_shape=(20,))
         lat_coord.prepend(other_lat_data)
         del ds['latitude']
@@ -126,7 +135,13 @@ def test_coord_creation():
 
         assert np.allclose(lat_coord.data, lat_data)
 
-        time_coord = ds.create.coord.time(data=time_data, dtype_decoded=time_data.dtype, dtype_encoded='int32')
+        lon_coord = ds.create.coord.longitude(data=lon_data, chunk_shape=(20,))
+        print(lon_coord)
+        # print(lat_coord.data[6:12])
+
+        assert np.allclose(lon_coord.data, lon_data)
+
+        time_coord = ds.create.coord.time(data=time_data, dtype=time_data.dtype)
         print(time_coord)
 
         assert np.all(time_coord.data == time_data)
@@ -134,9 +149,21 @@ def test_coord_creation():
         ds.attrs['history'] = 'Created some coords yo'
 
 
-def test_data_var_creation():
+def test_crs():
+    """
+
+    """
     with open_dataset(file_path, flag='w') as ds:
-        data_var = ds.create.data_var.generic(name, coords, data_var_data.dtype, dtype_encoded, scale_factor=scale_factor, chunk_shape=(20, 20))
+        crs = ds.create.crs.from_user_input(4326, 'longitude', 'latitude')
+
+        assert crs  == ds.crs
+
+
+def test_data_var_creation():
+    data_dtype = dtypes.dtype(data_var_data.dtype, 1, 0, 10000)
+
+    with open_dataset(file_path, flag='w') as ds:
+        data_var = ds.create.data_var.generic(name, coords, data_dtype, chunk_shape=chunk_shape)
         data_var[:] = data_var_data
         data_var.attrs['test'] = ['test1']
         print(data_var)
@@ -150,13 +177,13 @@ def test_select():
         assert np.allclose(view1.data, data_var_data[sel])
 
         view2 = data_var.loc[loc_sel]
-        assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(5, 14))])
+        assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(None, None), slice(3, 9))])
 
         view3 = ds.select(ds_sel)
         assert np.allclose(view3[name].data, data_var_data[sel])
 
         view4 = ds.select_loc(ds_loc_sel)
-        assert np.allclose(view4[name].data, data_var_data[(slice(4, 7), slice(5, 14))])
+        assert np.allclose(view4[name].data, data_var_data[(slice(4, 7), slice(None, None), slice(3, 9))])
 
         try:
             view_fail = data_var[sel2]
@@ -164,23 +191,25 @@ def test_select():
             pass
 
 def test_rechunker_assignment():
+    data_dtype = dtypes.dtype(data_var_data.dtype, 1, 0, 10000)
+
     with open_dataset(file_path, flag='w') as ds:
         data_var = ds[name]
 
-        data_var2 = ds.create.data_var.generic(name + '2', coords, data_var_data.dtype, dtype_encoded, scale_factor=scale_factor, chunk_shape=new_chunk_shape)
+        data_var2 = ds.create.data_var.generic(name + '2', coords, data_dtype, chunk_shape=new_chunk_shape)
 
         rechunker = data_var.rechunker()
-        rechunk = rechunker.rechunk(new_chunk_shape, decoded=False)
+        rechunk = rechunker.rechunk(new_chunk_shape)
 
         for write_chunk, data in rechunk:
-            data_var2.set(write_chunk, data, encode=False)
+            data_var2.set(write_chunk, data)
 
         assert np.allclose(data_var2.data, data_var_data)
 
         del ds[name + '2']
 
         rechunker = data_var.rechunker()
-        rechunk = rechunker.rechunk(new_chunk_shape, decoded=True)
+        rechunk = rechunker.rechunk(new_chunk_shape)
 
         new_data = np.full(data_var_data.shape, np.nan, data_var_data.dtype)
         for write_chunk, data in rechunk:
@@ -233,7 +262,7 @@ def test_edataset():
         assert np.allclose(view1.data, data_var_data[sel])
 
         view2 = data_var.loc[loc_sel]
-        assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(5, 14))])
+        assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(None, None), slice(3, 9))])
 
     # with remote_conn.open('w') as s3open:
     #     s3open.delete_remote()

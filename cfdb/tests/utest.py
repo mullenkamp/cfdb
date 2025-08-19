@@ -8,13 +8,23 @@ from collections import Counter, deque
 from itertools import count
 import msgspec
 import pathlib
+import io
+import os
+import math
+import ebooklet
+try:
+    import tomllib as toml
+except ImportError:
+    import tomli as toml
 
-from cfdb import open_dataset, open_edataset
+from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb
 import h5netcdf
 import rechunkit
 
 ###################################################
 ### Parameters
+
+script_path = pathlib.Path(os.path.realpath(os.path.dirname(__file__)))
 
 # source_shape = (30, 30)
 source_shape = (30, 30, 30)
@@ -89,10 +99,21 @@ time_data = np.linspace(0, 199, 200, dtype='datetime64[D]')
 
 air_data = np.linspace(0, 3999.9, 40000, dtype='float32').reshape(200, 200)
 
-era5_path = '/home/mike/data/ecmwf/reanalysis-era5-land/reanalysis-era5-land.total_precipitation.1950-01-01!1957-12-31.nc'
+# era5_path = '/home/mike/data/ecmwf/reanalysis-era5-land/reanalysis-era5-land.total_precipitation.1950-01-01!1957-12-31.nc'
+era5_path = '/home/mike/data/ecmwf/era5-land/reanalysis-era5-land.2m_temperature.1950-01-01.1957-12-31.nc'
 
 ###################################################
 ### Functions
+
+
+def find_nearest_idx(array, value):
+    idx = np.searchsorted(array, value, side="left")
+    if idx > 0 and (idx == len(array) or math.fabs(value - array[idx-1]) < math.fabs(value - array[idx])):
+        return idx-1
+    else:
+        return idx
+
+
 
 d
 
@@ -138,7 +159,7 @@ view1.data
 
 self.attrs['test_attr'] = ['test']
 
-view2 = self1.sel(ds_sel)
+view2 = self1.select(ds_sel)
 
 
 self1.close()
@@ -149,6 +170,13 @@ self = self1[name]
 
 
 new_ds = view2.copy(new_file_path)
+
+
+for index, data in self.items():
+    print(index)
+
+
+
 
 
 ##############################
@@ -513,6 +541,7 @@ ds.close()
 
 
 sel = (slice(24, 25), slice(50, 52), slice(50, 52))
+sel = (slice(24, 25), slice(50, 52), slice(50, 52))
 h5_sel = (slice(24, 25), slice(78, 80), slice(50, 52))
 loc_sel = (slice('1950-01-02T01', '1950-01-02T03'), slice(-42.30, -42.10), slice(171.30, 171.50))
 ds_sel = {'longitude': 60, 'latitude': 70, 'time': slice(40, 100)}
@@ -558,6 +587,80 @@ netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=None)
 netcdf4_to_cfdb(era5_path, new_path, sel=ds_sel, sel_loc=None)
 netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=ds_sel_loc)
 cfdb_to_netcdf4(new_path, '/home/mike/data/cache/cfdb/nc_test.nc')
+
+ds = open_dataset(new_path)
+
+try:
+    with io.open(script_path.joinpath('s3_config.toml'), "rb") as f:
+        conn_config = toml.load(f)['connection_config']
+
+    endpoint_url = conn_config['endpoint_url']
+    access_key_id = conn_config['access_key_id']
+    access_key = conn_config['access_key']
+except:
+    endpoint_url = os.environ['endpoint_url']
+    access_key_id = os.environ['access_key_id']
+    access_key = os.environ['access_key']
+
+bucket = 'achelous'
+# db_key = uuid.uuid8().hex[-13:]
+db_key = new_path.name
+base_url = 'https://b2.tethys-ts.xyz/file/' + bucket + '/'
+db_url = base_url +  db_key
+
+remote_conn = ebooklet.S3Connection(access_key_id, access_key, db_key, bucket, endpoint_url=endpoint_url, db_url=db_url)
+
+ds = open_edataset(remote_conn, new_path, flag='w')
+changes = ds.changes()
+changes.push()
+ds.close()
+
+
+ds = open_edataset(remote_conn, new_path, flag='r')
+t2m = ds['t2m']
+view0 = t2m[200]
+view2 = t2m.loc[loc_sel]
+view1 = ds.select_loc(ds_sel_loc)
+
+
+
+print(view1['tp'].data)
+
+ds.load()
+
+ds.close()
+
+
+ds = open_dataset(new_path, 'w')
+
+t2m = ds['t2m']
+view0 = t2m[200, 71, 71]
+
+t2m[200, 70, 70] = 290
+
+view0.data
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
