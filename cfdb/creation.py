@@ -145,7 +145,6 @@ class Coord:
         return new_coord
 
 
-
     def latitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
         """
         Create a latitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
@@ -216,11 +215,51 @@ class Coord:
         return coord
 
 
-    def xy_from_crs(self, crs: Union[str, int, pyproj.CRS], x_name: str=None, y_name: str=None, **kwargs):
-        """
+    # def xy_from_crs(self, crs: Union[str, int, pyproj.CRS], x_coord: str=None, y_coord: str=None, x_data: np.ndarray | None = None, y_data: np.ndarray | None = None, **kwargs):
+    #     """
 
-        """
+    #     """
+    #     ## Parse crs
+    #     crs0 = pyproj.CRS.from_user_input(crs)
 
+    #     coord_dict = {}
+    #     for axis in crs0.axis_info:
+    #         abbrev = axis.abbrev
+    #         # units = axis.unit_name
+    #         direction = axis.direction
+    #         if direction == 'north':
+    #             if not isinstance(y_coord, str):
+    #                 y_coord = utils.crs_name_dict[abbrev]
+    #             if abbrev == 'Lat':
+    #                 name, var_params, dtype, attrs = utils.get_var_params('latitude')
+    #             else:
+    #                 name, var_params, dtype, attrs = utils.get_var_params('y')
+    #             coord_dict[name] = (y_coord, var_params, dtype, attrs)
+    #         elif direction == 'east':
+    #             if not isinstance(x_coord, str):
+    #                 x_coord = utils.crs_name_dict[abbrev]
+    #             if abbrev == 'Lon':
+    #                 name, var_params, dtype, attrs = utils.get_var_params('longitude')
+    #             else:
+    #                 name, var_params, dtype, attrs = utils.get_var_params('x')
+    #             coord_dict[name] = (x_coord, var_params, dtype, attrs)
+
+    #     ## Create coordinates
+    #     for name in coord_dict:
+    #         coord_name, var_params, dtype, attrs = coord_dict[name]
+    #         if name == 'latitude':
+    #             _ = self.generic(coord_name, y_data, dtype=dtype, **kwargs)
+    #         elif name == 'longitude':
+    #             _ = self.generic(coord_name, x_data, dtype=dtype, **kwargs)
+
+    #     ## Update the metadata for crs
+    #     self._dataset._sys_meta.crs = crs0.to_string()
+    #     self._dataset._sys_meta.variables[x_coord].axis = data_models.Axis('x')
+    #     self._dataset._sys_meta.variables[y_coord].axis = data_models.Axis('y')
+
+    #     self._dataset.crs = crs0 # Probably needs to change in the future...
+
+    #     return crs0
 
 
 class DataVar:

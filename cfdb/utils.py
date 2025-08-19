@@ -100,6 +100,8 @@ default_dtype_params = {
     'modified_date': {'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': 1756684800000000},
     'band': {'name': 'uint8'},
     'censor_code': {'name': 'uint8'},
+    'x': {'precision': 1, 'name': 'float32'},
+    'y': {'precision': 1, 'name': 'float32'},
                  # 'bore_top_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_bottom_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_depth': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 0.1},
@@ -115,6 +117,8 @@ default_var_params = {
     'modified_date': {'name': 'modified_date'},
     'band': {'name': 'band'},
     'censor_code': {'name': 'censor_code'},
+    'x': {'name': 'x', 'axis': 'x'},
+    'y': {'name': 'y', 'axis': 'y'},
     }
 
 
@@ -183,7 +187,27 @@ default_attrs = dict(
     band = {
         'long_name': 'band number',
         },
+    y={
+        'long_name': 'y coordinate of projection',
+        'units': 'metres',
+        'standard_name': 'projection_y_coordinate',
+        'axis': 'Y',
+        },
+    x={
+        'long_name': 'x coordinate of projection',
+        'units': 'metres',
+        'standard_name': 'projection_x_coordinate',
+        'axis': 'X',
+        },
     )
+
+
+crs_name_dict = {
+    'Lat': 'latitude',
+    'Lon': 'longitude',
+    'N': 'y',
+    'E': 'x',
+    }
 
 #########################################################
 ### Classes
@@ -2023,7 +2047,7 @@ def file_summary(ds):
     return summary
 
 
-def get_dtype_params(name, kwargs):
+def get_dtype_params(name, kwargs={}):
     """
 
     """
@@ -2032,7 +2056,7 @@ def get_dtype_params(name, kwargs):
 
     return name, params
 
-def get_var_params(name, kwargs):
+def get_var_params(name, kwargs={}):
     """
 
     """

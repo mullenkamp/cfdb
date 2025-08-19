@@ -120,6 +120,7 @@ class Rechunker:
         """
         return rechunkit.calc_n_chunks(self._var.shape, self._var.chunk_shape)
 
+
     def calc_n_reads_rechunker(self, target_chunk_shape: Tuple[int, ...], max_mem: int=2**27):
         """
         Calculate the total number of reads and writes using the rechunker.

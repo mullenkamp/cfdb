@@ -117,6 +117,14 @@ def cleanup(request):
 
 def test_coord_creation():
     with open_dataset(file_path, flag='n') as ds:
+        _ = ds.create.coord.height()
+        del ds['height']
+        _ = ds.create.coord.altitude()
+        del ds['altitude']
+        # _ = ds.create.coord.xy_from_crs(2193)
+        # del ds['x']
+        # del ds['y']
+
         lat_coord = ds.create.coord.latitude(data=lat_data, chunk_shape=(20,))
         lat_coord.prepend(other_lat_data)
         del ds['latitude']
