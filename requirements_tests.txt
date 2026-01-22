@@ -9,3 +9,4 @@ ebooklet>=0.5.10
 h5netcdf
 shapely>2
 pyproj>3
+h5py>=3.6.0
