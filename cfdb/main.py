@@ -275,7 +275,7 @@ class DatasetBase:
 
     def copy(self, file_path: Union[str, pathlib.Path], include_data_vars: List[str]=None, exclude_data_vars: List[str]=None):
         """
-
+        Copy a dataset to a new cfdb file.
         """
         kwargs = dict(n_buckets=self._blt._n_buckets, buffer_size=self._blt._write_buffer_size)
 
@@ -690,9 +690,9 @@ def open_dataset(file_path: Union[str, pathlib.Path], flag: str = "r", compressi
     flag: str
         Flag associated with how the file is opened according to the dbm style. See below for details.
     compression: str
-        The compression algorithm used for compressing all data. Must be either zstd or lz4. The option zstd has a really good combo of compression ratio to speed, while lz4 has a stronger emphasis on speed (and is lightning fast). Default is zstd.
+        The compression algorithm used for compressing all data. Must be either zstd or lz4. The option zstd has a really good combo of compression ratio to speed, while lz4 has a stronger emphasis on speed. Default is zstd.
     compression_level: int or None
-        The compression level used by the compression algorithm. Setting this to None will d=used the deafults, which is 1 for both compression options.
+        The compression level used by the compression algorithm. Setting this to None will use the deafults, which is currently 1 for both compression options.
     kwargs
         Any kwargs that can be passed to booklet.open.
 
@@ -780,7 +780,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
     +---------+-------------------------------------------+
     """
     if not import_ebooklet:
-        raise ImportError('ebooklet must be installed to open ebooklets.')
+        raise ImportError('EBooklet must be installed to open EDatasets.')
 
     if 'n_buckets' not in kwargs:
         kwargs['n_buckets'] = utils.default_n_buckets
