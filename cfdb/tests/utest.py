@@ -20,6 +20,7 @@ except ImportError:
 from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb
 import h5netcdf
 import rechunkit
+import salem
 
 ###################################################
 ### Parameters
@@ -101,6 +102,8 @@ air_data = np.linspace(0, 3999.9, 40000, dtype='float32').reshape(200, 200)
 
 # era5_path = '/home/mike/data/ecmwf/reanalysis-era5-land/reanalysis-era5-land.total_precipitation.1950-01-01!1957-12-31.nc'
 era5_path = '/home/mike/data/ecmwf/era5-land/reanalysis-era5-land.2m_temperature.1950-01-01.1957-12-31.nc'
+wrf_out_path = '/home/mike/data/UC/domain04/wrfout_d04_2020-01-04_00_00_00'
+# wrf_out_path = '/home/mike/data/UC/domain04/wrfout_d04_2020-01-04_00_00_00.nc'
 
 ###################################################
 ### Functions
@@ -641,10 +644,12 @@ t2m[200, 70, 70] = 290
 view0.data
 
 
+new_path2 = pathlib.Path('/home/mike/data/cache/cfdb/wrf_out_test.cfdb')
+
+netcdf4_to_cfdb(wrf_out_path, new_path2, sel=None, sel_loc=None)
 
 
-
-
+ds = salem.open_wrf_dataset(wrf_out_path)
 
 
 

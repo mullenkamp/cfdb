@@ -117,3 +117,5 @@ data/*
 # Test config files
 /cfdb/tests/*.toml
 /cfdb/tests/*.yml
+/cfdb/tests/*.blt
+/cfdb/tests/*.nc

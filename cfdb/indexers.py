@@ -24,27 +24,27 @@ from . import utils
 ### Helper functions
 
 
-def loc_index_numeric(key, coord_data):
+def loc_index_numeric(key, coord_data, side='left'):
     """
 
     """
-    # if coord_data.dtype.kind == 'f':
-    #     label_idx = np.nonzero(np.isclose(coord_data, key))[0][0]
-    # else:
-    #     label_idx = np.searchsorted(coord_data, key)
+    if coord_data.dtype.kind == 'f':
+        label_idx = np.nonzero(np.isclose(coord_data, key))[0][0]
+    else:
+        label_idx = np.searchsorted(coord_data, key, side=side)
 
-    label_idx = np.searchsorted(coord_data, key)
+    # label_idx = np.searchsorted(coord_data, key, side=side)
 
     return int(label_idx)
 
 
-def loc_index_str(key, coord_data):
+def loc_index_str(key, coord_data, side='left'):
     """
 
     """
     if coord_data.dtype.kind == 'M':
         key = np.array(key, dtype=coord_data.dtype)
-        label_idx = loc_index_numeric(key, coord_data)
+        label_idx = loc_index_numeric(key, coord_data, side=side)
     else:
         label_idx = np.nonzero(coord_data == key)[0][0]
 
@@ -62,17 +62,17 @@ def loc_index_slice(slice_obj, coord_data):
         start_idx = None
     else:
         if isinstance(start, str):
-            start_idx = loc_index_str(start, coord_data)
+            start_idx = loc_index_str(start, coord_data, 'left')
         else:
-            start_idx = loc_index_numeric(start, coord_data)
+            start_idx = loc_index_numeric(start, coord_data, 'left')
 
     if stop is None:
         stop_idx = None
     else:
         if isinstance(stop, str):
-            stop_idx = loc_index_str(stop, coord_data)
+            stop_idx = loc_index_str(stop, coord_data, 'right')
         else:
-            stop_idx = loc_index_numeric(stop, coord_data)
+            stop_idx = loc_index_numeric(stop, coord_data, 'right')
 
     if (stop_idx is not None) and (start_idx is not None):
         if start_idx >= stop_idx:
@@ -313,63 +313,6 @@ def check_sel_input_data(sel, input_data, coord_origins, shape, dtype):
     #     raise ValueError('The selection shape is not equal to the input data.')
 
     return slices, data
-
-
-
-# def indexer_to_keys(key, var_name, var_chunk_shape, coord_origins, coord_sizes):
-#     """
-
-#     """
-#     if isinstance(key, int):
-#         new_pos = key + origin
-
-#         new_key = utils.make_var_chunk_key(var_name, (new_pos,))
-
-#         yield new_key
-
-#     elif isinstance(key, slice):
-#         start = key.start
-#         if not isinstance(start, int):
-#             start = origin
-
-#         stop = key.stop
-#         if not isinstance(stop, int):
-#             stop = shape[0] + origin
-
-#         chunk_iter = rechunkit.chunk_range((start,), (stop,), chunk_shape, clip_ends=False)
-#         for chunk in chunk_iter:
-#             new_key = utils.make_var_chunk_key(var_name, (chunk[0].start,))
-
-#             yield new_key
-
-#     elif key is None:
-#          start = origin
-#          stop = shape[0] + origin
-
-#          chunk_iter = rechunkit.chunk_range((start,), (stop,), chunk_shape, clip_ends=False)
-#          for chunk in chunk_iter:
-#              new_key = utils.make_var_chunk_key(var_name, (chunk[0].start,))
-
-#              yield new_key
-
-#     # elif isinstance(key, (list, np.ndarray)):
-#     #     key = np.asarray(key)
-
-#     #     if key.dtype.kind == 'b':
-#     #         if len(key) != shape[0]:
-#     #             raise ValueError('If the input is a bool array, then it must be the same length as the coordinate.')
-#     #     elif key.dtype.kind not in ('i', 'u'):
-#     #         raise TypeError('If the input is an array, then it must be either a bool of the length of the coordinate or integers.')
-
-#     #         return key
-#     #     else:
-#     #         idx = index_array(key, dim_data)
-
-#     #         return idx
-#     else:
-#         raise TypeError('key must be an int, slice of ints, or None.')
-
-
 
 
 #####################################################3
