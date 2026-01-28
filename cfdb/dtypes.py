@@ -156,7 +156,7 @@ class Geometry(DataType):
     """
 
     """
-    def __init__(self, precision: int=None):
+    def __init__(self, precision: int):
         """
 
         """
@@ -472,9 +472,7 @@ def parse_np_dtypes(dtype_decoded: np.dtype, precision: int=None, min_value: flo
         elif isinstance(min_value, (int, float, np.number)) and isinstance(max_value, (int, float, np.number)) and isinstance(precision, int):
             int_byte_size, offset = compute_int_and_offset(min_value, max_value, precision)
             dtype_encoded = np.dtype(f'u{int_byte_size}')
-            if not isinstance(fillvalue, int):
-                fillvalue = 0
-            dtype1 = Float(dtype_decoded, dtype_encoded, precision, offset, fillvalue)
+            dtype1 = Float(dtype_decoded, dtype_encoded, precision, offset, 0)
         else:
             dtype1 = Float(dtype_decoded, None, precision)
 
@@ -493,13 +491,25 @@ def dtype(name: str | np.dtype | DataType, precision: int=None, min_value: float
     Parameters
     ----------
     name: str, np.dtype, or DataType
-        The name of the data type. It can either be a string name or a np.dtype. Geometry data types do not exist in numpy, so they must be a string.
+        The name of the data type. It can either be a string name, a np.dtype, or a DataType. If name is a string, then it must correspond to a numpy dtype for the decoding except for geometry dtypes. Geometry data types do not exist in numpy, so name must be a string of 'point', 'line', 'linestring', or 'polygon'.
     precision: int or None
-        The number of decimals of precision of the data. Only applies to Geometry and float objects. This is essentially the value that you'd pass to the round function/method.
-    min_value: int, float, str, np.dtaetime64, or None
-        The minimum possible value of the data. Along with the max_value and precision, this helps to shrink the data when serialising to bytes. Only applies to floats and DateTime dtypes.
+        The number of decimals of precision of the data. Only applies to DateTime and float objects. This is essentially the value that you'd pass to the round function/method. This must be passed for geometry dtypes.
+    min_value: int, float, str, np.datetime64, or None
+        The minimum possible value of the data. Along with the max_value and precision, this helps to shrink the data when serialising to bytes. Only applies to floats and DateTime dtypes and will only be used to determine the dtype encoding.
     max_value: int, float, str, np.dtaetime64, or None
         The maximum possible value of the data. See min_value for description.
+    dtype_encoded: str or None
+        The np.dtype str name to be used in the encoding. Only applies to floats and DateTime dtypes and the offset and fillvalue must also be passed.
+    offset: int, float, or None
+        The offset when used for encoding floats and DateTime dtypes.
+    fillvalue: int or None
+        The fillvalue when used for encoding floats and DateTime dtypes.
+
+    Notes
+    -----
+    When the decoded dtype is a float or DateTime dtype, the data can be encoded to a smaller integer. To determine the appropriate encoding, the precision, min_value and max_value must be passed. If they are not passed, no interger encoding will be used. If the user already knows the resulting dtype_encoded, offset, and fillvalue, then these must be passed (instead of the other three mentioned above) or no integer encoding will be used.
+
+    Geometry data are encoded and decoded via WKT (and converted to/from bytes via msgpack), and currently the precision parameter is required.
 
     Returns
     -------

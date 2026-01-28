@@ -5,28 +5,12 @@ Created on Fri Sep 30 19:52:08 2022
 
 @author: mike
 """
-import io
-import pathlib
-# import h5py
-import os
 import numpy as np
 import msgspec
 import re
 from copy import deepcopy
-# import xarray as xr
-# from time import time
-# from datetime import datetime
-# import cftime
-import math
 import rechunkit
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
-# import zstandard as zstd
-# import lz4
-import booklet
-
-# import dateutil.parser as dparser
-# import numcodecs
-# import hdf5plugin
 
 from . import data_models, dtypes
 # import data_models, dtypes
@@ -37,7 +21,7 @@ from . import data_models, dtypes
 
 # CHUNK_BASE = 32*1024    # Multiplier by which chunks are adjusted
 # CHUNK_MIN = 32*1024      # Soft lower limit (32k)
-chunk_max = 2**21   # Hard upper limit (4M)
+chunk_max = 2**21   # Hard upper limit (2M)
 
 time_str_conversion = {'days': 'datetime64[D]',
                        'hours': 'datetime64[h]',
@@ -92,10 +76,10 @@ time_dtype_params = {
     }
 
 default_dtype_params = {
-    'lon': {'precision': 6, 'name': 'float64', 'offset': -180.000001, 'dtype_encoded': 'int32'},
-    'lat': {'precision': 6, 'name': 'float64', 'offset': -90.000001, 'dtype_encoded': 'int32'},
-    'height': {'dtype_encoded': 'int32', 'offset': -1, 'precision': 3, 'name': 'float64'},
-    'altitude': {'dtype_encoded': 'int32', 'offset': -11000.001, 'precision': 3, 'name': 'float64'},
+    'lon': {'precision': 6, 'name': 'float64', 'offset': -180.000001, 'dtype_encoded': 'int32', 'fillvalue': -9999},
+    'lat': {'precision': 6, 'name': 'float64', 'offset': -90.000001, 'dtype_encoded': 'int32', 'fillvalue': -9999},
+    'height': {'dtype_encoded': 'int32', 'offset': -1, 'precision': 3, 'name': 'float64', 'fillvalue': -9999},
+    'altitude': {'dtype_encoded': 'int32', 'offset': -11000.001, 'precision': 3, 'name': 'float64', 'fillvalue': -9999},
     'time': time_dtype_params['datetime64[m]'],
     'modified_date': {'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': 1756684800000000},
     'band': {'name': 'uint8'},
@@ -216,6 +200,14 @@ crs_name_dict = {
 
 #########################################################
 ### Functions
+
+
+# def check_ds_type_dtype(ds_class, dtype):
+#     """
+
+#     """
+#     if isinstance(ds_class
+
 
 
 def filter_var_names(ds, include_data_vars, exclude_data_vars):
@@ -370,56 +362,53 @@ def check_var_name(var_name):
     return False
 
 
-def coord_data_step_check(data: np.ndarray, dtype: dtypes.DataType, step: int | float | bool = False):
+def init_parse_step(dtype: dtypes.DataType, step: int | float | bool, data: np.ndarray=None):
     """
 
     """
-    diff = np.diff(data)
-    if isinstance(step, bool):
-        # diff = np.diff(data)
-        if dtype.kind == 'f':
-            step = float(np.round(diff[0], 5))
-            if not np.allclose(step, diff):
-                # raise ValueError('step is set to True, but the data does not seem to be regular.')
-                step = None
-            # data = np.linspace(data[0], data[-1], len(diff) + 1, dtype=dtype_decoded)
-        elif dtype.kind in ('u', 'i', 'M'):
-            if dtype.kind == 'M':
-                step = int(diff[0].astype(int))
+    if isinstance(step, bool) and isinstance(data, np.ndarray):
+        if step and len(data) > 1:
+            diff = np.diff(data)
+            if dtype.kind == 'f':
+                step = float(np.round(diff[0], 5))
+                if not np.allclose(step, diff):
+                    # raise ValueError('step is set to True, but the data does not seem to be regular.')
+                    step = None
+            elif dtype.kind in ('u', 'i', 'M'):
+                if dtype.kind == 'M':
+                    step = int(diff[0].astype(int))
+                else:
+                    step = int(diff[0])
+
+                if not np.all(np.equal(step, diff)):
+                    # raise ValueError('step is set to True, but the data does not seem to be regular.')
+                    step = None
             else:
-                step = int(diff[0])
-
-            if not np.all(np.equal(step, diff)):
-                # raise ValueError('step is set to True, but the data does not seem to be regular.')
                 step = None
         else:
             step = None
+
     elif isinstance(step, (float, np.floating)):
         step = float(round(step, 5))
         if step <= 0:
             raise ValueError('step must be greater than 0.')
-        if not np.allclose(step, diff):
-            raise ValueError('step does not seem to be the interval of the data.')
-        # num = round((data[-1] - data[0])/step, 5)
-        # if not num.is_integer():
-        #     raise ValueError('The step is not a multiple of the difference between the first and last values of the data.')
-
-        # data = np.linspace(data[0], data[-1], int(num) + 1, dtype=dtype_decoded)
+        if isinstance(data, np.ndarray):
+            if len(data) > 1:
+                diff = np.diff(data)
+                if not np.allclose(step, diff):
+                    raise ValueError('step does not seem to be the interval of the data.')
     elif isinstance(step, (int, np.integer)):
         step = int(step)
 
         if step <= 0:
             raise ValueError('step must be greater than 0.')
-        if not np.all(np.equal(step, diff)):
-            raise ValueError('step does not seem to be the interval of the data.')
-
-        # data = np.linspace(data[0], data[-1], int(num) + 1, dtype=dtype_decoded)
+        if isinstance(data, np.ndarray):
+            if len(data) > 1:
+                diff = np.diff(data).astype(int)
+                if not np.allclose(step, diff):
+                    raise ValueError('step does not seem to be the interval of the data.')
     elif step is not None:
         raise TypeError('step must be a bool, int, or float. The int or float must be greater than 0.')
-
-    # num = round((data[-1] - data[0])/step, 5)
-    # if not num.is_integer():
-    #     raise ValueError('The step is not a multiple of the difference between the first and last values of the data.')
 
     return step
 
@@ -428,9 +417,6 @@ def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype, sh
     """
 
     """
-    # dtype_decoded = data.dtype
-    # shape = data.shape
-
     if len(shape) > 1:
         raise ValueError('Coordinates must be 1D.')
 
@@ -439,18 +425,14 @@ def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype, sh
 
     if dtype.kind in ('f', 'u', 'i', 'M'):
         data.sort()
-        if step:
-            step = coord_data_step_check(data, dtype, step)
-            # data = np.linspace(data[0], data[-1], num + 1, dtype=dtype_decoded)
-        else:
-            step = None
+        step = init_parse_step(dtype, step, data)
     else:
         step = None
 
     return step
 
 
-def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType = None, source_step: int | float | None = None):
+def coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step: int | float | None = None):
     """
 
     """
@@ -465,43 +447,60 @@ def append_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sour
 
     if source_data.size > 0:
         if source_dtype.kind != 'U':
-            last = source_data[-1]
-
-            if not np.all(last < new_data):
-                raise ValueError('Appending requires that all values are greater than the existing values.')
 
             new_data.sort()
             if source_step:
-                _ = coord_data_step_check(new_data, source_dtype, source_step)
-
-                new_data = np.linspace(source_data[0], new_data[-1], len(source_data) + len(new_data), dtype=source_dtype.dtype_decoded)
-            else:
-                new_data = np.append(source_data, new_data)
+                if len(new_data) > 1:
+                    _ = init_parse_step(source_dtype, source_step, new_data)
+                else:
+                    test_data = np.concat((source_data[-1], new_data[0]))
+                    _ = init_parse_step(source_dtype, source_step, test_data)
 
         else:
             s1 = set(source_data)
             s1.update(set(new_data))
             if len(s1) != (len(source_data) + len(new_data)):
                 raise ValueError('The data for coords must be unique.')
-
-            new_data = np.append(source_data, new_data)
-
     else:
-        _ = init_coord_data_checks(new_data, source_step, source_dtype, new_data.shape)
+        if source_dtype.kind != 'U':
+            new_data.sort()
+            if source_step:
+                if len(new_data) > 1:
+                    _ = init_parse_step(source_dtype, source_step, new_data)
+        else:
+            if len(np.unique(new_data)) < new_data.shape[0]:
+                raise ValueError('The data for coords must be unique.')
 
     return new_data
 
 
-def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType = None, source_step: int | float | None = None):
+def append_new_data(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step):
     """
 
     """
-    # new_shape = new_data.shape
-    # new_dtype_decoded = new_data.dtype
-    new_data = np.asarray(new_data, dtype=source_dtype.dtype_decoded)
+    new_data = coord_data_checks(new_data, source_data, source_dtype, source_step)
 
-    # if source_dtype_decoded != new_dtype_decoded:
-    #     raise TypeError('The data dtype does not match the originally assigned dtype.')
+    if source_data.size > 0:
+        if source_dtype.kind != 'U':
+            last = source_data[-1]
+
+            if not np.all(last < new_data):
+                raise ValueError('Appending requires that all values are greater than the existing values.')
+
+            if len(new_data) == 1:
+                test_data = np.concat((source_data[-1], new_data[0]))
+                _ = init_parse_step(source_dtype, source_step, test_data)
+
+        new_data = np.append(source_data, new_data)
+
+    return new_data
+
+
+def prepend_new_data(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step: int | float | None):
+    """
+
+    """
+    new_data = coord_data_checks(new_data, source_data, source_dtype, source_step)
 
     if source_data.size > 0:
         if source_dtype.kind != 'U':
@@ -510,23 +509,11 @@ def prepend_coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, sou
             if not np.all(first > new_data):
                 raise ValueError('Prepending requires that all values are less than the existing values.')
 
-            new_data.sort()
-            if source_step:
-                _ = coord_data_step_check(new_data, source_dtype, source_step)
+            if len(new_data) == 1:
+                test_data = np.concat((new_data[0], source_data[0]))
+                _ = init_parse_step(source_dtype, source_step, test_data)
 
-                new_data = np.linspace(new_data[0], source_data[-1], len(source_data) + len(new_data), dtype=source_dtype.dtype_decoded)
-            else:
-                new_data = np.append(new_data, source_data)
-        else:
-            s1 = set(source_data)
-            s1.update(set(new_data))
-            if len(s1) != (len(source_data) + len(new_data)):
-                raise ValueError('The data for coords must be unique.')
-
-            new_data = np.append(new_data, source_data)
-
-    else:
-        _ = init_coord_data_checks(new_data, source_step, source_dtype, new_data.shape)
+        new_data = np.append(new_data, source_data)
 
     return new_data
 
@@ -610,7 +597,7 @@ def parse_scale_offset(scale_factor, add_offset, dtype_decoded):
     return scale_factor, add_offset
 
 
-def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: Tuple[int] | None = None, dtype: str | np.dtype | dtypes.DataType | None = None, step: int | float | bool = False, axis: str=None):
+def parse_coord_inputs(dataset_type: str, name: str, data: np.ndarray | None = None, chunk_shape: Tuple[int] | None = None, dtype: str | np.dtype | dtypes.DataType | None = None, step: int | float | bool = False, axis: str=None):
     """
 
     """
@@ -621,34 +608,28 @@ def parse_coord_inputs(name: str, data: np.ndarray | None = None, chunk_shape: T
     ## Parse dtype
     if isinstance(dtype, (str, np.dtype)):
         dtype = dtypes.dtype(dtype)
+    elif isinstance(data, np.ndarray) and not isinstance(dtype, dtypes.DataType):
+        np_dtype = data.dtype
+        dtype = dtypes.dtype(np_dtype)
+    elif not isinstance(dtype, dtypes.DataType):
+        raise TypeError('dtype must not be None.')
 
-    ## Check data, shape, dtype, and step
+    ## Check that the dtype is valid for the dataset type?
+    if dataset_type == 'grid':
+        if dtype.kind == 'G':
+            raise TypeError('The grid dataset type cannot use a Geometry dtype for a coordinate.')
+
+    ## Check data, shape, and step
     if isinstance(data, np.ndarray):
-        if not isinstance(dtype, dtypes.DataType):
-            np_dtype = data.dtype
-            dtype = dtypes.dtype(np_dtype)
-
         step = init_coord_data_checks(data, step, dtype, data.shape)
 
-        # if dtype_decoded.kind == 'M':
-        #     dtype_encoded = dtype_decoded
-
-        ## dtype encoding
-        # dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
-
     else:
-        if dtype is None:
-            raise TypeError('dtype must not be None.')
-
-        ## dtype encoding
-        # dtype_decoded, dtype_encoded = parse_dtypes(dtype_decoded, dtype_encoded)
-
         if dtype.kind in ('u', 'i'):
             if isinstance(step, (float, np.floating)):
                 if step.is_integer():
                     step = int(step)
                 else:
-                    raise ValueError('If the dtype is an integer, then step must be an integer.')
+                    raise ValueError('If the dtype is an integer type, then step must be an integer.')
 
         elif isinstance(step, bool):
             step = None
@@ -1013,9 +994,10 @@ def get_var_params(name, kwargs={}):
 
     """
     if 'dtype' in kwargs:
-        dtype = dtypes.dtype(kwargs.pop('dtype'))
+        if not isinstance(kwargs['dtype'], dtypes.DataType):
+            kwargs['dtype'] = dtypes.dtype(kwargs.pop('dtype'))
     else:
-        dtype = dtypes.dtype(**default_dtype_params[name])
+        kwargs['dtype'] = dtypes.dtype(**default_dtype_params[name])
 
     var_params = deepcopy(default_var_params[name])
     var_params.update(kwargs)
@@ -1024,7 +1006,7 @@ def get_var_params(name, kwargs={}):
 
     attrs = deepcopy(default_attrs[name])
 
-    return var_name, var_params, dtype, attrs
+    return var_name, var_params, attrs
 
 
 

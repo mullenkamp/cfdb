@@ -386,7 +386,7 @@ class DatasetBase:
                     print(attrs)
                     raise err
 
-                for write_chunk, data in coord.iter_chunks(decoded=False):
+                for write_chunk, data in coord.iter_chunks(True, decoded=False):
                     h5_coord[write_chunk] = data.astype(dtype_encoded)
 
             # Data vars
@@ -440,7 +440,7 @@ class DatasetBase:
 
                 h5_data_var.attrs.update(attrs)
 
-                for write_chunk, data in data_var.iter_chunks(decoded=False):
+                for write_chunk, data in data_var.iter_chunks(True, decoded=False):
                     h5_data_var[write_chunk] = data.astype(dtype_encoded)
 
             # Add global attrs
@@ -451,7 +451,7 @@ class Dataset(DatasetBase):
     """
 
     """
-    def __init__(self, file_path, open_blt, create, compression, compression_level):
+    def __init__(self, file_path, open_blt, create, compression, compression_level, dataset_type):
         """
         Compression can be either zstd, lz4, or None. But there's no point in using None.
         """
@@ -476,7 +476,7 @@ class Dataset(DatasetBase):
             elif not isinstance(compression_level, int):
                 raise ValueError('compression_level must be either None or an int.')
 
-            self._sys_meta = data_models.SysMeta(object_type='Dataset', compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
+            self._sys_meta = data_models.SysMeta(dataset_type=dataset_type, compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
             self._blt.set_metadata(msgspec.to_builtins(self._sys_meta))
 
         else:
@@ -674,12 +674,30 @@ class EDataset(Dataset):
         self._blt.copy_remote(remote_conn)
 
 
+class Grid(Dataset):
+    """
+
+    """
+
+
+class EGrid(EDataset):
+    """
+
+    """
+
+
+
 
 #######################################################
 ### Open functions
 
 
-def open_dataset(file_path: Union[str, pathlib.Path], flag: str = "r", compression: str='zstd', compression_level: int=None, **kwargs):
+def open_dataset(file_path: Union[str, pathlib.Path],
+                 flag: str = "r",
+                 dataset_type: str='grid',
+                 compression: str='zstd',
+                 compression_level: int=None,
+                 **kwargs):
     """
     Open a cfdb dataset. This uses the python package booklet for managing data in a single file.
 
@@ -689,6 +707,8 @@ def open_dataset(file_path: Union[str, pathlib.Path], flag: str = "r", compressi
         It must be a path to a local file location. If you want to use a tempfile, then use the name from the NamedTemporaryFile initialized class.
     flag: str
         Flag associated with how the file is opened according to the dbm style. See below for details.
+    dataset_type: str
+        The dataset type to be opened. The only current option is "grid".
     compression: str
         The compression algorithm used for compressing all data. Must be either zstd or lz4. The option zstd has a really good combo of compression ratio to speed, while lz4 has a stronger emphasis on speed. Default is zstd.
     compression_level: int or None
@@ -729,12 +749,16 @@ def open_dataset(file_path: Union[str, pathlib.Path], flag: str = "r", compressi
     else:
         create = False
 
-    return Dataset(fp, open_blt, create, compression, compression_level)
+    if dataset_type.lower() == 'grid':
+        return Grid(fp, open_blt, create, compression, compression_level, 'grid')
+    else:
+        raise TypeError('The only option for the dataset type is "grid".')
 
 
 def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
                   file_path: Union[str, pathlib.Path],
                   flag: str = "r",
+                  dataset_type: str='grid',
                   compression: str='zstd',
                   compression_level: int=1,
                   **kwargs):
@@ -751,6 +775,8 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
 
     flag : str
         Flag associated with how the file is opened according to the dbm style. See below for details.
+    dataset_type: str
+        The dataset type to be opened. The only current option is "grid".
     compression: str
         The compression algorithm used for compressing all data. Must be either zstd or lz4. The option zstd has a really good combo of compression ratio to speed, while lz4 has a stronger emphasis on speed (and is lightning fast). Default is zstd.
     compression_level: int or None
@@ -794,7 +820,10 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
     else:
         create = False
 
-    return EDataset(fp, open_blt, create, compression, compression_level)
+    if dataset_type.lower() == 'grid':
+        return EGrid(fp, open_blt, create, compression, compression_level, 'grid')
+    else:
+        raise TypeError('The only option for the dataset type is "grid".')
 
 
 

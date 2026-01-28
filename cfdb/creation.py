@@ -108,7 +108,7 @@ class Coord:
 
         # print(params)
 
-        name, var = utils.parse_coord_inputs(name, data, chunk_shape, dtype, step=step, axis=axis)
+        name, var = utils.parse_coord_inputs(self._dataset._sys_meta.dataset_type, name, data, chunk_shape, dtype, step=step, axis=axis)
 
         ## Var init process
         self._dataset._sys_meta.variables[name] = var
@@ -149,11 +149,11 @@ class Coord:
         """
         Create a latitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, var_params, dtype, attrs = utils.get_var_params('lat', kwargs)
+        name, var_params, attrs = utils.get_var_params('lat', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord = self.generic(name, data, step=step, **var_params)
         coord.attrs.update(attrs)
 
         return coord
@@ -163,11 +163,11 @@ class Coord:
         """
         Create a longitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, var_params, dtype, attrs = utils.get_var_params('lon', kwargs)
+        name, var_params, attrs = utils.get_var_params('lon', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord = self.generic(name, data, step=step, **var_params)
         coord.attrs.update(attrs)
 
         return coord
@@ -177,11 +177,15 @@ class Coord:
         """
         Create a time coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, var_params, dtype, attrs = utils.get_var_params('time', kwargs)
+        name, var_params, attrs = utils.get_var_params('time', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        if isinstance(data, np.ndarray):
+            if 'M8' in data.dtype.str:
+                var_params['dtype'] = data.dtype
+
+        coord = self.generic(name, data, step=step, **var_params)
         coord.attrs.update(attrs)
 
         return coord
@@ -191,11 +195,11 @@ class Coord:
         """
         Create a height coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, var_params, dtype, attrs = utils.get_var_params('height', kwargs)
+        name, var_params, attrs = utils.get_var_params('height', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord = self.generic(name, data, step=step, **var_params)
         coord.attrs.update(attrs)
 
         return coord
@@ -205,11 +209,11 @@ class Coord:
         """
         Create a altitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
         """
-        name, var_params, dtype, attrs = utils.get_var_params('altitude', kwargs)
+        name, var_params, attrs = utils.get_var_params('altitude', kwargs)
 
         # print(params)
 
-        coord = self.generic(name, data, dtype=dtype, step=step, **var_params)
+        coord = self.generic(name, data, step=step, **var_params)
         coord.attrs.update(attrs)
 
         return coord

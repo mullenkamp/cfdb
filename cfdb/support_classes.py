@@ -15,7 +15,7 @@ from typing import Set, Optional, Dict, Tuple, List, Union, Any, Iterable
 from copy import deepcopy
 import itertools
 import rechunkit
-import pyproj
+# import pyproj
 import sys
 
 from . import utils, indexers, dtypes, data_models
@@ -137,12 +137,9 @@ class Rechunker:
         tuple
             of n_reads, n_writes
         """
-        if self._var.dtype.dtype_encoded is None:
-            dtype = self._var.dtype
-        else:
-            dtype = self._var.dtype.dtype_encoded
+        itemsize = self._guess_itemsize()
 
-        return rechunkit.calc_n_reads_rechunker(self._var.shape, dtype, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+        return rechunkit.calc_n_reads_rechunker(self._var.shape, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
 
 
     def rechunk(self, target_chunk_shape, max_mem: int=2**27):
@@ -467,7 +464,10 @@ class Variable:
 
 
     def __getitem__(self, sel):
-        return self.get(sel)
+        if len(self) == 0:
+            return None
+        else:
+            return self.get(sel)
 
 
     # def __delitem__(self, sel):
@@ -477,7 +477,7 @@ class Variable:
         # TODO
 
 
-    def iter_chunks(self, include_data=True, decoded=True):
+    def iter_chunks(self, include_data=False, decoded=True):
         """
         Iterate through the chunks of the variable and return numpy arrays associated with the index slices (Optional). This should be the main way for users to get large amounts of data from a variable. The "ends" of the data will be clipped to the shape of the variable (i.e. not all chunks will be the chunk_shape).
 
@@ -491,8 +491,6 @@ class Variable:
         Generator
             tuple of slices of the indexes, numpy array of the data
         """
-        self.load()
-
         coord_origins = self.get_coord_origins()
 
         if not decoded and self.dtype.dtype_encoded is not None:
@@ -505,6 +503,7 @@ class Variable:
         slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
 
         if include_data:
+            self.load()
             for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
                 # print(target_chunk, source_chunk, blt_key)
                 b1 = self._blt.get(blt_key)
@@ -532,7 +531,7 @@ class Variable:
         """
         Iterate through all indexes.
         """
-        for target_chunk, data in self.iter_chunks(decoded=True):
+        for target_chunk, data in self.iter_chunks(True, decoded=True):
             data_starts = tuple(s.start for s in target_chunk)
             for index in itertools.product(*(range(s.start, s.stop) for s in target_chunk)):
                 data_index = tuple(i - ds for i, ds in zip(index, data_starts))
@@ -659,7 +658,7 @@ class CoordinateView(Variable):
 
             target = self._make_blank_sel_array(self._sel, coord_origins)
 
-            for target_chunk, data in self.iter_chunks():
+            for target_chunk, data in self.iter_chunks(True):
                 target[target_chunk] = data
 
             self._data = target
@@ -872,7 +871,7 @@ class Coordinate(CoordinateView):
         if not self.writable:
             raise ValueError('Dataset is not writable.')
 
-        updated_data = utils.prepend_coord_data_checks(data, self.data, self.dtype, self.step)
+        updated_data = utils.prepend_new_data(data, self.data, self.dtype, self.step)
 
         data_diff = updated_data.size - self.data.size
 
@@ -894,7 +893,7 @@ class Coordinate(CoordinateView):
         if not self.writable:
             raise ValueError('Dataset is not writable.')
 
-        updated_data = utils.append_coord_data_checks(data, self.data, self.dtype, self.step)
+        updated_data = utils.append_new_data(data, self.data, self.dtype, self.step)
 
         shape = (updated_data.size,)
 
@@ -917,7 +916,7 @@ class DataVariableView(Variable):
 
         target = self._make_blank_sel_array(self._sel, coord_origins)
 
-        for target_chunk, data in self.iter_chunks():
+        for target_chunk, data in self.iter_chunks(True):
             target[target_chunk] = data
 
         return target
