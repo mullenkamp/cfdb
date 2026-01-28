@@ -66,13 +66,13 @@ Coordinates can be created using the generic creation method, or templates can b
 lat_data = np.linspace(0, 19.9, 200, dtype='float32')
 
 with cfdb.open_dataset(file_path, flag='n') as ds:
-    lat_coord = ds.create.coord.latitude(data=lat_data, chunk_shape=(20,))
+    lat_coord = ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
     print(lat_coord)
 ```
 When creating coordinates, the user can pass a np.ndarray as data and cfdb will figure out the rest (especially when using a creation template). Otherwise, a coordinate can be created without any data input and the data can be appended later:
 ```python
 with cfdb.open_dataset(file_path, flag='n') as ds:
-    lat_coord = ds.create.coord.latitude(chunk_shape=(20,))
+    lat_coord = ds.create.coord.lat(chunk_shape=(20,))
     lat_coord.append(lat_data)
     print(lat_coord.data)
 ```
