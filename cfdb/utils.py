@@ -29,7 +29,8 @@ time_str_conversion = {'days': 'datetime64[D]',
                        'seconds': 'datetime64[s]',
                        'milliseconds': 'datetime64[ms]',
                        'microseconds': 'datetime64[us]',
-                       'nanoseconds': 'datetime64[ns]'}
+                       'nanoseconds': 'datetime64[ns]'
+                       }
 
 # enc_fields = ('units', 'calendar', 'dtype', 'missing_value', '_FillValue', 'add_offset', 'scale_factor', 'dtype_decoded', 'dtype_encoded', 'compression')
 
@@ -76,16 +77,24 @@ time_dtype_params = {
     }
 
 default_dtype_params = {
-    'lon': {'precision': 6, 'name': 'float64', 'offset': -180.000001, 'dtype_encoded': 'int32', 'fillvalue': -9999},
-    'lat': {'precision': 6, 'name': 'float64', 'offset': -90.000001, 'dtype_encoded': 'int32', 'fillvalue': -9999},
-    'height': {'dtype_encoded': 'int32', 'offset': -1, 'precision': 3, 'name': 'float64', 'fillvalue': -9999},
-    'altitude': {'dtype_encoded': 'int32', 'offset': -11000.001, 'precision': 3, 'name': 'float64', 'fillvalue': -9999},
+    'lon': {'precision': 6, 'name': 'float64', 'offset': -180.000001, 'dtype_encoded': 'uint32', 'fillvalue': 0},
+    'lat': {'precision': 6, 'name': 'float64', 'offset': -90.000001, 'dtype_encoded': 'uint32', 'fillvalue': 0},
+    'height': {'dtype_encoded': 'uint32', 'offset': -1, 'precision': 3, 'name': 'float64', 'fillvalue': 0},
+    'altitude': {'dtype_encoded': 'uint32', 'offset': -11000.001, 'precision': 3, 'name': 'float64', 'fillvalue': 0},
     'time': time_dtype_params['datetime64[m]'],
     'modified_date': {'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': 1756684800000000},
     'band': {'name': 'uint8'},
     'censor_code': {'name': 'uint8'},
     'x': {'precision': 1, 'name': 'float32'},
     'y': {'precision': 1, 'name': 'float32'},
+    'precip': {'precision': 2, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
+    'air_temp': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
+    'wind_speed': {'precision': 2, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
+    'wind_direction': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
+    'relative_humidity': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
+    'dew_temp': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
+    'soil_temp': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
+    'lwe_soil_moisture': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
                  # 'bore_top_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_bottom_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_depth': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 0.1},
@@ -103,30 +112,15 @@ default_var_params = {
     'censor_code': {'name': 'censor_code'},
     'x': {'name': 'x', 'axis': 'x'},
     'y': {'name': 'y', 'axis': 'y'},
+    'precip': {'name': 'precipitation'},
+    'air_temp': {'name': 'air_temperature'},
+    'wind_speed': {'name': 'wind_speed'},
+    'wind_direction': {'name': 'wind_direction'},
+    'relative_humidity': {'name': 'relative_humidity'},
+    'dew_temp': {'name': 'dew_point_temperature'},
+    'soil_temp': {'name': 'soil_temperature'},
+    'lwe_soil_moisture': {'name': 'lwe_soil_moisture'}
     }
-
-
-# base_attrs = {'station_id': {'cf_role': "timeseries_id", 'description': 'The unique ID associated with the geometry for a single result.'},
-#               'lat': {'standard_name': "latitude", 'units': "degrees_north"},
-#               'lon': {'standard_name': "longitude", 'units': "degrees_east"},
-#               'altitude': {'standard_name': 'surface_altitude', 'long_name': 'height above the geoid to the lower boundary of the atmosphere', 'units': 'm'},
-#               'geometry': {'long_name': 'The hexadecimal encoding of the Well-Known Binary (WKB) geometry', 'crs_EPSG': 4326},
-#               'station_geometry': {'long_name': 'The hexadecimal encoding of the Well-Known Binary (WKB) station geometry', 'crs_EPSG': 4326},
-#               'height': {'standard_name': 'height', 'long_name': 'vertical distance above the surface', 'units': 'm', 'positive': 'up'},
-#               'time': {'standard_name': 'time', 'long_name': 'start_time'}, 'name': {'long_name': 'station name'},
-#               'ref': {'long_name': 'station reference id given by the owner'}, 'modified_date': {'long_name': 'last modified date'},
-#               'band': {'long_name': 'band number'},
-#               'chunk_date': {'long_name': 'chunking date'},
-#               'chunk_day': {'long_name': 'chunking day', 'description': 'The chunk day is the number of days after 1970-01-01. Can be negative for days before 1970-01-01 with a minimum of -106751, which is 1677-09-22 (minimum possible date). The maximum value is 106751.'},
-#               'chunk_hash': {'long_name': 'chunk hash', 'description': 'The unique hash of the results parameter for comparison purposes.'},
-#               'chunk_id': {'long_name': 'chunk id', 'description': 'The unique id of the results chunk associated with the specific station.'},
-#               'censor_code': {'long_name': 'data censor code', 'standard_name': 'status_flag', 'flag_values': '0 1 2 3 4 5', 'flag_meanings': 'greater_than less_than not_censored non-detect present_but_not_quantified unknown'},
-#               'bore_top_of_screen': {'long_name': 'bore top of screen', 'description': 'The depth to the top of the screen from the reference level.', 'units': 'm', 'positive': 'down'},
-#               'bore_bottom_of_screen': {'long_name': 'bore bottom of screen', 'description': 'The depth to the bottom of the screen from the reference level.', 'units': 'm', 'positive': 'down'},
-#               'bore_depth': {'long_name': 'bore depth', 'description': 'The depth of the bore from the reference level.', 'units': 'm', 'positive': 'down'},
-#               'alt_name': {'long_name': 'Alternative name', 'description': 'The alternative name for the station'},
-#               'reference_level': {'long_name': 'The bore reference level', 'description': 'The bore reference level for measurements.', 'units': 'mm', 'positive': 'up'}
-#               }
 
 default_attrs = dict(
     lat={
@@ -183,6 +177,46 @@ default_attrs = dict(
         'standard_name': 'projection_x_coordinate',
         'axis': 'X',
         },
+    precip={
+        'long_name': 'precipitation',
+        'units': 'mm',
+        'standard_name': 'precipitation_amount',
+        },
+    air_temp={
+        'long_name': 'air temperature',
+        'units': 'K',
+        'standard_name': 'air_temperature',
+        },
+    wind_speed={
+        'long_name': 'wind speed',
+        'units': 'm/s',
+        'standard_name': 'wind_speed',
+        },
+    wind_direction={
+        'long_name': 'wind direction',
+        'units': 'deg',
+        'standard_name': 'wind_to_direction',
+        },
+    relative_humidity={
+        'long_name': 'relative humidity',
+        'units': 'm^3/m^3',
+        'standard_name': 'relative_humidity',
+        },
+    dew_temp={
+        'long_name': 'dew point temperature',
+        'units': 'K',
+        'standard_name': 'dew_point_temperature',
+        },
+    soil_temp={
+        'long_name': 'soil temperature',
+        'units': 'K',
+        'standard_name': 'soil_temperature',
+        },
+    lwe_soil_moisture={
+        'long_name': 'liquid water equivalent of soil moisture',
+        'units': 'mm',
+        'standard_name': 'lwe_thickness_of_soil_moisture_content',
+        },
     )
 
 
@@ -192,6 +226,31 @@ crs_name_dict = {
     'N': 'y',
     'E': 'x',
     }
+
+
+# base_attrs = {'station_id': {'cf_role': "timeseries_id", 'description': 'The unique ID associated with the geometry for a single result.'},
+#               'lat': {'standard_name': "latitude", 'units': "degrees_north"},
+#               'lon': {'standard_name': "longitude", 'units': "degrees_east"},
+#               'altitude': {'standard_name': 'surface_altitude', 'long_name': 'height above the geoid to the lower boundary of the atmosphere', 'units': 'm'},
+#               'geometry': {'long_name': 'The hexadecimal encoding of the Well-Known Binary (WKB) geometry', 'crs_EPSG': 4326},
+#               'station_geometry': {'long_name': 'The hexadecimal encoding of the Well-Known Binary (WKB) station geometry', 'crs_EPSG': 4326},
+#               'height': {'standard_name': 'height', 'long_name': 'vertical distance above the surface', 'units': 'm', 'positive': 'up'},
+#               'time': {'standard_name': 'time', 'long_name': 'start_time'}, 'name': {'long_name': 'station name'},
+#               'ref': {'long_name': 'station reference id given by the owner'}, 'modified_date': {'long_name': 'last modified date'},
+#               'band': {'long_name': 'band number'},
+#               'chunk_date': {'long_name': 'chunking date'},
+#               'chunk_day': {'long_name': 'chunking day', 'description': 'The chunk day is the number of days after 1970-01-01. Can be negative for days before 1970-01-01 with a minimum of -106751, which is 1677-09-22 (minimum possible date). The maximum value is 106751.'},
+#               'chunk_hash': {'long_name': 'chunk hash', 'description': 'The unique hash of the results parameter for comparison purposes.'},
+#               'chunk_id': {'long_name': 'chunk id', 'description': 'The unique id of the results chunk associated with the specific station.'},
+#               'censor_code': {'long_name': 'data censor code', 'standard_name': 'status_flag', 'flag_values': '0 1 2 3 4 5', 'flag_meanings': 'greater_than less_than not_censored non-detect present_but_not_quantified unknown'},
+#               'bore_top_of_screen': {'long_name': 'bore top of screen', 'description': 'The depth to the top of the screen from the reference level.', 'units': 'm', 'positive': 'down'},
+#               'bore_bottom_of_screen': {'long_name': 'bore bottom of screen', 'description': 'The depth to the bottom of the screen from the reference level.', 'units': 'm', 'positive': 'down'},
+#               'bore_depth': {'long_name': 'bore depth', 'description': 'The depth of the bore from the reference level.', 'units': 'm', 'positive': 'down'},
+#               'alt_name': {'long_name': 'Alternative name', 'description': 'The alternative name for the station'},
+#               'reference_level': {'long_name': 'The bore reference level', 'description': 'The bore reference level for measurements.', 'units': 'mm', 'positive': 'up'}
+#               }
+
+
 
 #########################################################
 ### Classes
