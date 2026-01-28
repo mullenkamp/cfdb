@@ -125,17 +125,17 @@ def test_coord_creation():
         # del ds['x']
         # del ds['y']
 
-        lat_coord = ds.create.coord.latitude(data=lat_data, chunk_shape=(20,))
+        lat_coord = ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
         lat_coord.prepend(other_lat_data)
         del ds['latitude']
-        lat_coord = ds.create.coord.latitude(chunk_shape=(20,))
+        lat_coord = ds.create.coord.lat(chunk_shape=(20,))
         lat_coord.append(lat_data)
         print(lat_coord)
         # print(lat_coord.data[6:12])
 
         assert np.allclose(lat_coord.data, lat_data)
 
-        lon_coord = ds.create.coord.longitude(data=lon_data, chunk_shape=(20,))
+        lon_coord = ds.create.coord.lon(data=lon_data, chunk_shape=(20,))
         print(lon_coord)
         # print(lat_coord.data[6:12])
 
