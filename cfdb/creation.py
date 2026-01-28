@@ -15,6 +15,100 @@ from . import utils, dtypes, data_models, support_classes as sc
 #################################################
 
 
+def make_inner_coord_method(var_name):
+    def method(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
+        name, var_params, attrs = utils.get_var_params(var_name, kwargs)
+
+        if isinstance(data, np.ndarray):
+            if 'M8' in data.dtype.str:
+                var_params['dtype'] = data.dtype
+
+        coord = self.generic(name, data, step=step, **var_params)
+        coord.attrs.update(attrs)
+
+        return coord
+
+    return method
+
+
+def create_coord_methods(var_names):
+    """
+    Function to create the default variables in a creation class via a decorator.
+    """
+    def decorator(cls):
+        for var_name in var_names:
+
+            doc = f"""
+            Create a {var_name} coordinate. The standard dtype and attributes will be assigned. See the generic method for all of the available parameters.
+
+            Parameters
+            ----------
+            data: np.ndarray or None
+                Optionally provide coordintate data as an np.ndarray.
+            step: int, float, or bool
+                If the coordinate data is regular (hourly for example), then assign a step to ensure the coordinate will always stay regular. False will not set a step, while True will attempt to figure out the step from the input data (if passed).
+            kwargs
+                Any kwargs that can be passed to the generic coordinate method.
+
+            Returns
+            -------
+            Coordinate
+            """
+            method = make_inner_coord_method(var_name)
+    
+            method.__name__ = var_name
+            method.__doc__ = doc
+            setattr(cls, var_name, method)
+    
+        return cls
+
+    return decorator
+
+
+def make_inner_data_var_method(var_name):
+    def method(self, coords: Tuple[str], **kwargs):
+        name, var_params, attrs = utils.get_var_params(var_name, kwargs)
+
+        data_var = self.generic(name, coords, **var_params)
+        data_var.attrs.update(attrs)
+
+        return data_var
+
+    return method
+
+
+def create_data_var_methods(var_names):
+    """
+    Function to create the default variables in a creation class via a decorator.
+    """
+    def decorator(cls):
+        for var_name in var_names:
+
+            doc = f"""
+            Create a {var_name} data variable. The standard dtype and attributes will be assigned. See the generic method for all of the available parameters.
+
+            Parameters
+            ----------
+            coords: tuple of str
+                The coordinate names in the order of the dimensions. The coordinate must already exist.
+            kwargs
+                Any kwargs that can be passed to the generic data variable method.
+
+            Returns
+            -------
+            Data Variable
+            """
+            method = make_inner_data_var_method(var_name)
+    
+            method.__name__ = var_name
+            method.__doc__ = doc
+            setattr(cls, var_name, method)
+    
+        return cls
+
+    return decorator
+
+
 class CRS:
     """
 
@@ -49,6 +143,7 @@ class CRS:
         return crs0
 
 
+@create_coord_methods(var_names=('time', 'lat', 'lon', 'height', 'altitude'))
 class Coord:
     """
 
@@ -58,10 +153,6 @@ class Coord:
 
         """
         self._dataset = dataset
-        # self._sys_meta = sys_meta
-        # self._finalizers = finalizers
-        # self._var_cache = var_cache
-        # self._compressor = compressor
 
 
     def generic(self, name: str, data: np.ndarray | None = None, dtype: str | np.dtype | dtypes.DataType | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, axis: str=None):
@@ -74,18 +165,10 @@ class Coord:
             The name of the coordinate. It must be unique and follow the `CF conventions for variables names <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_naming_conventions>`_.
         data: np.ndarray or None
             Data to be added after creation. The length and dtype of the data will override other parameters.
-        dtype_decoded: str, np.dtype, or None
-            The dtype of the original data (data that the user will work with). If data is not passed, than this is a manditory parameter.
-        dtype_encoded: str, np.dtype, or None
-            The dtype of the stored data. This is the dtype that the data will be stored as. Only relevant for going from a float to a smaller integer. If this is None, then dtype_encoded will be assigned the dtype_decoded.
+        dtype: str, np.dtype, Dtype, or None
+            The name of the data type. It can either be a string name, a np.dtype, or a DataType. If name is a string, then it must correspond to a numpy dtype for the decoding except for geometry dtypes.
         chunk_shape: tuple of ints or None
             The chunk shape that the data will be stored as. If None, then it will be estimated. The estimated chunk shape will be optimally estimated to make it efficient to rechunk later.
-        fillvalue: int, float, str, or None
-            The fill value for the dtype_encoded. If the dtype_decoded is a float, then the decoded fill values will always be np.nan when returned. The fillvalue is primarily for storage.
-        scale_factor: int, float, or None
-            If dtype_decoded is a float and dtype_encoded is an int, then the stored values are encoded = int(round((decoded - add_offset)/scale_factor)).
-        add_offset: int, float, or None
-            As decribed by the scale_factor.
         step: int, float, or bool
             If the coordinate data is regular (hourly for example), then assign a step to ensure the coordinate will always stay regular. False will not set a step, while True will attempt to figure out the step from the input data (if passed).
         axis: str or None
@@ -145,80 +228,6 @@ class Coord:
         return new_coord
 
 
-    def latitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
-        """
-        Create a latitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
-        """
-        name, var_params, attrs = utils.get_var_params('lat', kwargs)
-
-        # print(params)
-
-        coord = self.generic(name, data, step=step, **var_params)
-        coord.attrs.update(attrs)
-
-        return coord
-
-
-    def longitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
-        """
-        Create a longitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
-        """
-        name, var_params, attrs = utils.get_var_params('lon', kwargs)
-
-        # print(params)
-
-        coord = self.generic(name, data, step=step, **var_params)
-        coord.attrs.update(attrs)
-
-        return coord
-
-
-    def time(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
-        """
-        Create a time coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
-        """
-        name, var_params, attrs = utils.get_var_params('time', kwargs)
-
-        # print(params)
-
-        if isinstance(data, np.ndarray):
-            if 'M8' in data.dtype.str:
-                var_params['dtype'] = data.dtype
-
-        coord = self.generic(name, data, step=step, **var_params)
-        coord.attrs.update(attrs)
-
-        return coord
-
-
-    def height(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
-        """
-        Create a height coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
-        """
-        name, var_params, attrs = utils.get_var_params('height', kwargs)
-
-        # print(params)
-
-        coord = self.generic(name, data, step=step, **var_params)
-        coord.attrs.update(attrs)
-
-        return coord
-
-
-    def altitude(self, data: np.ndarray | None = None, step: int | float | bool=True, **kwargs):
-        """
-        Create a altitude coordinate. The standard encodings and attributes will be assigned. See the generic method for all of the parameters.
-        """
-        name, var_params, attrs = utils.get_var_params('altitude', kwargs)
-
-        # print(params)
-
-        coord = self.generic(name, data, step=step, **var_params)
-        coord.attrs.update(attrs)
-
-        return coord
-
-
     # def xy_from_crs(self, crs: Union[str, int, pyproj.CRS], x_coord: str=None, y_coord: str=None, x_data: np.ndarray | None = None, y_data: np.ndarray | None = None, **kwargs):
     #     """
 
@@ -266,6 +275,7 @@ class Coord:
     #     return crs0
 
 
+@create_data_var_methods(var_names=('precip', 'air_temp', 'wind_speed', 'wind_direction', 'relative_humidity', 'dew_temp', 'soil_temp', 'lwe_soil_moisture'))
 class DataVar:
     """
 
@@ -275,10 +285,6 @@ class DataVar:
 
         """
         self._dataset = dataset
-        # self._sys_meta = sys_meta
-        # self._finalizers = finalizers
-        # self._var_cache = var_cache
-        # self._compressor = compressor
 
 
     def generic(self, name: str, coords: Tuple[str], dtype: str | np.dtype | dtypes.DataType, chunk_shape: Tuple[int] | None = None):
@@ -291,18 +297,10 @@ class DataVar:
             The name of the coordinate. It must be unique and follow the `CF conventions for variables names <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_naming_conventions>`_.
         coords: tuple of str
             The coordinate names in the order of the dimensions. The coordinate must already exist.
-        dtype_decoded: str, np.dtype, or None
-            The dtype of the original data (data that the user will work with). If data is not passed, than this is a manditory parameter.
-        dtype_encoded: str, np.dtype, or None
-            The dtype of the stored data. This is the dtype that the data will be stored as. Only relevant for going from a float to a smaller integer. If this is None, then dtype_encoded will be assigned the dtype_decoded.
+        dtype: str, np.dtype, Dtype, or None
+            The name of the data type. It can either be a string name, a np.dtype, or a DataType. If name is a string, then it must correspond to a numpy dtype for the decoding except for geometry dtypes.
         chunk_shape: tuple of ints or None
             The chunk shape that the data will be stored as. If None, then it will be estimated. The estimated chunk shape will be optimally estimated to make it efficient to rechunk later.
-        fillvalue: int, float, str, or None
-            The fill value for the dtype_encoded. If the dtype_decoded is a float, then the decoded fill values will always be np.nan when returned. The fillvalue is primarily for storage.
-        scale_factor: int, float, or None
-            If dtype_decoded is a float and dtype_encoded is an int, then the stored values are encoded = int(round((decoded - add_offset)/scale_factor)).
-        add_offset: int, float, or None
-            As decribed by the scale_factor.
 
         Returns
         -------
