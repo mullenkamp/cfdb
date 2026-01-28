@@ -112,7 +112,7 @@ The example shown above is the simplest way of assigning data to a data variable
 ```python
 with cfdb.open_dataset(file_path, flag='w') as ds:
     data_var = ds[name]
-    for chunk_slices in data_var.iter_chunks(include_data=False):
+    for chunk_slices in data_var.iter_chunks():
         data_var[chunk_slices] = data_var_data[chunk_slices]
 ```
 
@@ -123,7 +123,7 @@ Reading data uses the same "iter_chunks" method. This ensures that memory usage 
 ```python
 with cfdb.open_dataset(file_path, flag='r') as ds:
     data_var = ds[name]
-    for chunk_slices, data in data_var.iter_chunks():
+    for chunk_slices, data in data_var.iter_chunks(include_data=True):
         print(chunk_slices)
         print(data.shape)
 ```
@@ -174,10 +174,15 @@ with open_dataset(file_path) as ds:
     ds.to_netcdf4(nc_file_path)
 ```
 
-## TODO
+## TODO - In no particular order
 - Implement geospatial selections. 
     - Create three different methods on coordinates: nearest, inner, and outer. These will do the coordinate selection based on those three different options. 
 - Implement units with [Pint](https://pint.readthedocs.io/en/stable/getting/overview.html) and uncertainties with [Uncertainties](https://pythonhosted.org/uncertainties/user_guide.html). Both of these packages are integrated, so I should implement them together.
+- Implement geospatial transformations. This kind of operation would heavily benefit from the efficient rechunking in cfdb. This will likely be it's own python package which will get integrated into cfdb.
+- Remove dependency on h5netcdf and use h5py directly
+- Implement more dataset types according to the CF conventions. Specifically, the Time Series structures. 
+    - The first one will be station geometries with uniform time called [Orthogonal multidimensional array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series). 
+    - The second will be station geometries with their own irregular time called [Indexed ragged array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_indexed_ragged_array_representation_of_time_series).
 
 ## License
 

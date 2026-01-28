@@ -8,9 +8,7 @@ Created on Tue Feb 11 09:23:18 2025
 import msgspec
 import enum
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
-# import numpy as np
 
-# import utils
 
 ####################################################
 ### Parameters
@@ -27,7 +25,7 @@ class Type(enum.Enum):
     """
 
     """
-    Dataset = 'Dataset'
+    grid = 'grid'
 
 
 class Compressor(enum.Enum):
@@ -107,7 +105,7 @@ class SysMeta(msgspec.Struct):
     """
 
     """
-    object_type: Type
+    dataset_type: Type
     compression: Compressor
     compression_level: int
     variables: Dict[str, Union[DataVariable, CoordinateVariable]] = {}
