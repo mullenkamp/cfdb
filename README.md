@@ -10,7 +10,7 @@
 
 ---
 
-**Source Code**: <a href="https://github.com/mullenkamp/cfdb" target="_blank">https://github.com/mullenkamp/cfbdb</a>
+**Source Code**: <a href="https://github.com/mullenkamp/cfdb" target="_blank">https://github.com/mullenkamp/cfdb</a>
 
 ---
 ## Introduction
