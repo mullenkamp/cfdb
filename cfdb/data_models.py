@@ -26,6 +26,7 @@ class Type(enum.Enum):
 
     """
     grid = 'grid'
+    ts_ortho = 'ts_ortho'
 
 
 class Compressor(enum.Enum):
@@ -44,6 +45,8 @@ class Axis(enum.Enum):
     y = 'y'
     z = 'z'
     t = 't'
+    xy = 'xy'
+    xyz = 'xyz'
 
 
 # class Encoding(msgspec.Struct):

@@ -119,31 +119,41 @@ class CRS:
         """
         self._dataset = dataset
 
-    def from_user_input(self, crs: str | int | pyproj.CRS, x_coord: str, y_coord: str):
+
+    def from_user_input(self, crs: str | int | pyproj.CRS, x_coord: str=None, y_coord: str=None, xy_coord: str=None):
         """
 
         """
         ## Check coords
         coord_names = self._dataset.coord_names
-        if x_coord not in coord_names:
-            raise ValueError(f'{x_coord} not in coords: {coord_names}')
-        if y_coord not in coord_names:
-            raise ValueError(f'{y_coord} not in coords: {coord_names}')
+        if isinstance(xy_coord, str):
+            if xy_coord not in coord_names:
+                raise ValueError(f'{xy_coord} not in coords: {coord_names}')
+            coord = self._dataset[xy_coord]
+            if coord.dtype.kind != 'G':
+                raise TypeError(f'{xy_coord} must be a Geometry dtype.')
+
+            self._dataset._sys_meta.variables[xy_coord].axis = data_models.Axis('xy')
+        else:
+            if x_coord not in coord_names:
+                raise ValueError(f'{x_coord} not in coords: {coord_names}')
+            if y_coord not in coord_names:
+                raise ValueError(f'{y_coord} not in coords: {coord_names}')
+            self._dataset._sys_meta.variables[x_coord].axis = data_models.Axis('x')
+            self._dataset._sys_meta.variables[y_coord].axis = data_models.Axis('y')
 
         ## Parse crs
         crs0 = pyproj.CRS.from_user_input(crs)
 
         ## Update the metadata
         self._dataset._sys_meta.crs = crs0.to_string()
-        self._dataset._sys_meta.variables[x_coord].axis = data_models.Axis('x')
-        self._dataset._sys_meta.variables[y_coord].axis = data_models.Axis('y')
 
         self._dataset.crs = crs0 # Probably needs to change in the future...
 
         return crs0
 
 
-@create_coord_methods(var_names=('time', 'lat', 'lon', 'height', 'altitude'))
+@create_coord_methods(var_names=('time', 'lat', 'lon', 'height', 'altitude', 'x', 'y', 'point', 'line', 'polygon'))
 class Coord:
     """
 

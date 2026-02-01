@@ -489,6 +489,8 @@ class Dataset(DatasetBase):
         self._finalizers = [weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta)]
 
         self.attrs = sc.Attributes(self._blt, '_', self.writable, self._finalizers)
+        if create and dataset_type == 'ts_ortho':
+            self.attrs['featureType'] = 'timeSeries'
 
         if self._sys_meta.crs is None:
             self.crs = None
@@ -679,14 +681,20 @@ class Grid(Dataset):
 
     """
 
-
 class EGrid(EDataset):
     """
 
     """
 
+class TimeSeriesOrtho(Dataset):
+    """
 
+    """
 
+class ETimeSeriesOrtho(Dataset):
+    """
+
+    """
 
 #######################################################
 ### Open functions
@@ -708,7 +716,7 @@ def open_dataset(file_path: Union[str, pathlib.Path],
     flag: str
         Flag associated with how the file is opened according to the dbm style. See below for details.
     dataset_type: str
-        The dataset type to be opened. The only current option is "grid".
+        The dataset type to be opened. The current options are "grid" and "ts_ortho". The default is "grid". See below for a description.
     compression: str
         The compression algorithm used for compressing all data. Must be either zstd or lz4. The option zstd has a really good combo of compression ratio to speed, while lz4 has a stronger emphasis on speed. Default is zstd.
     compression_level: int or None
@@ -736,6 +744,10 @@ def open_dataset(file_path: Union[str, pathlib.Path],
     | ``'n'`` | Always create a new, empty database, open |
     |         | for reading and writing                   |
     +---------+-------------------------------------------+
+
+    The dataset_type argument determines the dimension/coordinate data structure:
+        grid: The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
+        ts_ortho: The a special time series coordinate structure representing the `Orthogonal multidimensional array representation of time series <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series>`_. The Geometry dtype must represent the xy axis. The time coordinate is the same as the "grid" time coordinate. The z axis is currently optional.
     """
     if 'n_buckets' not in kwargs:
         kwargs['n_buckets'] = utils.default_n_buckets
@@ -751,6 +763,8 @@ def open_dataset(file_path: Union[str, pathlib.Path],
 
     if dataset_type.lower() == 'grid':
         return Grid(fp, open_blt, create, compression, compression_level, 'grid')
+    elif dataset_type.lower() == 'ts_ortho':
+        return TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
     else:
         raise TypeError('The only option for the dataset type is "grid".')
 
@@ -776,7 +790,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
     flag : str
         Flag associated with how the file is opened according to the dbm style. See below for details.
     dataset_type: str
-        The dataset type to be opened. The only current option is "grid".
+        The dataset type to be opened. The current options are "grid" and "ts_ortho". The default is "grid". See below for a description.
     compression: str
         The compression algorithm used for compressing all data. Must be either zstd or lz4. The option zstd has a really good combo of compression ratio to speed, while lz4 has a stronger emphasis on speed (and is lightning fast). Default is zstd.
     compression_level: int or None
@@ -804,6 +818,10 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
     | ``'n'`` | Always create a new, empty database, open |
     |         | for reading and writing                   |
     +---------+-------------------------------------------+
+
+    The dataset_type argument determines the dimension/coordinate data structure:
+        grid: The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
+        ts_ortho: The a special time series coordinate structure representing the `Orthogonal multidimensional array representation of time series <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series>`_. The Geometry dtype must represent the xy axis. The time coordinate is the same as the "grid" time coordinate. The z axis is currently optional.
     """
     if not import_ebooklet:
         raise ImportError('EBooklet must be installed to open EDatasets.')

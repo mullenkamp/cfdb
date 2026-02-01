@@ -864,7 +864,7 @@ class Coordinate(CoordinateView):
         self._data = updated_data
 
 
-    def prepend(self, data):
+    def prepend(self, data: list | np.ndarray):
         """
         Prepend data to the start of the coordinate. The extra length will be added to the associated data variables with the fillvalue.
         """
@@ -886,7 +886,7 @@ class Coordinate(CoordinateView):
         self._var_meta.shape = updated_data.shape
 
 
-    def append(self, data):
+    def append(self, data: list | np.ndarray):
         """
         Append data to the end of the coordinate. The extra length will be added to the associated data variables with the fillvalue.
         """
