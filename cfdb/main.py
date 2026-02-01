@@ -747,7 +747,7 @@ def open_dataset(file_path: Union[str, pathlib.Path],
 
     The dataset_type argument determines the dimension/coordinate data structure:
         grid: The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
-        ts_ortho: The a special time series coordinate structure representing the `Orthogonal multidimensional array representation of time series <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series>`_. The Geometry dtype must represent the xy axis. The time coordinate is the same as the "grid" time coordinate. The z axis is currently optional.
+        ts_ortho: The a special time series coordinate structure representing the `Orthogonal multidimensional array representation of time series <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series>`_. This is designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The time coordinate is the same as the "grid" time coordinate. The z axis is currently optional.
     """
     if 'n_buckets' not in kwargs:
         kwargs['n_buckets'] = utils.default_n_buckets
