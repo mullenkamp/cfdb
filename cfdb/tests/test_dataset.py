@@ -12,6 +12,8 @@ from time import time
 import pathlib
 import ebooklet
 import h5netcdf
+import shapely
+
 from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb, dtypes
 
 ###################################################
@@ -42,6 +44,8 @@ lat_data = np.linspace(0, 9.9, 100, dtype='float32')
 lon_data = np.linspace(-5, 4.9, 100, dtype='float32')
 other_lat_data = np.linspace(-1, -0.1, 10, dtype='float32')
 time_data = np.linspace(0, 10, 10, dtype='datetime64[D]')
+
+geo_data = [shapely.Point(x, y) for x, y in zip(lon_data, lat_data)]
 
 data_var_data = np.linspace(0, 9999.9, 100000, dtype='float32').reshape(100, 100, 10)
 
@@ -115,7 +119,22 @@ def cleanup(request):
 ### Tests
 
 
-def test_coord_creation():
+def test_coord_creation_ts_ortho():
+    with open_dataset(file_path, flag='n', dataset_type='ts_ortho') as ds:
+        geo_coord = ds.create.coord.point()
+        geo_coord.append(geo_data)
+
+        _ = ds.create.crs.from_user_input(4326, xy_coord='point')
+
+        time_coord = ds.create.coord.time(data=time_data, dtype=time_data.dtype)
+        print(time_coord)
+
+        assert np.all(time_coord.data == time_data)
+
+        ds.attrs['history'] = 'Created some coords yo'
+
+
+def test_coord_creation_grid():
     with open_dataset(file_path, flag='n') as ds:
         _ = ds.create.coord.height()
         del ds['height']

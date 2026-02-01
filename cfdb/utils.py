@@ -10,6 +10,7 @@ import msgspec
 import re
 from copy import deepcopy
 import rechunkit
+import shapely
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
 
 from . import data_models, dtypes
@@ -95,6 +96,9 @@ default_dtype_params = {
     'dew_temp': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
     'soil_temp': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
     'lwe_soil_moisture': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
+    'point': {'precision': 5, 'name': 'point'},
+    'line': {'precision': 5, 'name': 'line'},
+    'polygon': {'precision': 5, 'name': 'polygon'},
                  # 'bore_top_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_bottom_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
                  # 'bore_depth': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 0.1},
@@ -119,7 +123,10 @@ default_var_params = {
     'relative_humidity': {'name': 'relative_humidity'},
     'dew_temp': {'name': 'dew_point_temperature'},
     'soil_temp': {'name': 'soil_temperature'},
-    'lwe_soil_moisture': {'name': 'lwe_soil_moisture'}
+    'lwe_soil_moisture': {'name': 'lwe_soil_moisture'},
+    'point': {'name': 'point', 'axis': 'xy'},
+    'line': {'name': 'line', 'axis': 'xy'},
+    'polygon': {'name': 'polygon', 'axis': 'xy'},
     }
 
 default_attrs = dict(
@@ -216,6 +223,15 @@ default_attrs = dict(
         'long_name': 'liquid water equivalent of soil moisture',
         'units': 'mm',
         'standard_name': 'lwe_thickness_of_soil_moisture_content',
+        },
+    point={
+        'long_name': 'location geometry as points',
+        },
+    line={
+        'long_name': 'location geometry as lines',
+        },
+    polygon={
+        'long_name': 'location geometry as polygons',
         },
     )
 
@@ -472,7 +488,7 @@ def init_parse_step(dtype: dtypes.DataType, step: int | float | bool, data: np.n
     return step
 
 
-def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype, shape):
+def init_coord_data_checks(data: list | np.ndarray, step: int | float | bool, dtype, shape):
     """
 
     """
@@ -491,7 +507,7 @@ def init_coord_data_checks(data: np.ndarray, step: int | float | bool, dtype, sh
     return step
 
 
-def coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step: int | float | None = None):
+def coord_data_checks(new_data: list | np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step: int | float | None = None):
     """
 
     """
@@ -505,7 +521,7 @@ def coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtyp
     # print(source_data)
 
     if source_data.size > 0:
-        if source_dtype.kind != 'U':
+        if source_dtype.kind in ('f', 'u', 'i', 'M'):
 
             new_data.sort()
             if source_step:
@@ -515,32 +531,43 @@ def coord_data_checks(new_data: np.ndarray, source_data: np.ndarray, source_dtyp
                     test_data = np.concat((source_data[-1], new_data[0]))
                     _ = init_parse_step(source_dtype, source_step, test_data)
 
+        elif source_dtype.kind == 'G':
+            s1 = set(source_dtype.encode(source_data))
+            new_data_set = set(source_dtype.encode([shapely.normalize(geo) for geo in new_data]))
+            s1.update(new_data_set)
+            if len(s1) != (len(source_data) + len(new_data)):
+                raise ValueError('The data for coords must be unique.')
+
+            new_data = source_dtype.decode(np.fromiter(new_data_set, dtype=source_dtype.dtype_decoded, count=len(new_data_set)))
         else:
             s1 = set(source_data)
             s1.update(set(new_data))
             if len(s1) != (len(source_data) + len(new_data)):
                 raise ValueError('The data for coords must be unique.')
     else:
-        if source_dtype.kind != 'U':
+        if source_dtype.kind in ('f', 'u', 'i', 'M'):
             new_data.sort()
             if source_step:
                 if len(new_data) > 1:
                     _ = init_parse_step(source_dtype, source_step, new_data)
         else:
-            if len(np.unique(new_data)) < new_data.shape[0]:
+            new_data_set = set(source_dtype.encode([shapely.normalize(geo) for geo in new_data]))
+            if len(new_data_set) < new_data.shape[0]:
                 raise ValueError('The data for coords must be unique.')
+
+            new_data = source_dtype.decode(np.fromiter(new_data_set, dtype=source_dtype.dtype_decoded, count=len(new_data_set)))
 
     return new_data
 
 
-def append_new_data(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step):
+def append_new_data(new_data: list | np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step):
     """
 
     """
     new_data = coord_data_checks(new_data, source_data, source_dtype, source_step)
 
     if source_data.size > 0:
-        if source_dtype.kind != 'U':
+        if source_dtype.kind in ('f', 'u', 'i', 'M'):
             last = source_data[-1]
 
             if not np.all(last < new_data):
@@ -555,14 +582,14 @@ def append_new_data(new_data: np.ndarray, source_data: np.ndarray, source_dtype:
     return new_data
 
 
-def prepend_new_data(new_data: np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step: int | float | None):
+def prepend_new_data(new_data: list | np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step: int | float | None):
     """
 
     """
     new_data = coord_data_checks(new_data, source_data, source_dtype, source_step)
 
     if source_data.size > 0:
-        if source_dtype.kind != 'U':
+        if source_dtype.kind in ('f', 'u', 'i', 'M'):
             first = source_data[0]
 
             if not np.all(first > new_data):
@@ -634,6 +661,8 @@ def parse_fillvalue(fillvalue, dtype_encoded):
             fillvalue = fillvalue_dict[dtype_encoded.name]
         elif kind == 'M':
             fillvalue = None
+        elif kind == 'G':
+            fillvalue = None
         else:
             raise TypeError('Unknown/unsupported data type.')
 
@@ -677,6 +706,9 @@ def parse_coord_inputs(dataset_type: str, name: str, data: np.ndarray | None = N
     if dataset_type == 'grid':
         if dtype.kind == 'G':
             raise TypeError('The grid dataset type cannot use a Geometry dtype for a coordinate.')
+    elif 'ts_' in dataset_type:
+        if name in ('lat', 'latitude', 'lon', 'longitude', 'x', 'y') or axis in ('x', 'y'):
+            raise TypeError('time series dataset types cannot have independent lat/y and lon/x coordinates. They must have a Geometry dtype to represent the x and y axis.')
 
     ## Check data, shape, and step
     if isinstance(data, np.ndarray):
