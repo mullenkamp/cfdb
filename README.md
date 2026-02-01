@@ -53,6 +53,13 @@ with cfdb.open_dataset(file_path, flag='n') as ds:
 ```
 This is generally encouraged as this will ensure that the file is closed properly and file locks are removed.
 
+### Dataset types
+There are currently two dataset types. Dataset types exist to structure the coordinates according to CF conventions. 
+
+The default dataset type is "grid" which is the standard structure for coordinates. Each coordinate must be unique and increasing in ascending order (unless it's a string). Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
+
+The second optional dataset type is called [Orthogonal multidimensional array representation of time series](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series). This is designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The time coordinate is the same as the "grid" time coordinate. The z axis is currently optional.
+
 ### Variables
 In the [CF conventions](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#dimensions), variables are the objects that store data. These can be 1 dimensional or many dimensional. The dimensions are the labels of 1-D variables (like latitude or time). These 1-D variables are called coordinate variables (or coordinates) with the same name as their associated dimension. All variables that use these coordinates as their dimension labels are called data variables. The combination of multiple data variables with their coordinates in a single file is called a dataset.
 
@@ -103,7 +110,7 @@ with cfdb.open_dataset(file_path, flag='w') as ds:
     data_var.attrs['test'] = ['test attributes']
     print(data_var)
 ```
-Since there are no data variable templates (yet), we need to use the generic creation method. If no fillvalue or chunk_shape is passed, then cfdb figures them out for you.
+There are data variable templates like the coordinates, but we will use the generic creation method for illustration. If no fillvalue or chunk_shape is passed, then cfdb figures them out for you.
 
 Assigning data to data variables is different to coordinates. Data variables can only be expanded via the coordinates themselves. Assignment and selection is performed by the [basic numpy indexing](https://numpy.org/doc/stable/user/basics.indexing.html#basic-indexing), but not the [advanced indexing](https://numpy.org/doc/stable/user/basics.indexing.html#advanced-indexing).
 
@@ -181,7 +188,7 @@ with open_dataset(file_path) as ds:
 - Implement geospatial transformations. This kind of operation would heavily benefit from the efficient rechunking in cfdb. This will likely be it's own python package which will get integrated into cfdb.
 - Remove dependency on h5netcdf and use h5py directly
 - Implement more dataset types according to the CF conventions. Specifically, the Time Series structures. 
-    - The first one will be station geometries with uniform time called [Orthogonal multidimensional array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series). 
+    - ~~The first one will be station geometries with uniform time called [Orthogonal multidimensional array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series).~~
     - The second will be station geometries with their own irregular time called [Indexed ragged array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_indexed_ragged_array_representation_of_time_series).
 
 ## License
