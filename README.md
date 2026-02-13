@@ -191,6 +191,12 @@ with open_dataset(file_path) as ds:
     - ~~The first one will be station geometries with uniform time called [Orthogonal multidimensional array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series).~~
     - The second will be station geometries with their own irregular time called [Indexed ragged array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_indexed_ragged_array_representation_of_time_series).
 
+## Development
+
+### Setup environment
+
+We use [uv](https://docs.astral.sh/uv/) to manage the development environment and production build. 
+
 ## License
 
 This project is licensed under the terms of the Apache Software License 2.0.

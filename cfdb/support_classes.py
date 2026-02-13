@@ -212,7 +212,7 @@ class Attributes:
         if self.writable:
             try:
                 msgspec.json.encode(value)
-            except:
+            except Exception:
                 raise ValueError('The value passed is not json serializable.')
             self._data[key] = value
         else:
@@ -265,7 +265,7 @@ class Attributes:
         if self.writable:
             try:
                 msgspec.json.encode(other)
-            except:
+            except Exception:
                 raise ValueError('The values passed are not json serializable.')
             self._data.update(other)
         else:
@@ -451,11 +451,11 @@ class Variable:
 
         """
         if self.dtype.itemsize is None:
-            chunk_bytes = self._get_raw_chunk()
+            b1, slices = self._get_raw_chunk()
 
-            if chunk_bytes is not None:
-                arr = self.dtype.loads(self.compressor.decompress(chunk_bytes))
-                chunk_bytes_len = math.sum([sys.getsizeof(a) for a in arr])
+            if b1 is not None:
+                arr = self.dtype.loads(self.compressor.decompress(b1))
+                chunk_bytes_len = sum([sys.getsizeof(a) for a in arr])
 
                 itemsize = math.ceil(chunk_bytes_len/len(arr))
                 self.dtype.itemsize = itemsize

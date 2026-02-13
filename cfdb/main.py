@@ -309,8 +309,8 @@ class DatasetBase:
                     if math.prod(target_shape) == math.prod(source_shape):
                         new_data_var._blt.set(new_key, b1, ts, False)
                     else:
-                        data = self.dtype.loads(self.compressor.decompress(b1), self.chunk_shape)
-                        data_b =  data_var.compressor.compress(data_var.dtype.dumps(data[source_chunk]))
+                        data = data_var.dtype.loads(data_var.compressor.decompress(b1), data_var.chunk_shape)
+                        data_b = data_var.compressor.compress(data_var.dtype.dumps(data[source_chunk]))
                         new_data_var._blt.set(new_key, data_b, ts, False)
 
             # for write_chunk, data in data_var.iter_chunks():
