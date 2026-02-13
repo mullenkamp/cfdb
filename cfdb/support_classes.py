@@ -355,11 +355,11 @@ class Compressor:
 
 class Variable:
     """
-
+    The base class for both Coordinate and DataVariable objects.
     """
     def __init__(self, var_name, dataset, sel=None):
         """
-
+        Initialize the Variable object.
         """
         self._dataset = dataset
         self._sys_meta = dataset._sys_meta
@@ -407,6 +407,13 @@ class Variable:
 
     def __bool__(self):
         return self.is_open
+
+    def __array__(self, dtype=None, copy=None):
+        return np.array(self.data, dtype=dtype, copy=copy)
+
+    @property
+    def values(self):
+        return self.data
 
 
     def _make_blank_sel_array(self, sel, coord_origins):
@@ -815,7 +822,7 @@ class CoordinateView(Variable):
 
 class Coordinate(CoordinateView):
     """
-
+    The Coordinate object. It holds the coordinate data in memory and allows for appending/prepending data.
     """
     @property
     def shape(self):
@@ -1132,7 +1139,7 @@ class DataVariableView(Variable):
 
 class DataVariable(DataVariableView):
     """
-
+    The DataVariable object. It accesses data chunks on demand and supports rechunking and grouping.
     """
     @property
     def shape(self):

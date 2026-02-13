@@ -122,7 +122,7 @@ class DatasetBase:
     #     self._blt.sync()
 
     def __bool__(self):
-        return self.is_open
+        return len(self) > 0
 
 
     def __repr__(self):
@@ -449,11 +449,26 @@ class DatasetBase:
 
 class Dataset(DatasetBase):
     """
-
+    The main class for accessing the data in the cfdb file. It acts as a dictionary of variables (coordinates and data variables).
     """
     def __init__(self, file_path, open_blt, create, compression, compression_level, dataset_type):
         """
-        Compression can be either zstd, lz4, or None. But there's no point in using None.
+        The Dataset object is created via the open_dataset function.
+        
+        Parameters
+        ----------
+        file_path : pathlib.Path
+            The path to the cfdb file.
+        open_blt : booklet.Booklet
+            The open booklet file object.
+        create : bool
+            Whether a new file is being created.
+        compression : str
+            The compression algorithm used (zstd or lz4).
+        compression_level : int
+            The level of compression.
+        dataset_type : str
+            The type of dataset structure (grid or ts_ortho).
         """
         self._blt = open_blt
         self.writable = self._blt.writable
@@ -583,7 +598,8 @@ class Dataset(DatasetBase):
 
 class DatasetView(DatasetBase):
     """
-
+    A view of a subset of the dataset. This object is returned when a dataset is sliced/selected.
+    It provides read-only access to the variables within the selection.
     """
     def __init__(self, dataset, sel):
         """

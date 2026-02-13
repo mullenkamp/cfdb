@@ -910,7 +910,7 @@ def data_variable_summary(ds):
     """
     type1 = type(ds)
 
-    if ds:
+    if getattr(ds, 'is_open', bool(ds)):
         summ_dict = {'name': ds.name, 'dtype': ds.dtype.name, 'dims order': '(' + ', '.join(ds.coord_names) + ')', 'shape': str(ds.shape), 'chunk shape': str(ds.chunk_shape)}
 
         summary = f"""<cfdb.{type1.__name__}>"""
@@ -946,7 +946,7 @@ def coordinate_summary(ds):
     """
     type1 = type(ds)
 
-    if ds:
+    if getattr(ds, 'is_open', bool(ds)):
         name = ds.name
         # dim_len = ds.ndims
         # dtype_name = ds.dtype.name
@@ -992,7 +992,7 @@ def file_summary(ds):
     """
     type1 = type(ds)
 
-    if ds:
+    if getattr(ds, 'is_open', bool(ds)):
         file_path = ds.file_path
         if file_path.exists() and file_path.is_file():
             file_size = file_path.stat().st_size*0.000001
