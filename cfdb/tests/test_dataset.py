@@ -13,10 +13,10 @@ from cfdb import open_dataset, cfdb_to_netcdf4, netcdf4_to_cfdb, dtypes
 
 script_path = pathlib.Path(os.path.realpath(os.path.dirname(__file__)))
 
-file_path = script_path.joinpath('test1.blt')
+file_path = script_path.joinpath('test1.cfdb')
 flag = 'n'
 
-new_file_path = script_path.joinpath('test2.blt')
+new_file_path = script_path.joinpath('test2.cfdb')
 nc_file_path = script_path.joinpath('test1.nc')
 
 name = 'air_temp'

@@ -48,11 +48,15 @@ db_key = uuid.uuid8().hex[-13:]
 base_url = 'https://b2.tethys-ts.xyz/file/' + bucket + '/'
 db_url = base_url +  db_key
 
-remote_conn = ebooklet.S3Connection(access_key_id, access_key, db_key, bucket, endpoint_url=endpoint_url, db_url=db_url)
+@pytest.fixture(scope="module")
+def remote_conn():
+    if not access_key_id or not access_key:
+        pytest.skip("S3 credentials not available")
+    return ebooklet.S3Connection(access_key_id, access_key, db_key, bucket, endpoint_url=endpoint_url, db_url=db_url)
 
 
 @pytest.fixture(scope="module", autouse=True)
-def cleanup(request):
+def cleanup(request, remote_conn):
     """Cleanup test data on S3 and locally."""
     def remove_test_data():
         try:
@@ -71,7 +75,7 @@ def cleanup(request):
     request.addfinalizer(remove_test_data)
 
 
-def test_edataset():
+def test_edataset(remote_conn):
     # First create a local dataset with data to push
     with open_dataset(file_path, flag='n') as ds:
         ds.create.coord.lat(data=lat_data, chunk_shape=(20,))

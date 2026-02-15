@@ -7,11 +7,11 @@ from cfdb import open_dataset, dtypes
 
 script_path = pathlib.Path(os.path.realpath(os.path.dirname(__file__)))
 
-gi_file_2d = script_path.joinpath('test_gi_2d.blt')
-gi_file_3d = script_path.joinpath('test_gi_3d.blt')
-gi_file_no_crs = script_path.joinpath('test_gi_no_crs.blt')
-gi_file_no_axis = script_path.joinpath('test_gi_no_axis.blt')
-gi_file_levels = script_path.joinpath('test_gi_levels.blt')
+gi_file_2d = script_path.joinpath('test_gi_2d.cfdb')
+gi_file_3d = script_path.joinpath('test_gi_3d.cfdb')
+gi_file_no_crs = script_path.joinpath('test_gi_no_crs.cfdb')
+gi_file_no_axis = script_path.joinpath('test_gi_no_axis.cfdb')
+gi_file_levels = script_path.joinpath('test_gi_levels.cfdb')
 
 # Test data
 lat_data = np.linspace(-10, 10, 21, dtype='float32')
