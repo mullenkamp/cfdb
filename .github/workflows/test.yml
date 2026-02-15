@@ -42,6 +42,8 @@ jobs:
       - name: Run tests
         env:
           endpoint_url: ${{ secrets.ENDPOINT_URL }}
-          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: uv run pytest
+
+
