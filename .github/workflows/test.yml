@@ -43,7 +43,7 @@ jobs:
         env:
           endpoint_url: ${{ secrets.ENDPOINT_URL }}
           access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: uv run pytest
 
 
