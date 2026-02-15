@@ -23,6 +23,7 @@ This file provides context for the Gemini AI agent to understand and work with t
 *   **Data Types** (`cfdb/dtypes.py`): Custom type system (`Float`, `Integer`, `DateTime`, `Geometry` w/ WKT).
 *   **Creation** (`cfdb/creation.py`): Factory patterns for creating coords and variables.
 *   **Indexing** (`cfdb/indexers.py`): Handling selection logic (`.loc[]`, integer indexing).
+*   **Legacy code** (`core.py`): Old h5py-based implementation, not part of the current API. `combine.py` is also legacy (uses h5py/xarray directly).
 
 ## Build & Development
 

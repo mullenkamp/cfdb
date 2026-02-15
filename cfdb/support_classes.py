@@ -18,8 +18,8 @@ import rechunkit
 # import pyproj
 import sys
 
-from . import utils, indexers, dtypes, data_models
-# import utils, indexers, dtypes, data_models
+from . import utils, indexers, dtypes, data_models, grid_interp
+# import utils, indexers, dtypes, data_models, grid_interp
 
 ###################################################
 ### Parameters
@@ -912,7 +912,6 @@ class Coordinate(CoordinateView):
         self._var_meta.shape = shape
 
 
-
 class DataVariableView(Variable):
     """
 
@@ -1114,6 +1113,9 @@ class DataVariableView(Variable):
 
     #     return ds
 
+
+    def grid_interp(self, x=None, y=None, z=None, time=None):
+        return grid_interp.GridInterp(self, x=x, y=y, z=z, time=time)
 
     def __repr__(self):
         """
