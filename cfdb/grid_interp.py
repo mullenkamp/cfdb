@@ -15,7 +15,30 @@ from . import data_models
 class GridInterp:
     """
     Wrapper around geointerp.GridInterpolator that auto-detects CRS and
-    spatial/temporal coordinate names from dataset axis metadata.
+    spatial/temporal coordinate names from dataset axis metadata, handles
+    dimension reordering, and iterates over time steps when present.
+
+    All interpolation methods are generators that yield (time_value, result)
+    tuples. When there is no time dimension, a single tuple is yielded with
+    time_value=None.
+
+    Parameters
+    ----------
+    data_var : DataVariableView or DataVariable
+        The data variable to interpolate.
+    x : str or None
+        Name of the x coordinate. Auto-detected from axis metadata if None.
+    y : str or None
+        Name of the y coordinate. Auto-detected from axis metadata if None.
+    z : str or None
+        Name of the z coordinate. Auto-detected from axis metadata if None.
+    time : str or None
+        Name of the time coordinate. Auto-detected from axis metadata if None.
+
+    Raises
+    ------
+    ValueError
+        If the dataset has no CRS defined or x/y coordinates cannot be determined.
     """
 
     def __init__(self, data_var, x=None, y=None, z=None, time=None):
@@ -108,6 +131,37 @@ class GridInterp:
                     yield (time_data[t_idx], self._prepare_spatial(spatial_data))
 
     def to_grid(self, grid_res, to_crs=None, bbox=None, order=3, extrapolation='constant', fill_val=np.nan, min_val=None):
+        """
+        Regrid the data variable onto a new regular grid.
+
+        Parameters
+        ----------
+        grid_res : float or tuple of float
+            Output grid resolution. A single float applies to all spatial
+            dimensions; a tuple gives per-dimension resolution in (x, y) or
+            (x, y, z) order.
+        to_crs : int, str, or None
+            Target CRS for the output grid (e.g. 4326). Defaults to the
+            dataset's CRS.
+        bbox : tuple of float or None
+            Bounding box in to_crs coordinates. 2D: (x_min, x_max, y_min,
+            y_max). 3D: (x_min, x_max, y_min, y_max, z_min, z_max).
+        order : int
+            Spline interpolation order (0-5). 0=nearest, 1=linear, 3=cubic.
+        extrapolation : str
+            Mode for values outside grid: 'constant', 'nearest', 'reflect',
+            'mirror', or 'wrap'.
+        fill_val : float
+            Fill value for 'constant' extrapolation.
+        min_val : float or None
+            Floor value; results below this are clamped.
+
+        Yields
+        ------
+        tuple of (time_value, np.ndarray)
+            time_value is None when there is no time dimension. The array
+            is the regridded 2D or 3D spatial data.
+        """
         source_coords = self._get_source_coords()
         gi = GridInterpolator(from_crs=self._dataset.crs)
         interp_func = gi.to_grid(source_coords, grid_res, to_crs=to_crs, bbox=bbox, order=order, extrapolation=extrapolation, fill_val=fill_val, min_val=min_val)
@@ -116,6 +170,28 @@ class GridInterp:
             yield (time_val, interp_func(data))
 
     def to_points(self, target_points, to_crs=None, order=3, min_val=None):
+        """
+        Sample the data variable at specific target point locations.
+
+        Parameters
+        ----------
+        target_points : np.ndarray
+            Array of shape (M, 2) or (M, 3) with target point locations in
+            (x, y) or (x, y, z) order, in to_crs coordinates.
+        to_crs : int, str, or None
+            CRS of target_points if different from the dataset's CRS.
+        order : int
+            Spline interpolation order (0-5). 0=nearest, 1=linear, 3=cubic.
+        min_val : float or None
+            Floor value; results below this are clamped.
+
+        Yields
+        ------
+        tuple of (time_value, np.ndarray)
+            time_value is None when there is no time dimension. The array
+            is a 1D array of shape (M,) with interpolated values at each
+            target point.
+        """
         source_coords = self._get_source_coords()
         gi = GridInterpolator(from_crs=self._dataset.crs)
         interp_func = gi.to_points(source_coords, target_points, to_crs=to_crs, order=order, min_val=min_val)
@@ -124,6 +200,23 @@ class GridInterp:
             yield (time_val, interp_func(data))
 
     def interp_na(self, method='linear', min_val=None):
+        """
+        Fill NaN values in the data variable via spatial interpolation.
+
+        Parameters
+        ----------
+        method : str
+            Interpolation method: 'nearest', 'linear', or 'cubic'.
+        min_val : float or None
+            Floor value; results below this are clamped.
+
+        Yields
+        ------
+        tuple of (time_value, np.ndarray)
+            time_value is None when there is no time dimension. The array
+            has the same shape as the source spatial data with NaN values
+            filled.
+        """
         source_coords = self._get_source_coords()
         gi = GridInterpolator(from_crs=self._dataset.crs)
         fill_func = gi.interp_na(source_coords, method=method, min_val=min_val)
@@ -132,6 +225,39 @@ class GridInterp:
             yield (time_val, fill_func(data))
 
     def regrid_levels(self, target_levels, source_levels, axis=0, method='linear'):
+        """
+        Regrid data from variable vertical levels onto fixed target levels.
+
+        This is useful for data on terrain-following or sigma coordinates
+        where the actual level heights vary at each grid point.
+
+        Parameters
+        ----------
+        target_levels : array-like of float
+            Target level values to interpolate onto (must be monotonically
+            increasing).
+        source_levels : str
+            Name of a data variable in the dataset that contains the source
+            level values. Must have the same shape as this data variable.
+        axis : int
+            The axis in the data that corresponds to the vertical/level
+            dimension.
+        method : str
+            Interpolation method. Currently only 'linear' is supported.
+
+        Yields
+        ------
+        tuple of (time_value, np.ndarray)
+            time_value is None when there is no time dimension. The array
+            has the vertical axis replaced by the target levels.
+
+        Raises
+        ------
+        TypeError
+            If source_levels is not a string.
+        ValueError
+            If source_levels does not exist as a data variable in the dataset.
+        """
         if not isinstance(source_levels, str):
             raise TypeError("source_levels must be a string (name of a data variable in the dataset).")
         if source_levels not in self._dataset.data_var_names:

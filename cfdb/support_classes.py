@@ -1115,6 +1115,29 @@ class DataVariableView(Variable):
 
 
     def grid_interp(self, x=None, y=None, z=None, time=None):
+        """
+        Create a GridInterp object for performing grid interpolation
+        operations on this data variable. Requires the geointerp package
+        and a CRS defined on the dataset.
+
+        Coordinate names for x, y, z, and time are auto-detected from the
+        dataset's axis metadata. Pass them explicitly when axes are not set.
+
+        Parameters
+        ----------
+        x : str or None
+            Name of the x coordinate.
+        y : str or None
+            Name of the y coordinate.
+        z : str or None
+            Name of the z coordinate.
+        time : str or None
+            Name of the time coordinate.
+
+        Returns
+        -------
+        GridInterp
+        """
         return grid_interp.GridInterp(self, x=x, y=y, z=z, time=time)
 
     def __repr__(self):

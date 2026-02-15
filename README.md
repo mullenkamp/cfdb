@@ -170,6 +170,65 @@ with cfdb.open_dataset(file_path) as ds:
         print(data.shape)
 ```
 
+#### Grid Interpolation
+Data variables support grid interpolation via the [geointerp](https://github.com/mullenkamp/geointerp) package. The dataset must have a CRS defined and the coordinates must have their axes set (x, y, and optionally z and t). Coordinate axes are auto-detected from the metadata, or can be passed explicitly.
+
+All interpolation methods are generators that yield `(time_value, result)` tuples. When there is no time dimension, a single tuple is yielded with `time_value=None`. When a time dimension is present, the data is efficiently iterated using the rechunker/groupby.
+
+##### Regridding to a new grid
+```python
+with cfdb.open_dataset(file_path) as ds:
+    data_var = ds['temperature']
+    for time_val, grid in data_var.grid_interp().to_grid(grid_res=0.01, to_crs=4326):
+        print(time_val, grid.shape)
+```
+
+##### Sampling at point locations
+```python
+import numpy as np
+
+target_points = np.array([
+    [175.0, -41.0],
+    [172.5, -43.5],
+])
+
+with cfdb.open_dataset(file_path) as ds:
+    data_var = ds['temperature']
+    for time_val, values in data_var.grid_interp().to_points(target_points, to_crs=4326):
+        print(time_val, values)
+```
+
+##### Filling NaN values
+```python
+with cfdb.open_dataset(file_path) as ds:
+    data_var = ds['temperature']
+    for time_val, filled in data_var.grid_interp().interp_na(method='linear'):
+        print(time_val, filled.shape)
+```
+
+##### Regridding vertical levels
+For data on terrain-following coordinates where actual level heights vary at each grid point, `regrid_levels` interpolates onto fixed target levels. The `source_levels` parameter is the name of a data variable in the dataset that contains the actual level values (same shape as the data variable being interpolated).
+
+```python
+import numpy as np
+
+target_levels = np.array([0, 50, 100, 200, 500])
+
+with cfdb.open_dataset(file_path) as ds:
+    data_var = ds['temperature']
+    for time_val, regridded in data_var.grid_interp().regrid_levels(target_levels, source_levels='level_heights'):
+        print(time_val, regridded.shape)
+```
+
+##### Explicit coordinate names
+When axes are not set on the coordinates, pass the coordinate names explicitly:
+```python
+with cfdb.open_dataset(file_path) as ds:
+    gi = ds['temperature'].grid_interp(x='longitude', y='latitude', time='time')
+    for time_val, grid in gi.to_grid(grid_res=0.05):
+        print(time_val, grid.shape)
+```
+
 #### Serializers
 The datasets can be serialized to netcdf4 via the to_netcdf4 method. You must have the [h5netcdf package](https://h5netcdf.org/) installed for netcdf4. It can also be copied to another cfdb file.
 
@@ -185,7 +244,7 @@ with open_dataset(file_path) as ds:
 - Implement geospatial selections. 
     - Create three different methods on coordinates: nearest, inner, and outer. These will do the coordinate selection based on those three different options. 
 - Implement units with [Pint](https://pint.readthedocs.io/en/stable/getting/overview.html) and uncertainties with [Uncertainties](https://pythonhosted.org/uncertainties/user_guide.html). Both of these packages are integrated, so I should implement them together.
-- Implement geospatial transformations. This kind of operation would heavily benefit from the efficient rechunking in cfdb. This will likely be it's own python package which will get integrated into cfdb.
+- ~~Implement geospatial transformations. This kind of operation would heavily benefit from the efficient rechunking in cfdb. This will likely be it's own python package which will get integrated into cfdb.~~
 - Remove dependency on h5netcdf and use h5py directly
 - Implement more dataset types according to the CF conventions. Specifically, the Time Series structures. 
     - ~~The first one will be station geometries with uniform time called [Orthogonal multidimensional array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series).~~
