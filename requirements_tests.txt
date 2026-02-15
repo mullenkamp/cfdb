@@ -10,3 +10,4 @@ h5netcdf
 shapely>2
 pyproj>3
 h5py>=3.6.0
+geointerp>=0.1.1
