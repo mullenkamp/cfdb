@@ -69,7 +69,7 @@ def filter_var_names_h5(h5, include_data_vars, exclude_data_vars):
         if isinstance(include_data_vars, str):
             include_data_vars = [include_data_vars]
         data_var_names = set(include_data_vars)
-        if not data_var_names.isubset(data_var_names_all):
+        if not data_var_names.issubset(data_var_names_all):
             raise ValueError(f'{data_var_names} is not a subset of {data_var_names_all}')
     elif exclude_data_vars is not None:
         if isinstance(exclude_data_vars, str):

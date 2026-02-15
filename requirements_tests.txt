@@ -1,6 +1,6 @@
 booklet>=0.9.2
-rechunkit>=0.1.2
-numpy
+rechunkit>=0.2.1
+numpy>2
 zstandard
 cftime
 msgspec
@@ -10,3 +10,4 @@ h5netcdf
 shapely>2
 pyproj>3
 h5py>=3.6.0
+geointerp>=0.1.1

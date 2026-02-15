@@ -528,7 +528,7 @@ def coord_data_checks(new_data: list | np.ndarray, source_data: np.ndarray, sour
                 if len(new_data) > 1:
                     _ = init_parse_step(source_dtype, source_step, new_data)
                 else:
-                    test_data = np.concat((source_data[-1], new_data[0]))
+                    test_data = np.array([source_data[-1], new_data[0]])
                     _ = init_parse_step(source_dtype, source_step, test_data)
 
         elif source_dtype.kind == 'G':
@@ -574,7 +574,7 @@ def append_new_data(new_data: list | np.ndarray, source_data: np.ndarray, source
                 raise ValueError('Appending requires that all values are greater than the existing values.')
 
             if len(new_data) == 1:
-                test_data = np.concat((source_data[-1], new_data[0]))
+                test_data = np.array([source_data[-1], new_data[0]])
                 _ = init_parse_step(source_dtype, source_step, test_data)
 
         new_data = np.append(source_data, new_data)
@@ -596,7 +596,7 @@ def prepend_new_data(new_data: list | np.ndarray, source_data: np.ndarray, sourc
                 raise ValueError('Prepending requires that all values are less than the existing values.')
 
             if len(new_data) == 1:
-                test_data = np.concat((new_data[0], source_data[0]))
+                test_data = np.array([new_data[0], source_data[0]])
                 _ = init_parse_step(source_dtype, source_step, test_data)
 
         new_data = np.append(new_data, source_data)
@@ -825,32 +825,6 @@ def make_var_chunk_key(var_name, chunk_start):
     return var_chunk_key
 
 
-def check_coords(coords, shape, sys_meta):
-    """
-
-    """
-    # exist_coords = set(sys_meta.variables.keys())
-    # new_coords = set(coords)
-    # diff_coords = new_coords.difference(exist_coords)
-
-    # if diff_coords:
-    #     raise ValueError(f'{diff_coords} does not exist. Create the coord(s) before creating the data variable.')
-
-    if len(coords) != len(shape):
-        raise ValueError(f'The coords length ({len(coords)}) != the shape length ({len(shape)})')
-
-    for coord, size in zip(coords, shape):
-        if coord not in sys_meta.variables:
-            raise ValueError(f'{coord} does not exist. Create the coord before creating the data variable.')
-
-        exist_coord = sys_meta.variables[coord]
-
-        if not exist_coord.is_coord:
-            raise TypeError(f'{coord} must be a coord. This is a data variable.')
-
-        if size != exist_coord.shape[0]:
-            raise ValueError(f'The {coord} shape length ({size}) != existing coord length ({exist_coord.shape[0]})')
-
 
 def cartesian(arrays, out=None):
     """
@@ -936,7 +910,7 @@ def data_variable_summary(ds):
     """
     type1 = type(ds)
 
-    if ds:
+    if getattr(ds, 'is_open', bool(ds)):
         summ_dict = {'name': ds.name, 'dtype': ds.dtype.name, 'dims order': '(' + ', '.join(ds.coord_names) + ')', 'shape': str(ds.shape), 'chunk shape': str(ds.chunk_shape)}
 
         summary = f"""<cfdb.{type1.__name__}>"""
@@ -972,7 +946,7 @@ def coordinate_summary(ds):
     """
     type1 = type(ds)
 
-    if ds:
+    if getattr(ds, 'is_open', bool(ds)):
         name = ds.name
         # dim_len = ds.ndims
         # dtype_name = ds.dtype.name
@@ -1018,7 +992,7 @@ def file_summary(ds):
     """
     type1 = type(ds)
 
-    if ds:
+    if getattr(ds, 'is_open', bool(ds)):
         file_path = ds.file_path
         if file_path.exists() and file_path.is_file():
             file_size = file_path.stat().st_size*0.000001
@@ -1039,8 +1013,12 @@ def file_summary(ds):
             dtype_name = var.dtype.name
             dim_len = var.shape[0]
             # print(var.data)
-            first_value = format_value(var.data[0])
-            last_value = format_value(var.data[-1])
+            if dim_len > 0:
+                first_value = format_value(var.data[0])
+                last_value = format_value(var.data[-1])
+            else:
+                first_value = ''
+                last_value = ''
             spacing = value_indent - name_indent - len(dim_name)
             if spacing < 1:
                 spacing = 1
@@ -1071,19 +1049,23 @@ def file_summary(ds):
     return summary
 
 
-def get_dtype_params(name, kwargs={}):
+def get_dtype_params(name, kwargs=None):
     """
 
     """
+    if kwargs is None:
+        kwargs = {}
     params = deepcopy(default_dtype_params[name])
     params.update(kwargs)
 
     return name, params
 
-def get_var_params(name, kwargs={}):
+def get_var_params(name, kwargs=None):
     """
 
     """
+    if kwargs is None:
+        kwargs = {}
     if 'dtype' in kwargs:
         if not isinstance(kwargs['dtype'], dtypes.DataType):
             kwargs['dtype'] = dtypes.dtype(kwargs.pop('dtype'))

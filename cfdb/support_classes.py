@@ -18,8 +18,8 @@ import rechunkit
 # import pyproj
 import sys
 
-from . import utils, indexers, dtypes, data_models
-# import utils, indexers, dtypes, data_models
+from . import utils, indexers, dtypes, data_models, grid_interp
+# import utils, indexers, dtypes, data_models, grid_interp
 
 ###################################################
 ### Parameters
@@ -212,7 +212,7 @@ class Attributes:
         if self.writable:
             try:
                 msgspec.json.encode(value)
-            except:
+            except Exception:
                 raise ValueError('The value passed is not json serializable.')
             self._data[key] = value
         else:
@@ -265,7 +265,7 @@ class Attributes:
         if self.writable:
             try:
                 msgspec.json.encode(other)
-            except:
+            except Exception:
                 raise ValueError('The values passed are not json serializable.')
             self._data.update(other)
         else:
@@ -355,11 +355,11 @@ class Compressor:
 
 class Variable:
     """
-
+    The base class for both Coordinate and DataVariable objects.
     """
     def __init__(self, var_name, dataset, sel=None):
         """
-
+        Initialize the Variable object.
         """
         self._dataset = dataset
         self._sys_meta = dataset._sys_meta
@@ -408,6 +408,13 @@ class Variable:
     def __bool__(self):
         return self.is_open
 
+    def __array__(self, dtype=None, copy=None):
+        return np.array(self.data, dtype=dtype, copy=copy)
+
+    @property
+    def values(self):
+        return self.data
+
 
     def _make_blank_sel_array(self, sel, coord_origins):
         """
@@ -451,11 +458,11 @@ class Variable:
 
         """
         if self.dtype.itemsize is None:
-            chunk_bytes = self._get_raw_chunk()
+            b1, slices = self._get_raw_chunk()
 
-            if chunk_bytes is not None:
-                arr = self.dtype.loads(self.compressor.decompress(chunk_bytes))
-                chunk_bytes_len = math.sum([sys.getsizeof(a) for a in arr])
+            if b1 is not None:
+                arr = self.dtype.loads(self.compressor.decompress(b1))
+                chunk_bytes_len = sum([sys.getsizeof(a) for a in arr])
 
                 itemsize = math.ceil(chunk_bytes_len/len(arr))
                 self.dtype.itemsize = itemsize
@@ -815,7 +822,7 @@ class CoordinateView(Variable):
 
 class Coordinate(CoordinateView):
     """
-
+    The Coordinate object. It holds the coordinate data in memory and allows for appending/prepending data.
     """
     @property
     def shape(self):
@@ -903,7 +910,6 @@ class Coordinate(CoordinateView):
         self._add_updated_data(chunk_start, chunk_stop, self.origin, updated_data)
 
         self._var_meta.shape = shape
-
 
 
 class DataVariableView(Variable):
@@ -1108,6 +1114,32 @@ class DataVariableView(Variable):
     #     return ds
 
 
+    def grid_interp(self, x=None, y=None, z=None, time=None):
+        """
+        Create a GridInterp object for performing grid interpolation
+        operations on this data variable. Requires the geointerp package
+        and a CRS defined on the dataset.
+
+        Coordinate names for x, y, z, and time are auto-detected from the
+        dataset's axis metadata. Pass them explicitly when axes are not set.
+
+        Parameters
+        ----------
+        x : str or None
+            Name of the x coordinate.
+        y : str or None
+            Name of the y coordinate.
+        z : str or None
+            Name of the z coordinate.
+        time : str or None
+            Name of the time coordinate.
+
+        Returns
+        -------
+        GridInterp
+        """
+        return grid_interp.GridInterp(self, x=x, y=y, z=z, time=time)
+
     def __repr__(self):
         """
 
@@ -1132,7 +1164,7 @@ class DataVariableView(Variable):
 
 class DataVariable(DataVariableView):
     """
-
+    The DataVariable object. It accesses data chunks on demand and supports rechunking and grouping.
     """
     @property
     def shape(self):
