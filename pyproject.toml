@@ -27,12 +27,13 @@ dependencies = [
   'lz4',
   'shapely>2',
   'pyproj>3',
+  'geominterp>=0.1.1',
 ]
 
 [project.optional-dependencies]
 netcdf4 = ['h5netcdf', 'cftime']
 ebooklet = ['ebooklet>=0.5.10']
-geointerp = ['geointerp']
+geointerp = ['geointerp>=0.1.1']
 
 [dependency-groups]
 dev = [
