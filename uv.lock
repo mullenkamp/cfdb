@@ -174,7 +174,7 @@ provides-extras = ["ebooklet", "geointerp", "netcdf4"]
 dev = [
     { name = "black" },
     { name = "ebooklet", specifier = ">=0.5.10" },
-    { name = "geointerp" },
+    { name = "geointerp", specifier = ">=0.1.1" },
     { name = "h5netcdf" },
     { name = "h5py", specifier = ">=3.6.0" },
     { name = "mypy" },

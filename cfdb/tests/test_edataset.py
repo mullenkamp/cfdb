@@ -16,7 +16,7 @@ from cfdb import open_dataset, open_edataset, dtypes
 
 script_path = pathlib.Path(os.path.realpath(os.path.dirname(__file__)))
 
-file_path = script_path.joinpath('test_remote.blt')
+file_path = script_path.joinpath('test_remote.cfdb')
 name = 'air_temp'
 coords = ('latitude', 'longitude', 'time')
 chunk_shape = (20, 30, 10)
