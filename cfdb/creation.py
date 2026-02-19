@@ -285,7 +285,7 @@ class Coord:
     #     return crs0
 
 
-@create_data_var_methods(var_names=('precip', 'air_temp', 'wind_speed', 'wind_direction', 'u_wind', 'v_wind', 'relative_humidity', 'dew_temp', 'soil_temp', 'lwe_soil_moisture', 'surface_pressure', 'mslp', 'specific_humidity', 'shortwave_radiation', 'longwave_radiation', 'snow_depth'))
+@create_data_var_methods(var_names=('precip', 'air_temp', 'wind_speed', 'wind_direction', 'u_wind', 'v_wind', 'relative_humidity', 'dew_temp', 'soil_temp', 'lwe_soil_moisture', 'surface_pressure', 'mslp', 'specific_humidity', 'shortwave_radiation', 'longwave_radiation', 'snow_depth', 'vorticity', 'vertical_velocity', 'sensible_heat_flux', 'moisture_flux', 'albedo', 'emissivity', 'land_use_modis', 'mixing_ratio'))
 class DataVar:
     """
 
