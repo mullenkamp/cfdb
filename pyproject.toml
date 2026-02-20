@@ -47,7 +47,7 @@ dev = [
   "pytest-cov",
   'h5netcdf',
   'h5py>=3.6.0',
-  'ebooklet>=0.5.10',
+  'ebooklet>=0.6.0',
   'geointerp>=0.1.1',
 ]
 

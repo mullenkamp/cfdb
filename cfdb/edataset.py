@@ -52,6 +52,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
                   dataset_type: str='grid',
                   compression: str='zstd',
                   compression_level: int=1,
+                  num_groups: int = None,
                   **kwargs):
     """
     Open a cfdb that is linked with a remote S3 database.
@@ -72,6 +73,8 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
         The compression algorithm used for compressing all data. Must be either zstd or lz4. The option zstd has a really good combo of compression ratio to speed, while lz4 has a stronger emphasis on speed (and is lightning fast). Default is zstd.
     compression_level: int or None
         The compression level used by the compression algorithm. Setting this to None will d=used the deafults, which is 1 for both compression options.
+    num_groups : int or None
+        The number of groups for grouped S3 object storage. Required when creating a new database (flag='n'). For existing databases, this value is read from S3 metadata and the user-provided value is ignored.
     kwargs
         Any kwargs that can be passed to ebooklet.open.
 
@@ -105,7 +108,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
 
     fp = pathlib.Path(file_path)
     fp_exists = fp.exists()
-    open_blt = ebooklet.open(remote_conn, file_path, flag, **kwargs)
+    open_blt = ebooklet.open(remote_conn, file_path, flag, num_groups=num_groups, **kwargs)
 
     if (not fp_exists or flag == 'n') and open_blt.writable:
         create = True

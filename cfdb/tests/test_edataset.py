@@ -20,6 +20,7 @@ file_path = script_path.joinpath('test_remote.cfdb')
 name = 'air_temp'
 coords = ('latitude', 'longitude', 'time')
 chunk_shape = (20, 30, 10)
+num_groups = 10
 
 sel = (slice(1, 4), slice(None, None), slice(2, 5))
 loc_sel = (slice(0.4, 0.7), slice(None, None), slice('1970-01-04', '1970-01-10'))
@@ -87,7 +88,7 @@ def test_edataset(remote_conn):
         data_var[:] = data_var_data
 
     # Now open as EDataset and push
-    with open_edataset(remote_conn, file_path, flag='w') as ds:
+    with open_edataset(remote_conn, file_path, flag='w', num_groups=num_groups) as ds:
         changes = ds.changes()
         assert changes.push()
 
