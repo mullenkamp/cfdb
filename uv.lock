@@ -115,6 +115,8 @@ name = "cfdb"
 source = { editable = "." }
 dependencies = [
     { name = "booklet" },
+    { name = "cfdb-models" },
+    { name = "cfdb-vars" },
     { name = "geointerp" },
     { name = "lz4" },
     { name = "msgspec" },
@@ -155,6 +157,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "booklet", specifier = ">=0.9.2" },
+    { name = "cfdb-models", specifier = ">=0.1.0" },
+    { name = "cfdb-vars", specifier = ">=0.1.0" },
     { name = "cftime", marker = "extra == 'netcdf4'" },
     { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.5.10" },
     { name = "geointerp", specifier = ">=0.1.1" },
@@ -182,6 +186,28 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "spyder-kernels", specifier = "==2.5.2" },
+]
+
+[[package]]
+name = "cfdb-models"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f1/50/1357bef5ff8b440c519fd0fb4868112d4aa1122009c591e896e20969db75/cfdb_models-0.1.0.tar.gz", hash = "sha256:63a7d6abff0ee28479cca83ca798fd6e8903a6539382a8f6639679895dfeb32f", size = 4220, upload-time = "2026-02-20T03:02:18.204Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/f7/29112de4955eba16fccc97ac4a8e973665ac72a46b9923be8e3a0b47d365/cfdb_models-0.1.0-py3-none-any.whl", hash = "sha256:90a903f2d35fa41064298352d37be92f4092997af85cb845075663edfb330704", size = 3736, upload-time = "2026-02-20T03:02:17.038Z" },
+]
+
+[[package]]
+name = "cfdb-vars"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cfdb-models" },
+    { name = "msgspec" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c7/17/5390693433fa3d8412b14dc83c5b157db15eb64b2161cc892872b0bb4762/cfdb_vars-0.1.0.tar.gz", hash = "sha256:54a115363ecd56614c27dcf39386cb348b67849777c3150450411962ca8b4470", size = 5643, upload-time = "2026-02-20T04:25:18.382Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/66/7250cc947da3595774a8fffc5f7502c35add555cd2f6f734242c29d419a4/cfdb_vars-0.1.0-py3-none-any.whl", hash = "sha256:ca1fa167cd792122adce9cd546c6bdcfb5b9537e0d9315d0b3cd764d084fecc7", size = 5777, upload-time = "2026-02-20T04:25:16.957Z" },
 ]
 
 [[package]]

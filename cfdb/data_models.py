@@ -6,78 +6,13 @@ Created on Tue Feb 11 09:23:18 2025
 @author: mike
 """
 import msgspec
-import enum
-from typing import Set, Optional, Dict, Tuple, List, Union, Any
+from typing import Dict, Tuple, Union
 
-
-####################################################
-### Parameters
-
-
-
+from cfdb_models.data_models import Type, Compressor, Axis, DataType
 
 
 ###################################################
 ### Models
-
-
-class Type(enum.Enum):
-    """
-
-    """
-    grid = 'grid'
-    ts_ortho = 'ts_ortho'
-
-
-class Compressor(enum.Enum):
-    """
-
-    """
-    zstd = 'zstd'
-    lz4 = 'lz4'
-
-
-class Axis(enum.Enum):
-    """
-
-    """
-    x = 'x'
-    y = 'y'
-    z = 'z'
-    t = 't'
-    xy = 'xy'
-    xyz = 'xyz'
-
-
-# class Encoding(msgspec.Struct):
-#     """
-
-#     """
-#     dtype_encoded: str
-#     dtype_decoded: str
-#     fillvalue: Union[int, None] = None
-#     # fillvalue_decoded: Union[int, None]
-#     scale_factor: Union[float, int, None] = None
-#     add_offset: Union[float, int, None] = None
-#     # units: Union[str, None] = None
-#     # calendar: Union[str, None] = None
-
-#     # def encode(self, values):
-#     #     return utils.encode_data(np.asarray(values), **self._encoding)
-
-#     # def decode(self, bytes_data):
-#     #     return utils.decode_data(bytes_data, **self._encoding)
-
-
-class DataType(msgspec.Struct):
-    """
-
-    """
-    name: str
-    precision: Union[int, float, None] = None
-    dtype_encoded: Union[str, None] = None
-    offset: Union[int, float, None] = None
-    fillvalue: Union[int, None] = None
 
 
 class DataVariable(msgspec.Struct, tag='data_var'):

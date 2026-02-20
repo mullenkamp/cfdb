@@ -40,7 +40,7 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 
 **Entry points** (`main.py`): `open_dataset()` and `open_edataset()` are the public API. They return `Dataset` (local) or `EDataset` (S3-backed) objects. Datasets use Booklet as a key-value store with string keys for chunk data.
 
-**Data models** (`data_models.py`): msgspec Structs defining metadata schemas — `SysMeta` (top-level), `CoordinateVariable`, `DataVariable`, `DataType`. System metadata is stored in the Booklet file's metadata field. Variables are tagged unions (`tag='data_var'` / `tag='coord'`).
+**Data models** (`data_models.py`): msgspec Structs defining metadata schemas — `SysMeta` (top-level), `CoordinateVariable`, `DataVariable`. Shared types (`Type`, `Compressor`, `Axis`, `DataType`) are imported from `cfdb_models.data_models`. System metadata is stored in the Booklet file's metadata field. Variables are tagged unions (`tag='data_var'` / `tag='coord'`).
 
 **Support classes** (`support_classes.py`): Runtime variable objects exposed to users. Hierarchy:
 - `Variable` → `CoordinateView` → `Coordinate` (coordinates hold data in memory, support append/prepend)
@@ -69,5 +69,5 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 
 ### Dependencies
 
-Core: booklet, rechunkit, numpy, zstandard, msgspec, lz4, shapely, pyproj
+Core: booklet, cfdb-models, rechunkit, numpy, zstandard, msgspec, lz4, shapely, pyproj
 Optional: h5netcdf + cftime (netcdf4 support), ebooklet (S3 support)

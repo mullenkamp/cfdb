@@ -13,6 +13,9 @@ import rechunkit
 import shapely
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
 
+from cfdb_vars import var_defs, short_name_map
+from cfdb_models.data_models import CoordVarDef
+
 from . import data_models, dtypes
 # import data_models, dtypes
 
@@ -66,307 +69,6 @@ compression_options = ('zstd', 'lz4')
 default_compression_levels = {'zstd': 1, 'lz4': 1}
 default_n_buckets = 144013
 
-time_dtype_params = {
-    'datetime64[M]': {'dtype_encoded': 'int16', 'name': 'datetime64[M]', 'offset': -841},
-    'datetime64[D]': {'dtype_encoded': 'int32', 'name': 'datetime64[D]', 'offset': -25568},
-    'datetime64[h]': {'dtype_encoded': 'int32', 'name': 'datetime64[h]', 'offset': -613609},
-    'datetime64[m]': {'dtype_encoded': 'int32', 'name': 'datetime64[m]', 'offset': -36816481},
-    'datetime64[s]': {'dtype_encoded': 'int64', 'name': 'datetime64[s]', 'offset': -2208988801},
-    'datetime64[ms]': {'dtype_encoded': 'int64', 'name': 'datetime64[ms]', 'offset': -2208988800001},
-    'datetime64[us]': {'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': -2208988800000001},
-    'datetime64[ns]': {'dtype_encoded': 'int64', 'name': 'datetime64[ns]', 'offset': -631152000000000001},
-    }
-
-default_dtype_params = {
-    'lon': {'precision': 6, 'name': 'float64', 'offset': -180.000001, 'dtype_encoded': 'uint32', 'fillvalue': 0},
-    'lat': {'precision': 6, 'name': 'float64', 'offset': -90.000001, 'dtype_encoded': 'uint32', 'fillvalue': 0},
-    'height': {'dtype_encoded': 'uint32', 'offset': -1, 'precision': 3, 'name': 'float64', 'fillvalue': 0},
-    'altitude': {'dtype_encoded': 'uint32', 'offset': -11000.001, 'precision': 3, 'name': 'float64', 'fillvalue': 0},
-    'time': time_dtype_params['datetime64[m]'],
-    'modified_date': {'dtype_encoded': 'int64', 'name': 'datetime64[us]', 'offset': 1756684800000000},
-    'band': {'name': 'uint8'},
-    'censor_code': {'name': 'uint8'},
-    'x': {'precision': 1, 'name': 'float32'},
-    'y': {'precision': 1, 'name': 'float32'},
-    'precip': {'precision': 2, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'air_temp': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'wind_speed': {'precision': 2, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'wind_direction': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'u_wind': {'precision': 2, 'name': 'float32', 'offset': -101, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'v_wind': {'precision': 2, 'name': 'float32', 'offset': -101, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'relative_humidity': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'dew_temp': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'soil_temp': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'lwe_soil_moisture': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'surface_pressure': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint32', 'fillvalue': 0},
-    'specific_humidity': {'precision': 6, 'name': 'float32', 'offset': -0.000001, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'mixing_ratio': {'precision': 6, 'name': 'float32', 'offset': -0.000001, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'shortwave_radiation': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'longwave_radiation': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'snow_depth': {'precision': 3, 'name': 'float32', 'offset': -0.001, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'mslp': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint32', 'fillvalue': 0},
-    'vorticity': {'precision': 5, 'name': 'float32', 'offset': -0.300001, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'vertical_velocity': {'precision': 2, 'name': 'float32', 'offset': -50.01, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'sensible_heat_flux': {'precision': 1, 'name': 'float32', 'offset': -300.1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'moisture_flux': {'precision': 6, 'name': 'float32', 'offset': -0.010001, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'albedo': {'precision': 3, 'name': 'float32', 'offset': -0.001, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'emissivity': {'precision': 3, 'name': 'float32', 'offset': -0.001, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'terrain_height': {'precision': 1, 'name': 'float32', 'offset': -1, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'potential_temperature': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'equivalent_potential_temperature': {'precision': 2, 'name': 'float32', 'offset': -61, 'dtype_encoded': 'uint16', 'fillvalue': 0},
-    'land_use_modis': {'name': 'uint8'},
-    'point': {'precision': 5, 'name': 'point'},
-    'line': {'precision': 5, 'name': 'line'},
-    'polygon': {'precision': 5, 'name': 'polygon'},
-                 # 'bore_top_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
-                 # 'bore_bottom_of_screen': {'dtype_encoded': 'int16', 'fillvalue': 9999, 'scale_factor': 0.1},
-                 # 'bore_depth': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 0.1},
-                 # 'reference_level': {'dtype_encoded': 'int16', 'fillvalue': -9999, 'scale_factor': 1},
-                 }
-
-default_var_params = {
-    'lon': {'name': 'longitude', 'axis': 'x'},
-    'lat': {'name': 'latitude', 'axis': 'y'},
-    'height': {'name': 'height', 'axis': 'z'},
-    'altitude': {'name': 'altitude', 'axis': 'z'},
-    'time': {'name': 'time', 'axis': 't'},
-    'modified_date': {'name': 'modified_date'},
-    'band': {'name': 'band'},
-    'censor_code': {'name': 'censor_code'},
-    'x': {'name': 'x', 'axis': 'x'},
-    'y': {'name': 'y', 'axis': 'y'},
-    'precip': {'name': 'precipitation'},
-    'air_temp': {'name': 'air_temperature'},
-    'wind_speed': {'name': 'wind_speed'},
-    'wind_direction': {'name': 'wind_direction'},
-    'u_wind': {'name': 'u_wind'},
-    'v_wind': {'name': 'v_wind'},
-    'relative_humidity': {'name': 'relative_humidity'},
-    'dew_temp': {'name': 'dew_point_temperature'},
-    'soil_temp': {'name': 'soil_temperature'},
-    'lwe_soil_moisture': {'name': 'lwe_soil_moisture'},
-    'surface_pressure': {'name': 'surface_pressure'},
-    'specific_humidity': {'name': 'specific_humidity'},
-    'mixing_ratio': {'name': 'mixing_ratio'},
-    'shortwave_radiation': {'name': 'shortwave_radiation'},
-    'longwave_radiation': {'name': 'longwave_radiation'},
-    'snow_depth': {'name': 'snow_depth'},
-    'mslp': {'name': 'mslp'},
-    'vorticity': {'name': 'vorticity'},
-    'vertical_velocity': {'name': 'vertical_velocity'},
-    'sensible_heat_flux': {'name': 'sensible_heat_flux'},
-    'moisture_flux': {'name': 'moisture_flux'},
-    'albedo': {'name': 'albedo'},
-    'emissivity': {'name': 'emissivity'},
-    'terrain_height': {'name': 'terrain_height'},
-    'potential_temperature': {'name': 'potential_temperature'},
-    'equivalent_potential_temperature': {'name': 'equivalent_potential_temperature'},
-    'land_use_modis': {'name': 'land_use_modis'},
-    'point': {'name': 'point', 'axis': 'xy'},
-    'line': {'name': 'line', 'axis': 'xy'},
-    'polygon': {'name': 'polygon', 'axis': 'xy'},
-    }
-
-default_attrs = dict(
-    lat={
-        'long_name': 'latitude',
-        'units': 'degrees_north',
-        'standard_name': 'latitude',
-        'axis': 'Y',
-        },
-    lon={
-        'long_name': 'longitude',
-        'units': 'degrees_east',
-        'standard_name': 'longitude',
-        'axis': 'X',
-        },
-    height={
-        'long_name': 'height',
-        'units': 'm',
-        'standard_name': 'height',
-        'positive': 'up',
-        'axis': 'Z',
-        },
-    altitude={
-        'long_name': 'altitude',
-        'units': 'm',
-        'standard_name': 'altitude',
-        'positive': 'up',
-        'axis': 'Z',
-        },
-    time={
-        'long_name': 'time',
-        # 'units': 'seconds since 1970-01-01 00:00:00',
-        'standard_name': 'time',
-        # 'calendar': 'proleptic_gregorian',
-        'axis': 'T',
-        },
-    censor_code = {
-        'long_name': 'data censor code',
-        'standard_name': 'status_flag',
-        'flag_values': '0 1 2 3 4 5',
-        'flag_meanings': 'greater_than less_than not_censored non-detect present_but_not_quantified unknown'
-        },
-    band = {
-        'long_name': 'band number',
-        },
-    y={
-        'long_name': 'y coordinate of projection',
-        'units': 'metres',
-        'standard_name': 'projection_y_coordinate',
-        'axis': 'Y',
-        },
-    x={
-        'long_name': 'x coordinate of projection',
-        'units': 'metres',
-        'standard_name': 'projection_x_coordinate',
-        'axis': 'X',
-        },
-    precip={
-        'long_name': 'precipitation',
-        'units': 'mm',
-        'standard_name': 'precipitation_amount',
-        },
-    air_temp={
-        'long_name': 'air temperature',
-        'units': 'K',
-        'standard_name': 'air_temperature',
-        },
-    wind_speed={
-        'long_name': 'wind speed',
-        'units': 'm/s',
-        'standard_name': 'wind_speed',
-        },
-    wind_direction={
-        'long_name': 'wind direction',
-        'units': 'deg',
-        'standard_name': 'wind_to_direction',
-        },
-    u_wind={
-        'long_name': 'eastward wind component',
-        'units': 'm/s',
-        'standard_name': 'eastward_wind',
-        },
-    v_wind={
-        'long_name': 'northward wind component',
-        'units': 'm/s',
-        'standard_name': 'northward_wind',
-        },
-    relative_humidity={
-        'long_name': 'relative humidity',
-        'units': 'm^3/m^3',
-        'standard_name': 'relative_humidity',
-        },
-    dew_temp={
-        'long_name': 'dew point temperature',
-        'units': 'K',
-        'standard_name': 'dew_point_temperature',
-        },
-    soil_temp={
-        'long_name': 'soil temperature',
-        'units': 'K',
-        'standard_name': 'soil_temperature',
-        },
-    lwe_soil_moisture={
-        'long_name': 'liquid water equivalent of soil moisture',
-        'units': 'mm',
-        'standard_name': 'lwe_thickness_of_soil_moisture_content',
-        },
-    surface_pressure={
-        'long_name': 'surface pressure',
-        'units': 'Pa',
-        'standard_name': 'surface_air_pressure',
-        },
-    specific_humidity={
-        'long_name': 'specific humidity',
-        'units': 'kg kg-1',
-        'standard_name': 'specific_humidity',
-        },
-    mixing_ratio={
-        'long_name': 'water vapor mixing ratio',
-        'units': 'kg kg-1',
-        'standard_name': 'humidity_mixing_ratio',
-        },
-    shortwave_radiation={
-        'long_name': 'downward shortwave radiation at surface',
-        'units': 'W m-2',
-        'standard_name': 'surface_downwelling_shortwave_flux_in_air',
-        },
-    longwave_radiation={
-        'long_name': 'downward longwave radiation at surface',
-        'units': 'W m-2',
-        'standard_name': 'surface_downwelling_longwave_flux_in_air',
-        },
-    snow_depth={
-        'long_name': 'physical snow depth',
-        'units': 'm',
-        'standard_name': 'surface_snow_thickness',
-        },
-    mslp={
-        'long_name': 'mean sea level pressure',
-        'units': 'Pa',
-        'standard_name': 'air_pressure_at_mean_sea_level',
-        },
-    vorticity={
-        'long_name': 'relative vorticity',
-        'units': 's-1',
-        'standard_name': 'atmosphere_relative_vorticity',
-        },
-    vertical_velocity={
-        'long_name': 'vertical velocity',
-        'units': 'm s-1',
-        'standard_name': 'upward_air_velocity',
-        },
-    sensible_heat_flux={
-        'long_name': 'upward sensible heat flux',
-        'units': 'W m-2',
-        'standard_name': 'surface_upward_sensible_heat_flux',
-        },
-    moisture_flux={
-        'long_name': 'upward moisture flux',
-        'units': 'kg m-2 s-1',
-        'standard_name': 'water_evapotranspiration_flux',
-        },
-    albedo={
-        'long_name': 'surface albedo',
-        'units': '1',
-        'standard_name': 'surface_albedo',
-        },
-    emissivity={
-        'long_name': 'surface emissivity',
-        'units': '1',
-        'standard_name': 'surface_longwave_emissivity',
-        },
-    terrain_height={
-        'long_name': 'terrain height above sea level',
-        'units': 'm',
-        'standard_name': 'surface_altitude',
-        },
-    potential_temperature={
-        'long_name': 'air potential temperature',
-        'units': 'K',
-        'standard_name': 'air_potential_temperature',
-        },
-    equivalent_potential_temperature={
-        'long_name': 'equivalent potential temperature',
-        'units': 'K',
-        'standard_name': 'equivalent_potential_temperature',
-        },
-    land_use_modis={
-        'long_name': 'land use category for modis',
-        'flag_values': '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21',
-        'flag_meanings': 'evergreen_needleleaf_forests evergreen_broadleaf_forests deciduous_needleleaf_forests deciduous_broadleaf_forests mixed_forests closed_shrublands open_shrublands woody_savannas savannas grasslands permanent_wetlands croplands urban_and_built_up cropland_natural_vegetation_mosaics permanent_snow_and_ice barren water_bodies wooded_tundra mixed_tundra barren_tundra lakes',
-        },
-    point={
-        'long_name': 'location geometry as points',
-        },
-    line={
-        'long_name': 'location geometry as lines',
-        },
-    polygon={
-        'long_name': 'location geometry as polygons',
-        },
-    )
 
 
 crs_name_dict = {
@@ -1182,37 +884,35 @@ def file_summary(ds):
     return summary
 
 
-def get_dtype_params(name, kwargs=None):
-    """
-
-    """
-    if kwargs is None:
-        kwargs = {}
-    params = deepcopy(default_dtype_params[name])
-    params.update(kwargs)
-
-    return name, params
-
 def get_var_params(name, kwargs=None):
     """
 
     """
     if kwargs is None:
         kwargs = {}
+
+    cf_name = short_name_map[name]
+    var_def = var_defs[cf_name]
+
+    # Build runtime dtype
     if 'dtype' in kwargs:
         if not isinstance(kwargs['dtype'], dtypes.DataType):
             kwargs['dtype'] = dtypes.dtype(kwargs.pop('dtype'))
     else:
-        kwargs['dtype'] = dtypes.dtype(**default_dtype_params[name])
+        dtype_params = {k: v for k, v in msgspec.structs.asdict(var_def.dtype).items() if v is not None}
+        kwargs['dtype'] = dtypes.dtype(**dtype_params)
 
-    var_params = deepcopy(default_var_params[name])
-    var_params.update(kwargs)
+    # For coord vars, derive internal axis (lowercase) from CF axis attr or geometry type
+    if isinstance(var_def, CoordVarDef):
+        cf_axis = var_def.attrs.get('axis') if var_def.attrs else None
+        if cf_axis:
+            kwargs.setdefault('axis', cf_axis.lower())
+        elif var_def.dtype.name in ('point', 'line', 'polygon'):
+            kwargs.setdefault('axis', 'xy')
 
-    var_name = var_params.pop('name')
+    attrs = deepcopy(var_def.attrs) if var_def.attrs else {}
 
-    attrs = deepcopy(default_attrs[name])
-
-    return var_name, var_params, attrs
+    return cf_name, kwargs, attrs
 
 
 

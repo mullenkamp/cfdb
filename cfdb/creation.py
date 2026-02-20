@@ -9,8 +9,13 @@ import numpy as np
 from typing import Set, Optional, Dict, Tuple, List, Union, AnyStr
 import pyproj
 
+from cfdb_vars import short_name_map, coord_var_defs, data_var_defs
+
 from . import utils, dtypes, data_models, support_classes as sc
 # import utils, dtypes, data_models, support_classes as sc
+
+_coord_short_names = tuple(k for k, v in short_name_map.items() if v in coord_var_defs)
+_data_var_short_names = tuple(k for k, v in short_name_map.items() if v in data_var_defs)
 
 #################################################
 
@@ -153,7 +158,7 @@ class CRS:
         return crs0
 
 
-@create_coord_methods(var_names=('time', 'lat', 'lon', 'height', 'altitude', 'x', 'y', 'point', 'line', 'polygon'))
+@create_coord_methods(var_names=_coord_short_names)
 class Coord:
     """
 
@@ -285,7 +290,7 @@ class Coord:
     #     return crs0
 
 
-@create_data_var_methods(var_names=('precip', 'air_temp', 'wind_speed', 'wind_direction', 'u_wind', 'v_wind', 'relative_humidity', 'dew_temp', 'soil_temp', 'lwe_soil_moisture', 'surface_pressure', 'mslp', 'specific_humidity', 'shortwave_radiation', 'longwave_radiation', 'snow_depth', 'vorticity', 'vertical_velocity', 'sensible_heat_flux', 'moisture_flux', 'albedo', 'emissivity', 'land_use_modis', 'mixing_ratio', 'terrain_height', 'potential_temperature', 'equivalent_potential_temperature'))
+@create_data_var_methods(var_names=_data_var_short_names)
 class DataVar:
     """
 
