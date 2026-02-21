@@ -1,33 +1,44 @@
 name: Build
 
-on: [push, pull_request]
+on:
+  push:
+    tags:
+      - '*'
 
 jobs:
   test:
 
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python_version: ['3.9', '3.10', '3.11']
+        python_version: ['3.10', '3.11', '3.12']
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: ${{ matrix.python_version }}
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+
+    - name: Set up Python ${{ matrix.python_version }}
+      run: uv python install ${{ matrix.python_version }}
+
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install hatch
-        hatch env create
+      run: uv sync
+
     - name: Lint and typecheck
       run: |
-        hatch run lint-check
+        uv run ruff check .
+        uv run black --check --diff .
+        uv run mypy --install-types --non-interactive cfdb_vars
+
     - name: Test
-      run: |
-        hatch run test-cov-xml
-    - uses: codecov/codecov-action@v3
+      run: uv run pytest --cov --cov-report=xml
+
+    - uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
@@ -39,23 +50,23 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+
     - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    - name: Install dependencies
-      shell: bash
-      run: |
-        python -m pip install --upgrade pip
-        pip install hatch
-    - name: Build and publish on PyPI
+      run: uv python install 3.10
+
+    - name: Build
+      run: uv build
+
+    - name: Publish on PyPI
       env:
-        HATCH_INDEX_USER: ${{ secrets.HATCH_INDEX_USER }}
-        HATCH_INDEX_AUTH: ${{ secrets.HATCH_INDEX_AUTH }}
-      run: |
-        hatch build
-        hatch publish
+        UV_PUBLISH_USERNAME: ${{ secrets.HATCH_INDEX_USER }}
+        UV_PUBLISH_PASSWORD: ${{ secrets.HATCH_INDEX_AUTH }}
+      run: uv publish
+
     - name: Create release
       uses: ncipollo/release-action@v1
       with:

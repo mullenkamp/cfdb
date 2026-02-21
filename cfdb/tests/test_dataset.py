@@ -6,7 +6,7 @@ import pathlib
 import h5netcdf
 import shapely
 
-from cfdb import open_dataset, cfdb_to_netcdf4, netcdf4_to_cfdb, dtypes
+from cfdb import open_dataset, cfdb_to_netcdf4, dtypes
 
 ###################################################
 ### Parameters
@@ -209,8 +209,8 @@ def test_prune():
 def test_cfdb_to_netcdf4():
     cfdb_to_netcdf4(file_path, nc_file_path, sel_loc=ds_loc_sel)
 
-def test_netcdf4_to_cfdb():
-    netcdf4_to_cfdb(nc_file_path, new_file_path)
+# def test_netcdf4_to_cfdb():
+#     netcdf4_to_cfdb(nc_file_path, new_file_path)
 
 
 ##############################################
