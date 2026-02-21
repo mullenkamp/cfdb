@@ -20,6 +20,8 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
   'booklet>=0.9.2',
+  'cfdb-models>=0.1.0',
+  'cfdb-vars>=0.1.0',
   'rechunkit>=0.2.1',
   'numpy>2',
   'zstandard',
@@ -32,8 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 netcdf4 = ['h5netcdf', 'cftime']
-ebooklet = ['ebooklet>=0.5.10']
-geointerp = ['geointerp>=0.1.1']
+ebooklet = ['ebooklet>=0.6.0']
 
 [dependency-groups]
 dev = [
@@ -45,8 +46,12 @@ dev = [
   "pytest-cov",
   'h5netcdf',
   'h5py>=3.6.0',
-  'ebooklet>=0.5.10',
-  'geointerp>=0.1.1',
+  'ebooklet>=0.6.0',
+]
+docs = [
+  "mkdocs-material>=9.0",
+  "mkdocstrings[python]>=0.24",
+  "ebooklet>=0.6.0",
 ]
 
 [tool.hatch]
