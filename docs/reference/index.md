@@ -42,6 +42,12 @@ This section provides detailed API documentation for cfdb's public interface.
 |-------|-------------|
 | [`Rechunker`](rechunker.md) | On-the-fly rechunking interface |
 
+## Combining
+
+| Function | Description |
+|----------|-------------|
+| [`combine`](combine.md) | Merge multiple datasets into one |
+
 ## Tools
 
 | Function | Description |
@@ -61,6 +67,7 @@ cfdb/
 ├── grid_interp.py       # GridInterp wrapper
 ├── data_models.py       # msgspec Structs for metadata
 ├── indexers.py           # Index and location-based selection
+├── combine.py           # Dataset combining/merging
 ├── tools.py             # NetCDF4 conversion functions
 └── utils.py             # Internal utilities
 ```
