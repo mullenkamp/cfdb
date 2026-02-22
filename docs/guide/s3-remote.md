@@ -43,11 +43,7 @@ The `remote_conn` parameter accepts:
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `remote_conn` | S3Connection, str, or dict | Remote connection |
-| `file_path` | str or Path | Local cache file path |
-| `flag` | str | Open mode (r/w/c/n) |
 | `num_groups` | int or None | S3 object groups (required for flag='n') |
-| `compression` | str | zstd or lz4 |
-| `compression_level` | int | Compression level |
 
 ## Reading Remote Data
 

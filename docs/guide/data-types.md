@@ -1,6 +1,6 @@
 # Data Types
 
-cfdb uses a custom type system that handles both the in-memory representation (decoded) and the on-disk serialization (encoded) of data. Nearly all use numpy dtypes.
+cfdb uses a custom type system that handles both the in-memory representation (decoded) and the on-disk serialization (encoded) of data. Nearly all use numpy dtypes which can be passed instead of the cfdb dtypes. The cfdb dtypes are only necessary when the decoding is different than the encoding (e.g. float64 encoded to int16 on disk).
 
 ## The dtype() Factory
 
@@ -47,7 +47,7 @@ dt = cfdb.dtypes.dtype('float32')
 # With precision only — rounds to 2 decimals but stays float
 dt = cfdb.dtypes.dtype('float64', precision=2)
 
-# With integer encoding — compresses float64 to uint2 using scale+offset
+# With integer encoding — compresses float64 to uint16 using scale+offset
 dt = cfdb.dtypes.dtype('float64', precision=2, min_value=-50.0, max_value=100.0)
 ```
 
@@ -59,6 +59,8 @@ Stores integer data. Can optionally encode to a smaller integer:
 
 ```python
 dt = cfdb.dtypes.dtype('int32')
+
+# int64 will be encoded to int16
 dt = cfdb.dtypes.dtype('int64', min_value=0, max_value=1000)
 ```
 
