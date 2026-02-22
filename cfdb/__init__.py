@@ -2,6 +2,7 @@
 from cfdb.main import open_dataset
 from cfdb.utils import compute_scale_and_offset
 from cfdb.tools import cfdb_to_netcdf4
+from cfdb.combine import combine
 from cfdb import dtypes
 from rechunkit import guess_chunk_shape
 
@@ -10,4 +11,4 @@ try:
 except ImportError:
     pass
 
-__version__ = '0.3.5'
+__version__ = '0.4.0'
