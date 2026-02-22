@@ -17,7 +17,7 @@ cfdb is a pure Python database for managing labeled multi-dimensional arrays fol
 - **Rechunking** — on-the-fly rechunking via [rechunkit](https://github.com/mullenkamp/rechunkit) for flexible data access patterns
 - **Grid interpolation** — regridding, point sampling, NaN filling, and level regridding via [geointerp](https://github.com/mullenkamp/geointerp)
 - **S3 remote sync** — `EDataset` links a local file with an S3 remote via [EBooklet](https://github.com/mullenkamp/ebooklet)
-- **NetCDF4 export** — convert to/from netCDF4 with [h5netcdf](https://h5netcdf.org/)
+- **NetCDF4 export** — convert to netCDF4 with [h5netcdf](https://h5netcdf.org/) and from netcdf4 with [cfdb-ingest](https://github.com/mullenkamp/cfdb-ingest)
 
 ## Quick Example
 
