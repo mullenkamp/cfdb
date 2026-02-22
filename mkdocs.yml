@@ -83,6 +83,7 @@ nav:
         - Data Types: guide/data-types.md
         - Grid Interpolation: guide/grid-interpolation.md
         - Attributes: guide/attributes.md
+        - Combining Datasets: guide/combining-datasets.md
         - S3 Remote (EDataset): guide/s3-remote.md
         - Export & Copy: guide/export-copy.md
     - Concepts:
@@ -101,5 +102,6 @@ nav:
         - Data Types: reference/dtypes.md
         - Grid Interpolation: reference/grid-interp.md
         - Rechunker: reference/rechunker.md
+        - combine: reference/combine.md
         - Tools: reference/tools.md
     - Changelog: changelog.md
