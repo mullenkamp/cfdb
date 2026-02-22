@@ -1,6 +1,6 @@
 # Grid Interpolation
 
-Data variables support spatial interpolation via the [geointerp](https://github.com/mullenkamp/geointerp) package. This enables regridding, point sampling, NaN filling, and vertical level regridding directly from a data variable.
+Data variables support spatial interpolation via the [geointerp](https://github.com/mullenkamp/geointerp) package. This enables regridding, point sampling, NaN filling, vertical level regridding, and CRS transformations directly from a data variable.
 
 ## Prerequisites
 
@@ -48,6 +48,18 @@ Parameters:
 | `extrapolation` | str | Mode for out-of-grid values |
 | `fill_val` | float | Fill value for 'constant' extrapolation |
 | `min_val` | float or None | Floor clamp value |
+
+## CRS Transformations
+
+Regrid data from one coordinate reference system to another using the `to_crs` parameter. For example, reproject from NZGD2000 (EPSG:2193) to WGS 84 (EPSG:4326):
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    for time_val, grid in ds['temperature'].grid_interp().to_grid(grid_res=0.01, to_crs=4326):
+        print(time_val, grid.shape)
+```
+
+The source CRS is read from the dataset, and the output grid is produced in the target CRS. This works for both `to_grid` (regrid onto a new grid in the target CRS) and `to_points` (sample at points given in the target CRS).
 
 ## Sampling at Point Locations
 
