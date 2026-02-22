@@ -17,7 +17,7 @@ try:
 except ImportError:
     import tomli as toml
 
-from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4, netcdf4_to_cfdb
+from cfdb import open_dataset, open_edataset, cfdb_to_netcdf4
 import h5netcdf
 import rechunkit
 import salem

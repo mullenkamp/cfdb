@@ -21,7 +21,7 @@ with cfdb.open_dataset(file_path) as ds:
 ```
 
 !!! note
-    Advanced indexing (fancy indexing with arrays or boolean masks) is not supported.
+    Advanced indexing (fancy indexing with arrays or boolean masks) is currently not supported.
 
 ## Location-Based Selection (.loc)
 

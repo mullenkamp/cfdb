@@ -93,7 +93,7 @@ DateTime coordinates use numpy's `datetime64` type. Specify the precision in bra
 time_data = np.arange('2020-01-01', '2020-07-19', dtype='datetime64[D]')
 
 with cfdb.open_dataset(file_path, flag='n') as ds:
-    time = ds.create.coord.time(data=time_data, dtype_decoded=time_data.dtype)
+    time = ds.create.coord.time(data=time_data)
 ```
 
 See [numpy datetime reference](https://numpy.org/doc/stable/reference/arrays.datetime.html#datetime-units) for frequency codes. Do not use a frequency finer than `'ns'`.
