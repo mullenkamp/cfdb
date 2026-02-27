@@ -81,7 +81,7 @@ nav:
         - Indexing & Selection: guide/indexing.md
         - Rechunking: guide/rechunking.md
         - Data Types: guide/data-types.md
-        - Grid Interpolation: guide/grid-interpolation.md
+        - Interpolation: guide/interpolation.md
         - Attributes: guide/attributes.md
         - Combining Datasets: guide/combining-datasets.md
         - S3 Remote (EDataset): guide/s3-remote.md
@@ -100,7 +100,7 @@ nav:
         - DataVariable: reference/data-variable.md
         - Creator: reference/creator.md
         - Data Types: reference/dtypes.md
-        - Grid Interpolation: reference/grid-interp.md
+        - Interpolation: reference/interp.md
         - Rechunker: reference/rechunker.md
         - combine: reference/combine.md
         - Tools: reference/tools.md

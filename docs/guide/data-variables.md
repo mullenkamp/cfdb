@@ -142,6 +142,6 @@ with cfdb.open_dataset(file_path) as ds:
     print(temp.attrs)         # variable attributes
 ```
 
-## Grid Interpolation
+## Interpolation
 
-Data variables support spatial interpolation via the `grid_interp()` method. See [Grid Interpolation](grid-interpolation.md) for details.
+Data variables support spatial interpolation via the `interp()` method. See [Interpolation](interpolation.md) for details.
