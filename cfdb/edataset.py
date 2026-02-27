@@ -66,42 +66,29 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
         It must be a path to a local file location. If you want to use a tempfile, then use the name from the NamedTemporaryFile initialized class.
 
     flag : str
-        Flag associated with how the file is opened according to the dbm style. See below for details.
-    dataset_type: str
-        The dataset type to be opened. The current options are "grid" and "ts_ortho". The default is "grid". See below for a description.
-    compression: str
-        The compression algorithm used for compressing all data. Must be either zstd or lz4. The option zstd has a really good combo of compression ratio to speed, while lz4 has a stronger emphasis on speed (and is lightning fast). Default is zstd.
-    compression_level: int or None
-        The compression level used by the compression algorithm. Setting this to None will d=used the deafults, which is 1 for both compression options.
+        Flag associated with how the file is opened according to the dbm style.
+
+        - ``'r'`` -- Open existing database for reading only (default).
+        - ``'w'`` -- Open existing database for reading and writing.
+        - ``'c'`` -- Open database for reading and writing, creating it if it doesn't exist.
+        - ``'n'`` -- Always create a new, empty database, open for reading and writing.
+    dataset_type : str
+        The dataset type to be opened. Default is ``'grid'``.
+
+        - ``'grid'`` -- The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
+        - ``'ts_ortho'`` -- A special time series coordinate structure representing the orthogonal multidimensional array representation of time series. Designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The z axis is currently optional.
+    compression : str
+        The compression algorithm used for compressing all data. Must be either ``'zstd'`` or ``'lz4'``. zstd has a good balance of compression ratio to speed, while lz4 emphasises speed. Default is ``'zstd'``.
+    compression_level : int or None
+        The compression level used by the compression algorithm. Setting this to None will use the defaults, which is 1 for both compression options.
     num_groups : int or None
         The number of groups for grouped S3 object storage. Required when creating a new database (flag='n'). For existing databases, this value is read from S3 metadata and the user-provided value is ignored.
-    kwargs
-        Any kwargs that can be passed to ebooklet.open.
+    **kwargs
+        Any kwargs that can be passed to ``ebooklet.open``.
 
     Returns
     -------
     cfdb.EDataset
-
-    The optional *flag* argument can be:
-    +---------+-------------------------------------------+
-    | Value   | Meaning                                   |
-    +=========+===========================================+
-    | ``'r'`` | Open existing database for reading only   |
-    |         | (default)                                 |
-    +---------+-------------------------------------------+
-    | ``'w'`` | Open existing database for reading and    |
-    |         | writing                                   |
-    +---------+-------------------------------------------+
-    | ``'c'`` | Open database for reading and writing,    |
-    |         | creating it if it doesn't exist           |
-    +---------+-------------------------------------------+
-    | ``'n'`` | Always create a new, empty database, open |
-    |         | for reading and writing                   |
-    +---------+-------------------------------------------+
-
-    The dataset_type argument determines the dimension/coordinate data structure:
-        grid: The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
-        ts_ortho: The a special time series coordinate structure representing the `Orthogonal multidimensional array representation of time series <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series>`_. The Geometry dtype must represent the xy axis. The time coordinate is the same as the "grid" time coordinate. The z axis is currently optional.
     """
     if 'n_buckets' not in kwargs:
         kwargs['n_buckets'] = utils.default_n_buckets
