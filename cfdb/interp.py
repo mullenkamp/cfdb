@@ -108,11 +108,11 @@ class GridInterp:
     """
     Wrapper around geointerp.GridInterpolator that auto-detects CRS and
     spatial/temporal coordinate names from dataset axis metadata, handles
-    dimension reordering, and iterates over time steps when present.
+    dimension reordering, and iterates over iter_dim slices when present.
 
-    All interpolation methods are generators that yield (time_value, result)
-    tuples. When there is no time dimension, a single tuple is yielded with
-    time_value=None.
+    All interpolation methods are generators that yield (dim_value, result)
+    tuples. When there is no iter_dim, a single tuple is yielded with
+    dim_value=None.
 
     Parameters
     ----------
@@ -124,8 +124,8 @@ class GridInterp:
         Name of the y coordinate. Auto-detected from axis metadata if None.
     z : str or None
         Name of the z coordinate. Auto-detected from axis metadata if None.
-    time : str or None
-        Name of the time coordinate. Auto-detected from axis metadata if None.
+    iter_dim : str or None
+        Name of the dimension to iterate over. Auto-detected from axis='t' metadata if None.
 
     Raises
     ------
@@ -133,11 +133,11 @@ class GridInterp:
         If the dataset has no CRS defined or x/y coordinates cannot be determined.
     """
 
-    def __init__(self, data_var, x=None, y=None, z=None, time=None):
+    def __init__(self, data_var, x=None, y=None, z=None, iter_dim=None):
         self._data_var = data_var
         self._dataset = data_var._dataset
 
-        self._resolve_axes(x, y, z, time)
+        self._resolve_axes(x, y, z, iter_dim)
 
         if self._dataset.crs is None:
             raise ValueError("Dataset must have a CRS defined.")
@@ -146,8 +146,8 @@ class GridInterp:
 
         self._compute_spatial_transpose()
 
-    def _resolve_axes(self, x, y, z, time):
-        detected = {'x': x, 'y': y, 'z': z, 't': time}
+    def _resolve_axes(self, x, y, z, iter_dim):
+        detected = {'x': x, 'y': y, 'z': z, 't': iter_dim}
 
         for coord_name in self._data_var.coord_names:
             var_meta = self._dataset._sys_meta.variables[coord_name]
@@ -159,10 +159,10 @@ class GridInterp:
         self._x_name = detected['x']
         self._y_name = detected['y']
         self._z_name = detected['z']
-        self._time_name = detected['t']
+        self._iter_dim_name = detected['t']
 
     def _compute_spatial_transpose(self):
-        spatial_coord_names = [c for c in self._data_var.coord_names if c != self._time_name]
+        spatial_coord_names = [c for c in self._data_var.coord_names if c != self._iter_dim_name]
 
         if self._z_name is not None:
             expected_order = [self._z_name, self._y_name, self._x_name]
@@ -174,10 +174,10 @@ class GridInterp:
         else:
             self._spatial_axes = tuple(spatial_coord_names.index(name) for name in expected_order)
 
-        if self._time_name is not None:
-            self._time_dim_idx = list(self._data_var.coord_names).index(self._time_name)
+        if self._iter_dim_name is not None:
+            self._iter_dim_idx = list(self._data_var.coord_names).index(self._iter_dim_name)
         else:
-            self._time_dim_idx = None
+            self._iter_dim_idx = None
 
     def _get_source_coords(self):
         x_arr = self._dataset[self._x_name].data.ravel()
@@ -190,13 +190,13 @@ class GridInterp:
         return (x_arr, y_arr)
 
     def _prepare_spatial(self, data):
-        data = data.squeeze(axis=self._time_dim_idx)
+        data = data.squeeze(axis=self._iter_dim_idx)
         if self._spatial_axes is not None:
             data = np.transpose(data, self._spatial_axes)
         return data
 
-    def _iter_time_slices(self, extra_data_var=None):
-        if self._time_name is None:
+    def _iter_slices(self, extra_data_var=None):
+        if self._iter_dim_name is None:
             data = self._data_var.data
             if self._spatial_axes is not None:
                 data = np.transpose(data, self._spatial_axes)
@@ -208,18 +208,18 @@ class GridInterp:
             else:
                 yield (None, data)
         else:
-            time_data = self._dataset[self._time_name].data
+            time_data = self._dataset[self._iter_dim_name].data
 
             if extra_data_var is not None:
                 for (slices, spatial_data), (_, extra_spatial) in zip(
-                    self._data_var.groupby(self._time_name),
-                    extra_data_var.groupby(self._time_name),
+                    self._data_var.groupby(self._iter_dim_name),
+                    extra_data_var.groupby(self._iter_dim_name),
                 ):
-                    t_idx = slices[self._time_dim_idx].start
+                    t_idx = slices[self._iter_dim_idx].start
                     yield (time_data[t_idx], self._prepare_spatial(spatial_data), self._prepare_spatial(extra_spatial))
             else:
-                for slices, spatial_data in self._data_var.groupby(self._time_name):
-                    t_idx = slices[self._time_dim_idx].start
+                for slices, spatial_data in self._data_var.groupby(self._iter_dim_name):
+                    t_idx = slices[self._iter_dim_idx].start
                     yield (time_data[t_idx], self._prepare_spatial(spatial_data))
 
     def to_grid(self, grid_res=None, to_crs=None, bbox=None, order=3, extrapolation='constant', fill_val=np.nan, min_val=None):
@@ -252,8 +252,8 @@ class GridInterp:
 
         Yields
         ------
-        tuple of (time_value, np.ndarray)
-            time_value is None when there is no time dimension. The array
+        tuple of (dim_value, np.ndarray)
+            dim_value is None when there is no iter_dim. The array
             is the regridded 2D or 3D spatial data.
         """
         from .support_classes import DataVariableView
@@ -268,7 +268,7 @@ class GridInterp:
         gi = GridInterpolator(from_crs=self._dataset.crs)
         interp_func = gi.to_grid(source_coords, grid_res, to_crs=to_crs, bbox=bbox, order=order, extrapolation=extrapolation, fill_val=fill_val, min_val=min_val)
 
-        for time_val, data in self._iter_time_slices():
+        for time_val, data in self._iter_slices():
             yield (time_val, interp_func(data))
 
     def to_points(self, target_points, to_crs=None, order=3, min_val=None):
@@ -291,8 +291,8 @@ class GridInterp:
 
         Yields
         ------
-        tuple of (time_value, np.ndarray)
-            time_value is None when there is no time dimension. The array
+        tuple of (dim_value, np.ndarray)
+            dim_value is None when there is no iter_dim. The array
             is a 1D array of shape (M,) with interpolated values at each
             target point.
         """
@@ -309,7 +309,7 @@ class GridInterp:
         gi = GridInterpolator(from_crs=self._dataset.crs)
         interp_func = gi.to_points(source_coords, target_points, to_crs=to_crs, order=order, min_val=min_val)
 
-        for time_val, data in self._iter_time_slices():
+        for time_val, data in self._iter_slices():
             yield (time_val, interp_func(data))
 
     def interp_na(self, method='linear', min_val=None):
@@ -325,8 +325,8 @@ class GridInterp:
 
         Yields
         ------
-        tuple of (time_value, np.ndarray)
-            time_value is None when there is no time dimension. The array
+        tuple of (dim_value, np.ndarray)
+            dim_value is None when there is no iter_dim. The array
             has the same shape as the source spatial data with NaN values
             filled.
         """
@@ -334,7 +334,7 @@ class GridInterp:
         gi = GridInterpolator(from_crs=self._dataset.crs)
         fill_func = gi.interp_na(source_coords, method=method, min_val=min_val)
 
-        for time_val, data in self._iter_time_slices():
+        for time_val, data in self._iter_slices():
             yield (time_val, fill_func(data))
 
     def regrid_levels(self, target_levels, source_levels, axis=0, method='linear'):
@@ -360,8 +360,8 @@ class GridInterp:
 
         Yields
         ------
-        tuple of (time_value, np.ndarray)
-            time_value is None when there is no time dimension. The array
+        tuple of (dim_value, np.ndarray)
+            dim_value is None when there is no iter_dim. The array
             has the vertical axis replaced by the target levels.
 
         Raises
@@ -380,7 +380,7 @@ class GridInterp:
         gi = GridInterpolator(from_crs=self._dataset.crs)
         regrid_func = gi.regrid_levels(np.asarray(target_levels, dtype=float), axis=axis, method=method)
 
-        for time_val, data, levels_data in self._iter_time_slices(extra_data_var=levels_var):
+        for time_val, data, levels_data in self._iter_slices(extra_data_var=levels_var):
             yield (time_val, regrid_func(data, levels_data))
 
 
@@ -394,9 +394,9 @@ class PointInterp:
     spatial/temporal coordinate names from dataset axis metadata for
     ts_ortho (scattered point) datasets.
 
-    All interpolation methods are generators that yield (time_value, result)
-    tuples. When there is no time dimension, a single tuple is yielded with
-    time_value=None.
+    All interpolation methods are generators that yield (dim_value, result)
+    tuples. When there is no iter_dim, a single tuple is yielded with
+    dim_value=None.
 
     Parameters
     ----------
@@ -406,8 +406,8 @@ class PointInterp:
         Name of the xy geometry coordinate. Auto-detected from axis metadata if None.
     z : str or None
         Name of the z coordinate. Auto-detected from axis metadata if None.
-    time : str or None
-        Name of the time coordinate. Auto-detected from axis metadata if None.
+    iter_dim : str or None
+        Name of the dimension to iterate over. Auto-detected from axis='t' metadata if None.
 
     Raises
     ------
@@ -415,19 +415,19 @@ class PointInterp:
         If the dataset has no CRS defined or xy coordinate cannot be determined.
     """
 
-    def __init__(self, data_var, xy=None, z=None, time=None):
+    def __init__(self, data_var, xy=None, z=None, iter_dim=None):
         self._data_var = data_var
         self._dataset = data_var._dataset
 
-        self._resolve_axes(xy, z, time)
+        self._resolve_axes(xy, z, iter_dim)
 
         if self._dataset.crs is None:
             raise ValueError("Dataset must have a CRS defined.")
         if self._xy_name is None:
             raise ValueError("Could not determine xy geometry coordinate. Pass it explicitly.")
 
-    def _resolve_axes(self, xy, z, time):
-        detected = {'xy': xy, 'z': z, 't': time}
+    def _resolve_axes(self, xy, z, iter_dim):
+        detected = {'xy': xy, 'z': z, 't': iter_dim}
 
         for coord_name in self._data_var.coord_names:
             var_meta = self._dataset._sys_meta.variables[coord_name]
@@ -438,7 +438,7 @@ class PointInterp:
 
         self._xy_name = detected['xy']
         self._z_name = detected['z']
-        self._time_name = detected['t']
+        self._iter_dim_name = detected['t']
 
     def _get_source_points(self):
         """Extract (x, y) coordinates from shapely geometry objects."""
@@ -447,12 +447,12 @@ class PointInterp:
 
     def _get_coord_order(self):
         """Get the ordering of non-time coordinates in the data variable."""
-        spatial_coord_names = [c for c in self._data_var.coord_names if c != self._time_name]
+        spatial_coord_names = [c for c in self._data_var.coord_names if c != self._iter_dim_name]
         return spatial_coord_names
 
-    def _iter_time_slices(self):
+    def _iter_slices(self):
         """
-        Iterate over time steps, yielding (time_value, data) tuples.
+        Iterate over iter_dim slices, yielding (dim_value, data) tuples.
 
         For the no-z case, data is 1D (n_points,) per time step.
         With z, data is 2D (z, n_points) or (n_points, z) depending on
@@ -467,7 +467,7 @@ class PointInterp:
         else:
             needs_transpose = False
 
-        if self._time_name is None:
+        if self._iter_dim_name is None:
             data = self._data_var.data
             if needs_transpose:
                 # Find the axes to transpose
@@ -475,10 +475,10 @@ class PointInterp:
                 data = np.transpose(data, axes)
             yield (None, data)
         else:
-            time_data = self._dataset[self._time_name].data
-            time_dim_idx = list(self._data_var.coord_names).index(self._time_name)
+            time_data = self._dataset[self._iter_dim_name].data
+            time_dim_idx = list(self._data_var.coord_names).index(self._iter_dim_name)
 
-            for slices, spatial_data in self._data_var.groupby(self._time_name):
+            for slices, spatial_data in self._data_var.groupby(self._iter_dim_name):
                 t_idx = slices[time_dim_idx].start
                 data = spatial_data.squeeze(axis=time_dim_idx)
                 if needs_transpose:
@@ -512,8 +512,8 @@ class PointInterp:
 
         Yields
         ------
-        tuple of (time_value, np.ndarray)
-            time_value is None when there is no time dimension.
+        tuple of (dim_value, np.ndarray)
+            dim_value is None when there is no iter_dim.
         """
         from .support_classes import DataVariableView
 
@@ -529,13 +529,13 @@ class PointInterp:
         if self._z_name is None:
             interp_func = pi.to_grid(source_points, grid_res, to_crs=to_crs, bbox=bbox, method=method, extrapolation=extrapolation, fill_val=fill_val, min_val=min_val)
 
-            for time_val, data in self._iter_time_slices():
+            for time_val, data in self._iter_slices():
                 yield (time_val, interp_func(data))
         else:
             z_data = self._dataset[self._z_name].data.ravel()
             interp_func = pi.to_grid(source_points, grid_res, to_crs=to_crs, bbox=bbox, method=method, extrapolation=extrapolation, fill_val=fill_val, min_val=min_val)
 
-            for time_val, data in self._iter_time_slices():
+            for time_val, data in self._iter_slices():
                 # data shape: (nz, n_points)
                 grids = []
                 for zi in range(len(z_data)):
@@ -560,8 +560,8 @@ class PointInterp:
 
         Yields
         ------
-        tuple of (time_value, np.ndarray)
-            time_value is None when there is no time dimension.
+        tuple of (dim_value, np.ndarray)
+            dim_value is None when there is no iter_dim.
         """
         from .support_classes import DataVariableView
 
@@ -578,13 +578,13 @@ class PointInterp:
         if self._z_name is None:
             interp_func = pi.to_points(source_points, target_points, to_crs=to_crs, method=method, min_val=min_val)
 
-            for time_val, data in self._iter_time_slices():
+            for time_val, data in self._iter_slices():
                 yield (time_val, interp_func(data))
         else:
             z_data = self._dataset[self._z_name].data.ravel()
             interp_func = pi.to_points(source_points, target_points, to_crs=to_crs, method=method, min_val=min_val)
 
-            for time_val, data in self._iter_time_slices():
+            for time_val, data in self._iter_slices():
                 # data shape: (nz, n_points)
                 results = []
                 for zi in range(len(z_data)):
