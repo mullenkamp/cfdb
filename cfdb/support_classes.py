@@ -1114,7 +1114,7 @@ class DataVariableView(Variable):
     #     return ds
 
 
-    def interp(self, x=None, y=None, z=None, time=None, xy=None):
+    def interp(self, x=None, y=None, z=None, iter_dim=None, xy=None):
         """
         Create an interpolation object for this data variable. Requires
         the geointerp package and a CRS defined on the dataset.
@@ -1131,8 +1131,8 @@ class DataVariableView(Variable):
             Name of the y coordinate (grid datasets).
         z : str or None
             Name of the z coordinate.
-        time : str or None
-            Name of the time coordinate.
+        iter_dim : str or None
+            Name of the dimension to iterate over.
         xy : str or None
             Name of the xy geometry coordinate (ts_ortho datasets).
 
@@ -1143,9 +1143,9 @@ class DataVariableView(Variable):
         dataset_type = self._dataset._sys_meta.dataset_type.value
 
         if dataset_type == 'ts_ortho':
-            return interp.PointInterp(self, xy=xy, z=z, time=time)
+            return interp.PointInterp(self, xy=xy, z=z, iter_dim=iter_dim)
         else:
-            return interp.GridInterp(self, x=x, y=y, z=z, time=time)
+            return interp.GridInterp(self, x=x, y=y, z=z, iter_dim=iter_dim)
 
     def __repr__(self):
         """

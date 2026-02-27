@@ -102,7 +102,7 @@ for slices, data in temp.groupby(('latitude', 'time')):
 
 ## Interpolation
 
-### interp(x=None, y=None, z=None, time=None, xy=None)
+### interp(x=None, y=None, z=None, iter_dim=None, xy=None)
 
 Create an interpolation object for spatial interpolation. Returns `GridInterp` for grid datasets or `PointInterp` for ts_ortho datasets. Requires geointerp and a CRS.
 

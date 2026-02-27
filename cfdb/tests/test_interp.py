@@ -118,17 +118,17 @@ def test_axis_auto_detection():
         gi = dv.interp()
         assert gi._x_name == 'longitude'
         assert gi._y_name == 'latitude'
-        assert gi._time_name == 'time'
+        assert gi._iter_dim_name == 'time'
         assert gi._z_name is None
 
 
 def test_explicit_coord_names():
     with open_dataset(gi_file_3d) as ds:
         dv = ds['temperature']
-        gi = dv.interp(x='longitude', y='latitude', time='time')
+        gi = dv.interp(x='longitude', y='latitude', iter_dim='time')
         assert gi._x_name == 'longitude'
         assert gi._y_name == 'latitude'
-        assert gi._time_name == 'time'
+        assert gi._iter_dim_name == 'time'
 
 
 def test_missing_crs_error():
@@ -316,7 +316,7 @@ def test_ts_ortho_axis_detection():
         dv = ds['temperature']
         pi = dv.interp()
         assert pi._xy_name == 'point'
-        assert pi._time_name is None
+        assert pi._iter_dim_name is None
         assert pi._z_name is None
 
 

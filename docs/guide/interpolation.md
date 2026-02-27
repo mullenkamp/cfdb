@@ -23,18 +23,18 @@ Coordinate names are auto-detected from axis metadata. Pass them explicitly when
 
 ```python
 # Grid datasets
-gi = ds['temperature'].interp(x='longitude', y='latitude', time='time')
+gi = ds['temperature'].interp(x='longitude', y='latitude', iter_dim='time')
 
 # ts_ortho datasets
-pi = ds['temperature'].interp(xy='point', time='time')
+pi = ds['temperature'].interp(xy='point', iter_dim='time')
 ```
 
-## Time Iteration
+## Dimension Iteration
 
-All interpolation methods are **generators** that yield `(time_value, result)` tuples:
+All interpolation methods are **generators** that yield `(dim_value, result)` tuples:
 
-- When there is no time dimension, a single tuple is yielded with `time_value=None`
-- When a time dimension is present, the data is iterated efficiently using groupby/rechunker
+- When there is no iteration dimension, a single tuple is yielded with `dim_value=None`
+- When an iteration dimension is present, the data is iterated efficiently using groupby/rechunker
 
 ## Regridding to a New Grid
 
