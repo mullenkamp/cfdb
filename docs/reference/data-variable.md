@@ -100,19 +100,19 @@ for slices, data in temp.groupby(('latitude', 'time')):
     print(slices, data.shape)
 ```
 
-## Grid Interpolation
+## Interpolation
 
-### grid_interp(x=None, y=None, z=None, time=None)
+### interp(x=None, y=None, z=None, time=None, xy=None)
 
-Create a `GridInterp` object for spatial interpolation. Requires geointerp and a CRS.
+Create an interpolation object for spatial interpolation. Returns `GridInterp` for grid datasets or `PointInterp` for ts_ortho datasets. Requires geointerp and a CRS.
 
 ```python
-gi = temp.grid_interp()
+gi = temp.interp()
 for time_val, grid in gi.to_grid(grid_res=0.01):
     print(grid.shape)
 ```
 
-See [GridInterp](grid-interp.md) for details.
+See [GridInterp / PointInterp](interp.md) for details.
 
 ## Rechunking
 

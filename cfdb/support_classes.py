@@ -18,8 +18,8 @@ import rechunkit
 # import pyproj
 import sys
 
-from . import utils, indexers, dtypes, data_models, grid_interp
-# import utils, indexers, dtypes, data_models, grid_interp
+from . import utils, indexers, dtypes, data_models, interp
+# import utils, indexers, dtypes, data_models, interp
 
 ###################################################
 ### Parameters
@@ -1114,31 +1114,38 @@ class DataVariableView(Variable):
     #     return ds
 
 
-    def grid_interp(self, x=None, y=None, z=None, time=None):
+    def interp(self, x=None, y=None, z=None, time=None, xy=None):
         """
-        Create a GridInterp object for performing grid interpolation
-        operations on this data variable. Requires the geointerp package
-        and a CRS defined on the dataset.
+        Create an interpolation object for this data variable. Requires
+        the geointerp package and a CRS defined on the dataset.
 
-        Coordinate names for x, y, z, and time are auto-detected from the
-        dataset's axis metadata. Pass them explicitly when axes are not set.
+        Returns GridInterp for grid datasets and PointInterp for ts_ortho
+        datasets. Coordinate names are auto-detected from the dataset's
+        axis metadata. Pass them explicitly when axes are not set.
 
         Parameters
         ----------
         x : str or None
-            Name of the x coordinate.
+            Name of the x coordinate (grid datasets).
         y : str or None
-            Name of the y coordinate.
+            Name of the y coordinate (grid datasets).
         z : str or None
             Name of the z coordinate.
         time : str or None
             Name of the time coordinate.
+        xy : str or None
+            Name of the xy geometry coordinate (ts_ortho datasets).
 
         Returns
         -------
-        GridInterp
+        GridInterp or PointInterp
         """
-        return grid_interp.GridInterp(self, x=x, y=y, z=z, time=time)
+        dataset_type = self._dataset._sys_meta.dataset_type.value
+
+        if dataset_type == 'ts_ortho':
+            return interp.PointInterp(self, xy=xy, z=z, time=time)
+        else:
+            return interp.GridInterp(self, x=x, y=y, z=z, time=time)
 
     def __repr__(self):
         """

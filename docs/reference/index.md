@@ -34,7 +34,8 @@ This section provides detailed API documentation for cfdb's public interface.
 
 | Class | Description |
 |-------|-------------|
-| [`GridInterp`](grid-interp.md) | Grid interpolation wrapper |
+| [`GridInterp`](interp.md) | Grid interpolation wrapper (grid datasets) |
+| [`PointInterp`](interp.md) | Point interpolation wrapper (ts_ortho datasets) |
 
 ## Rechunking
 
@@ -64,7 +65,7 @@ cfdb/
 ├── support_classes.py   # Variable, Coordinate, DataVariable, Rechunker, etc.
 ├── creation.py          # Creator, Coord, DataVar, CRS
 ├── dtypes.py            # DataType hierarchy, dtype() factory
-├── grid_interp.py       # GridInterp wrapper
+├── interp.py            # GridInterp / PointInterp wrappers
 ├── data_models.py       # msgspec Structs for metadata
 ├── indexers.py           # Index and location-based selection
 ├── combine.py           # Dataset combining/merging
