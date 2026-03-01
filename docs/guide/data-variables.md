@@ -127,6 +127,60 @@ with cfdb.open_dataset(file_path) as ds:
 
 The `max_mem` parameter controls the memory budget for the rechunking operation (default 128 MB).
 
+## Parallel Map
+
+The `map()` method applies a function to each chunk in parallel using multiprocessing. It yields `(target_chunk, result)` tuples as workers complete. The function receives exactly what `iter_chunks(include_data=True)` yields: a `target_chunk` tuple of slices and a `data` numpy array.
+
+The function must be a top-level picklable function (not a lambda or closure).
+
+### Transform and Write Back
+
+```python
+def scale_kelvin(target_chunk, data):
+    return data + 273.15
+
+with cfdb.open_dataset(file_path, flag='w') as ds:
+    temp = ds['temperature']
+    for target_chunk, result in temp.map(scale_kelvin, n_workers=4):
+        temp[target_chunk] = result
+```
+
+### Aggregate
+
+```python
+def chunk_stats(target_chunk, data):
+    return {'mean': float(data.mean()), 'std': float(data.std())}
+
+with cfdb.open_dataset(file_path) as ds:
+    stats = [result for _, result in ds['temperature'].map(chunk_stats)]
+```
+
+### Skip Chunks
+
+Return `None` from your function to skip a chunk — it will not appear in the output:
+
+```python
+def only_positive_mean(target_chunk, data):
+    m = data.mean()
+    if m > 0:
+        return m
+    return None
+
+with cfdb.open_dataset(file_path) as ds:
+    positive_means = [result for _, result in ds['temperature'].map(only_positive_mean)]
+```
+
+### Map on a View
+
+`map()` works on sliced views, processing only the selected chunks:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    view = ds['temperature'][0:50, :]
+    for target_chunk, result in view.map(scale_kelvin, n_workers=4):
+        print(target_chunk, result.shape)
+```
+
 ## Properties
 
 ```python

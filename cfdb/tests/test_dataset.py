@@ -961,6 +961,55 @@ def test_empty_coord():
 ### Copy with filtering
 
 
+def _double_values(target_chunk, data):
+    return data * 2
+
+
+def _return_none(target_chunk, data):
+    return None
+
+
+def test_map():
+    """Test map() applies a function to each chunk in parallel."""
+    fp = script_path.joinpath('test_map.cfdb')
+    lat = np.linspace(0, 4.9, 50, dtype='float32')
+    lon = np.linspace(-5, -0.1, 50, dtype='float32')
+    data = np.linspace(0, 2499, 2500, dtype='float32').reshape(50, 50)
+    data_dtype = dtypes.dtype(data.dtype, 1, 0, 2500)
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(20,))
+        ds.create.coord.lon(data=lon, chunk_shape=(20,))
+        dv = ds.create.data_var.generic('vals', ('latitude', 'longitude'), data_dtype, chunk_shape=(20, 20))
+        dv[:] = data
+
+    # Test basic map: double all values
+    with open_dataset(fp, flag='w') as ds:
+        dv = ds['vals']
+        for target_chunk, result in dv.map(_double_values, n_workers=2):
+            dv[target_chunk] = result
+
+    with open_dataset(fp) as ds:
+        assert np.allclose(ds['vals'].data, data * 2)
+
+    # Test map with filtered view
+    with open_dataset(fp, flag='w') as ds:
+        dv = ds['vals']
+        view = dv[slice(0, 10), slice(0, 10)]
+        results = list(view.map(_double_values, n_workers=2))
+        assert len(results) > 0
+        for target_chunk, result in results:
+            assert result is not None
+
+    # Test map returning None (skip)
+    with open_dataset(fp) as ds:
+        dv = ds['vals']
+        results = list(dv.map(_return_none, n_workers=2))
+        assert len(results) == 0
+
+    fp.unlink()
+
+
 def test_copy_include_data_vars():
     """Test copying a dataset with include_data_vars filter."""
     fp = script_path.joinpath('test_copy_src.cfdb')

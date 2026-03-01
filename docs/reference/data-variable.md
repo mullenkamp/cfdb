@@ -100,6 +100,38 @@ for slices, data in temp.groupby(('latitude', 'time')):
     print(slices, data.shape)
 ```
 
+## Parallel Map
+
+### map(func, n_workers=None)
+
+Apply a function to each chunk in parallel using multiprocessing. Yields `(target_chunk, result)` tuples as workers complete.
+
+The user function receives `(target_chunk, data)` — the same values yielded by `iter_chunks(include_data=True)`. It must be a top-level picklable function (not a lambda or closure).
+
+```python
+def compute_mean(target_chunk, data):
+    return data.mean()
+
+with cfdb.open_dataset(file_path) as ds:
+    means = [result for _, result in ds['temperature'].map(compute_mean, n_workers=4)]
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `func` | callable | `func(target_chunk, data) -> result or None`. Return `None` to skip. |
+| `n_workers` | int or None | Number of worker processes. Defaults to `os.cpu_count()`. |
+
+Works on views too:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    view = ds['temperature'][0:50, :]
+    for target_chunk, result in view.map(transform, n_workers=4):
+        ...
+```
+
 ## Interpolation
 
 ### interp(x=None, y=None, z=None, iter_dim=None, xy=None)
