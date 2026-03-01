@@ -34,7 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 netcdf4 = ['h5netcdf', 'cftime']
-ebooklet = ['ebooklet>=0.6.0']
+ebooklet = ['ebooklet>=0.7.0']
 
 [dependency-groups]
 dev = [
@@ -46,12 +46,12 @@ dev = [
   "pytest-cov",
   'h5netcdf',
   'h5py>=3.6.0',
-  'ebooklet>=0.6.0',
+  'ebooklet>=0.7.0',
 ]
 docs = [
   "mkdocs-material>=9.0",
   "mkdocstrings[python]>=0.24",
-  "ebooklet>=0.6.0",
+  "ebooklet>=0.7.0",
 ]
 
 [tool.hatch]

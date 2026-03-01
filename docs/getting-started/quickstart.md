@@ -104,6 +104,22 @@ with cfdb.open_dataset(file_path) as ds:
         print(slices, data.shape)
 ```
 
+## Parallel Map
+
+Apply a function to each chunk in parallel:
+
+```python
+def double_values(target_chunk, data):
+    return data * 2
+
+with cfdb.open_dataset(file_path, flag='w') as ds:
+    temp = ds['temperature']
+    for target_chunk, result in temp.map(double_values, n_workers=4):
+        temp[target_chunk] = result
+```
+
+The function must be a top-level function (not a lambda). Return `None` to skip a chunk.
+
 ## Attributes
 
 Attach JSON-serializable metadata to variables or the dataset:

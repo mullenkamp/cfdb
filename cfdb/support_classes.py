@@ -315,6 +315,9 @@ class Compressor:
         else:
             raise ValueError('compression must be either lz4 or zstd')
 
+    def __reduce__(self):
+        return (Compressor, (self.compression, self.compression_level))
+
     def _lz4_compress(self, data: bytes):
         """
 
@@ -912,6 +915,41 @@ class Coordinate(CoordinateView):
         self._var_meta.shape = shape
 
 
+class _ChunkMapWrapper:
+    def __init__(self, user_func, starts, stops, dtype, compressor, chunk_shape):
+        self.user_func = user_func
+        self.starts = starts
+        self.stops = stops
+        self.dtype = dtype
+        self.compressor = compressor
+        self.chunk_shape = chunk_shape
+
+    def _parse_key(self, key):
+        dims_str = key.split('!', 1)[1]
+        starts_chunk = tuple(int(x) for x in dims_str.split('.'))
+
+        source_chunk = tuple(
+            slice(max(start, sc) - sc, min(stop, sc + cs) - sc)
+            for start, stop, sc, cs in zip(self.starts, self.stops, starts_chunk, self.chunk_shape)
+        )
+        target_chunk = tuple(
+            slice(max(start, sc) - start, min(stop, sc + cs) - start)
+            for start, stop, sc, cs in zip(self.starts, self.stops, starts_chunk, self.chunk_shape)
+        )
+        return target_chunk, source_chunk
+
+    def __call__(self, key, value):
+        target_chunk, source_chunk = self._parse_key(key)
+        full_data = self.dtype.loads(self.compressor.decompress(value), self.chunk_shape)
+        selected = full_data[source_chunk]
+
+        result = self.user_func(target_chunk, selected)
+
+        if result is not None:
+            return (key, result)
+        return None
+
+
 class DataVariableView(Variable):
     """
 
@@ -1062,6 +1100,42 @@ class DataVariableView(Variable):
         rechunkit1 = rechunker.rechunk(tuple(target_chunk_shape), max_mem)
 
         return rechunkit1
+
+
+    def map(self, func, n_workers=None):
+        """
+        Apply func to each chunk in parallel using multiprocessing.
+
+        Parameters
+        ----------
+        func : callable
+            A picklable function: func(target_chunk, data) -> result or None.
+            target_chunk and data are the same as yielded by iter_chunks(True).
+            Return any picklable value, or None to skip.
+            Must be a top-level function (not a lambda or closure).
+        n_workers : int, optional
+            Number of worker processes. Defaults to os.cpu_count().
+
+        Yields
+        ------
+        tuple
+            (target_chunk, result) pairs, as workers complete.
+        """
+        self.load()
+
+        coord_origins = self.get_coord_origins()
+        slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
+
+        starts = tuple(s.start for s in slices)
+        stops = tuple(s.stop for s in slices)
+
+        chunk_keys = indexers.slices_to_keys(slices, self.name, self.chunk_shape)
+
+        wrapper = _ChunkMapWrapper(func, starts, stops, self.dtype, self.compressor, self.chunk_shape)
+
+        for blt_key, result in self._blt.map(wrapper, keys=chunk_keys, n_workers=n_workers):
+            target_chunk = wrapper._parse_key(blt_key)[0]
+            yield target_chunk, result
 
 
     # def to_pandas(self):

@@ -168,6 +168,8 @@ class Geometry(DataType):
         self._decoder = msgspec.msgpack.Decoder()
         self._encoder = msgspec.msgpack.Encoder()
 
+    def __reduce__(self):
+        return (self.__class__, (self.precision,))
 
     def encode(self, data: np.ndarray) -> np.ndarray:
         """
@@ -359,6 +361,8 @@ class String(DataType):
         self._decoder = msgspec.msgpack.Decoder()
         self._encoder = msgspec.msgpack.Encoder()
 
+    def __reduce__(self):
+        return (String, ())
 
     def dumps(self, data: np.ndarray):
         """

@@ -575,11 +575,11 @@ class Dataset(DatasetBase):
         return tuple(k for k, v in self._sys_meta.variables.items() if isinstance(v, data_models.DataVariable))
 
 
-    def prune(self, timestamp=None, reindex=False):
+    def prune(self, timestamp=None):
         """
-        Prunes deleted data from the file. Returns the number of removed items. The method can also prune remove keys/values older than the timestamp. The user can also reindex the booklet file. False does no reindexing, True increases the n_buckets to a preassigned value, or an int of the n_buckets. True can only be used if the default n_buckets were used at original initialisation.
+        Prunes deleted data from the file. Returns the number of removed items. The method can also prune remove keys/values older than the timestamp.
         """
-        return self._blt.prune(timestamp, reindex)
+        return self._blt.prune(timestamp)
 
     # def sync(self):
     #     """
