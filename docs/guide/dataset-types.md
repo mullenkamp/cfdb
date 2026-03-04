@@ -17,8 +17,8 @@ import cfdb
 import numpy as np
 
 with cfdb.open_dataset('grid.cfdb', flag='n', dataset_type='grid') as ds:
-    lat = ds.create.coord.lat(data=np.linspace(-90, 90, 180, dtype='float32'))
-    lon = ds.create.coord.lon(data=np.linspace(-180, 180, 360, dtype='float32'))
+    lat = ds.create.coord.lat(data=np.linspace(-90, 90, 181, dtype='float32'))
+    lon = ds.create.coord.lon(data=np.linspace(-180, 180, 361, dtype='float32'))
     time = ds.create.coord.time(
         data=np.arange('2020-01-01', '2020-01-31', dtype='datetime64[D]')
     )

@@ -30,8 +30,8 @@ file_path = 'example.cfdb'
 
 with cfdb.open_dataset(file_path, flag='n') as ds:
     # Create coordinates
-    lat = ds.create.coord.lat(data=np.linspace(-90, 90, 180, dtype='float32'))
-    lon = ds.create.coord.lon(data=np.linspace(-180, 180, 360, dtype='float32'))
+    lat = ds.create.coord.lat(data=np.linspace(-90, 90, 181, dtype='float32'))
+    lon = ds.create.coord.lon(data=np.linspace(-180, 180, 361, dtype='float32'))
 
     # Create a data variable
     temp = ds.create.data_var.generic(
@@ -39,7 +39,7 @@ with cfdb.open_dataset(file_path, flag='n') as ds:
     )
 
     # Write data
-    temp[:] = np.random.rand(180, 360).astype('float32') * 40 - 10
+    temp[:] = np.random.rand(181, 361).astype('float32') * 40 - 10
 
 # Read it back
 with cfdb.open_dataset(file_path) as ds:
