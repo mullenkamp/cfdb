@@ -31,10 +31,10 @@ import cfdb
 import numpy as np
 
 with cfdb.open_dataset('example.cfdb', flag='n') as ds:
-    lat = ds.create.coord.lat(data=np.linspace(-90, 90, 180, dtype='float32'))
-    lon = ds.create.coord.lon(data=np.linspace(-180, 180, 360, dtype='float32'))
+    lat = ds.create.coord.lat(data=np.linspace(-90, 90, 181, dtype='float32'))
+    lon = ds.create.coord.lon(data=np.linspace(-180, 180, 361, dtype='float32'))
     temp = ds.create.data_var.generic('temperature', ('latitude', 'longitude'), dtype='float32')
-    temp[:] = np.random.rand(180, 360).astype('float32') * 40 - 10
+    temp[:] = np.random.rand(181, 361).astype('float32') * 40 - 10
 
 with cfdb.open_dataset('example.cfdb') as ds:
     for slices, data in ds['temperature'].iter_chunks(include_data=True):
