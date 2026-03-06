@@ -209,7 +209,7 @@ def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pat
                 shape = h5_coord.shape
                 chunk_shape = h5_coord.chunks
                 if chunk_shape is None:
-                    chunk_shape = rechunkit.guess_chunk_shape(shape, dtype_encoded)
+                    chunk_shape = rechunkit.guess_chunk_shape(shape, dtype_encoded.itemsize)
 
                 input_params = {}
                 input_params['chunk_shape'] = chunk_shape
@@ -297,7 +297,7 @@ def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pat
                 shape = h5_var.shape
                 chunk_shape = h5_var.chunks
                 if chunk_shape is None:
-                    chunk_shape = rechunkit.guess_chunk_shape(shape, dtype_encoded)
+                    chunk_shape = rechunkit.guess_chunk_shape(shape, dtype_encoded.itemsize)
 
                 dtype1 = dtypes.dtype(**dtype_params)
 
@@ -306,7 +306,7 @@ def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pat
 
                 h5_reader = H5DataVarReader(h5_var, inverted_coords, shape)
 
-                chunks_iter = rechunkit.rechunker(h5_reader.get, shape, dtype_encoded, dtype_encoded.itemsize, chunk_shape, chunk_shape, max_mem, var_sel)
+                chunks_iter = rechunkit.rechunker(h5_reader.get, shape, dtype_encoded, chunk_shape, chunk_shape, max_mem, var_sel, itemsize=dtype_encoded.itemsize)
                 for chunk_slices, encoded_data in chunks_iter:
                     if not np.all(encoded_data == dtype1.fillvalue):
                         data_var.set(chunk_slices, encoded_data, False)

@@ -72,6 +72,37 @@ Copy the dataset to a new cfdb file. Returns the new `Dataset` (caller must clos
 
 Export to netCDF4 format. Requires h5netcdf.
 
+### iter_chunks(chunk_shape, data_vars=None, max_mem=2\*\*27)
+
+Iterate over aligned chunks of multiple data variables. Always yields `(target_chunk, var_data)` where `target_chunk` is a dict of `{coord_name: slice}` and `var_data` is a dict of `{var_name: ndarray}`.
+
+```python
+for target_chunk, var_data in ds.iter_chunks({'latitude': 25, 'longitude': 25}):
+    print(target_chunk, {k: v.shape for k, v in var_data.items()})
+```
+
+### iter_chunk_slices(chunk_shape, data_vars=None)
+
+Iterate chunk position dicts without loading data. Yields `{coord_name: slice}` dicts.
+
+```python
+for chunk in ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}):
+    print(chunk)
+```
+
+### groupby(coord_names, data_vars=None, max_mem=2\*\*27)
+
+Group by one or more coordinates across all data variables. Equivalent to `iter_chunks` with size 1 along the grouped coords.
+
+```python
+for target_chunk, var_data in ds.groupby('latitude'):
+    print(target_chunk, {k: v.shape for k, v in var_data.items()})
+```
+
+### map(func, chunk_shape, data_vars=None, max_mem=2\*\*27, n_workers=None)
+
+Apply a function to aligned chunks in parallel. The function receives `(target_chunk, var_data)` — same as `iter_chunks`.
+
 ### close()
 
 Close the database and flush metadata to disk.

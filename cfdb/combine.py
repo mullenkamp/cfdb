@@ -276,7 +276,7 @@ def _write_data(ds_list, output_ds, var_infos, coord_infos, overlap):
 
             # Transfer data chunk by chunk using iter_chunks
             # iter_chunks handles selections/views transparently
-            for target_chunk, data in src_var.iter_chunks(include_data=True):
+            for target_chunk, data in src_var.iter_chunks():
                 if data is None:
                     continue
 

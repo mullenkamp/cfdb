@@ -43,7 +43,7 @@ with cfdb.open_dataset(file_path, flag='n') as ds:
 
 # Read it back
 with cfdb.open_dataset(file_path) as ds:
-    for chunk_slices, data in ds['temperature'].iter_chunks(include_data=True):
+    for chunk_slices, data in ds['temperature'].iter_chunks():
         print(chunk_slices, data.shape)
 ```
 

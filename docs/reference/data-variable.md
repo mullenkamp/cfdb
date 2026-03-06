@@ -50,18 +50,40 @@ temp[10:20, :]      # slice
 temp[5, 0:100]      # mixed
 ```
 
-### iter_chunks(include_data=False, decoded=True)
+### iter_chunks(chunk_shape=None, max_mem=2\*\*27, decoded=True)
 
-Iterate through chunks of the variable:
+Iterate through chunks of the variable. Always yields `(slices, data)` tuples.
 
 ```python
-# Just slices (for writing)
-for chunk_slices in temp.iter_chunks():
+# Storage chunks
+for chunk_slices, data in temp.iter_chunks():
+    print(chunk_slices, data.shape)
+
+# Rechunked iteration
+for chunk_slices, data in temp.iter_chunks({'latitude': 50}):
+    print(chunk_slices, data.shape)
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chunk_shape` | dict or None | `{coord_name: int}` for target chunk sizes. `None` uses storage chunks. |
+| `max_mem` | int | Max memory for rechunker buffer (default 128 MB). |
+| `decoded` | bool | If `False`, yield encoded data. Only applies in storage-chunk mode. |
+
+### iter_chunk_slices(chunk_shape=None)
+
+Iterate chunk position slices without loading data (no I/O).
+
+```python
+# Storage chunk positions
+for chunk_slices in temp.iter_chunk_slices():
     print(chunk_slices)
 
-# Slices and data (for reading)
-for chunk_slices, data in temp.iter_chunks(include_data=True):
-    print(chunk_slices, data.shape)
+# Rechunked positions
+for chunk_slices in temp.iter_chunk_slices({'latitude': 50}):
+    print(chunk_slices)
 ```
 
 ### get_chunk(sel=None, missing_none=False)
@@ -102,11 +124,11 @@ for slices, data in temp.groupby(('latitude', 'time')):
 
 ## Parallel Map
 
-### map(func, n_workers=None)
+### map(func, chunk_shape=None, n_workers=None, max_mem=2\*\*27)
 
 Apply a function to each chunk in parallel using multiprocessing. Yields `(target_chunk, result)` tuples as workers complete.
 
-The user function receives `(target_chunk, data)` — the same values yielded by `iter_chunks(include_data=True)`. It must be a top-level picklable function (not a lambda or closure).
+The user function receives `(target_chunk, data)` — the same values yielded by `iter_chunks()`. It must be a top-level picklable function (not a lambda or closure).
 
 ```python
 def compute_mean(target_chunk, data):
@@ -121,7 +143,18 @@ with cfdb.open_dataset(file_path) as ds:
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `func` | callable | `func(target_chunk, data) -> result or None`. Return `None` to skip. |
+| `chunk_shape` | dict or None | `{coord_name: int}` for rechunked iteration. `None` uses storage chunks with the efficient booklet.map path. |
 | `n_workers` | int or None | Number of worker processes. Defaults to `os.cpu_count()`. |
+| `max_mem` | int | Max memory for rechunker buffer. Only used when `chunk_shape` is set. |
+
+With rechunked chunks:
+
+```python
+with cfdb.open_dataset(file_path, flag='w') as ds:
+    temp = ds['temperature']
+    for target_chunk, result in temp.map(scale_kelvin, chunk_shape={'latitude': 50}, n_workers=4):
+        temp[target_chunk] = result
+```
 
 Works on views too:
 

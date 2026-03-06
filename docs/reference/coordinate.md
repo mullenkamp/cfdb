@@ -73,7 +73,10 @@ lat.prepend(np.array([-0.2, -0.1], dtype='float32'))
 
 ### iter_chunks(include_data=False, decoded=True)
 
-Iterate through chunks. Returns `(slices,)` or `(slices, data)` tuples.
+Iterate through chunks. If `include_data=False` (default), yields tuples of slices. If `include_data=True`, yields `(slices, data)` tuples.
+
+!!! note
+    Coordinates use the base `Variable.iter_chunks` signature. Data variables have a different, unified `iter_chunks(chunk_shape=None)` signature — see [DataVariable](data-variable.md).
 
 ### rechunker()
 
