@@ -501,18 +501,25 @@ def test_data_var_data_integrity(populated_dataset):
         assert np.allclose(dv.data, ind_data_var_data)
 
 
-def test_data_var_iter_chunks_no_data(populated_dataset):
-    """Test iterating chunks without data (just slices)."""
+def test_data_var_iter_chunk_slices(populated_dataset):
+    """Test iterating chunk slices without data (just positions)."""
     with open_dataset(populated_dataset) as ds:
         dv = ds['temperature']
-        chunks = list(dv.iter_chunks(include_data=False))
+        # Storage chunks
+        chunks = list(dv.iter_chunk_slices())
         assert len(chunks) > 0
-        # Each chunk should be a tuple of slices
         for chunk in chunks:
             assert isinstance(chunk, tuple)
             assert len(chunk) == 3  # 3 dimensions
             for s in chunk:
                 assert isinstance(s, slice)
+
+        # Rechunked
+        chunks = list(dv.iter_chunk_slices({'latitude': 50}))
+        assert len(chunks) > 0
+        for chunk in chunks:
+            assert isinstance(chunk, tuple)
+            assert len(chunk) == 3
 
 
 def test_data_var_iter_chunks_with_data(populated_dataset):
@@ -520,10 +527,29 @@ def test_data_var_iter_chunks_with_data(populated_dataset):
     with open_dataset(populated_dataset) as ds:
         dv = ds['temperature']
         result = np.full(dv.shape, np.nan, dtype=ind_data_var_data.dtype)
-        for chunk_slices, data in dv.iter_chunks(include_data=True):
+        for chunk_slices, data in dv.iter_chunks():
             result[chunk_slices] = data
 
         assert np.allclose(result, ind_data_var_data)
+
+
+def test_data_var_iter_chunks_rechunked(populated_dataset):
+    """Test rechunked iteration with dict chunk_shape."""
+    with open_dataset(populated_dataset) as ds:
+        dv = ds['temperature']
+        result = np.full(dv.shape, np.nan, dtype=ind_data_var_data.dtype)
+        for chunk_slices, data in dv.iter_chunks({'latitude': 50, 'longitude': 50}):
+            result[chunk_slices] = data
+
+        assert np.allclose(result, ind_data_var_data)
+
+
+def test_data_var_iter_chunks_invalid_coord(populated_dataset):
+    """Test iter_chunks with invalid coord name raises KeyError."""
+    with open_dataset(populated_dataset) as ds:
+        dv = ds['temperature']
+        with pytest.raises(KeyError):
+            list(dv.iter_chunks({'nonexistent': 10}))
 
 
 def test_data_var_set_method():
@@ -1010,6 +1036,124 @@ def test_map():
     fp.unlink()
 
 
+def _sum_two_vars(target_chunk, var_data):
+    return var_data['var1'] + var_data['var2']
+
+
+def _ds_return_none(target_chunk, var_data):
+    return None
+
+
+def test_dataset_iter_chunks():
+    """Test dataset-level iter_chunks with multiple variables."""
+    fp = script_path.joinpath('test_ds_iter.cfdb')
+    lat = np.linspace(0, 4.9, 50, dtype='float32')
+    lon = np.linspace(-5, -0.1, 50, dtype='float32')
+    data1 = np.linspace(0, 2499, 2500, dtype='float32').reshape(50, 50)
+    data2 = np.linspace(2500, 4999, 2500, dtype='float32').reshape(50, 50)
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(20,))
+        ds.create.coord.lon(data=lon, chunk_shape=(20,))
+        dv1 = ds.create.data_var.generic('var1', ('latitude', 'longitude'), dtypes.dtype('float32'), chunk_shape=(20, 20))
+        dv1[:] = data1
+        dv2 = ds.create.data_var.generic('var2', ('latitude', 'longitude'), dtypes.dtype('float32'), chunk_shape=(10, 25))
+        dv2[:] = data2
+
+    with open_dataset(fp) as ds:
+        # iter_chunks always yields (target_chunk, var_data)
+        result1 = np.full((50, 50), np.nan, dtype='float32')
+        result2 = np.full((50, 50), np.nan, dtype='float32')
+        for target_chunk, var_data in ds.iter_chunks({'latitude': 25, 'longitude': 25}):
+            slices = (target_chunk['latitude'], target_chunk['longitude'])
+            result1[slices] = var_data['var1']
+            result2[slices] = var_data['var2']
+
+        assert np.allclose(result1, data1)
+        assert np.allclose(result2, data2)
+
+        # iter_chunk_slices — position-only
+        chunks = list(ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}))
+        assert len(chunks) == 4  # 2x2 chunks
+        for chunk in chunks:
+            assert 'latitude' in chunk
+            assert 'longitude' in chunk
+            assert isinstance(chunk['latitude'], slice)
+            assert isinstance(chunk['longitude'], slice)
+
+        # data_vars filter
+        for target_chunk, var_data in ds.iter_chunks({'latitude': 50}, data_vars=['var1']):
+            assert 'var1' in var_data
+            assert 'var2' not in var_data
+
+        # Invalid data var name
+        with pytest.raises(KeyError):
+            list(ds.iter_chunks({'latitude': 25}, data_vars=['nonexistent']))
+
+        # DatasetView: verify iteration scoped to selection
+        view = ds.select({'latitude': slice(0, 10)})
+        for target_chunk, var_data in view.iter_chunks({'latitude': 5}):
+            assert var_data['var1'].shape[0] <= 5
+            assert var_data['var2'].shape[0] <= 5
+
+    fp.unlink()
+
+
+def test_dataset_iter_chunks_mismatched_coords():
+    """Test that iter_chunks raises ValueError when data vars have different coords."""
+    fp = script_path.joinpath('test_ds_iter_mismatch.cfdb')
+    lat = np.linspace(0, 4.9, 50, dtype='float32')
+    lon = np.linspace(-5, -0.1, 50, dtype='float32')
+    t = np.linspace(0, 4, 5, dtype='datetime64[D]')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(20,))
+        ds.create.coord.lon(data=lon, chunk_shape=(20,))
+        ds.create.coord.time(data=t, dtype=t.dtype)
+        dv1 = ds.create.data_var.generic('var_latlon', ('latitude', 'longitude'), dtypes.dtype('float32'), chunk_shape=(20, 20))
+        dv1[:] = np.zeros((50, 50), dtype='float32')
+        dv2 = ds.create.data_var.generic('var_lattime', ('latitude', 'time'), dtypes.dtype('float32'), chunk_shape=(20, 5))
+        dv2[:] = np.zeros((50, 5), dtype='float32')
+
+    with open_dataset(fp) as ds:
+        with pytest.raises(ValueError, match='same coordinates'):
+            list(ds.iter_chunks({'latitude': 25}))
+
+    fp.unlink()
+
+
+def test_dataset_map():
+    """Test dataset-level map with multiple variables."""
+    fp = script_path.joinpath('test_ds_map.cfdb')
+    lat = np.linspace(0, 4.9, 50, dtype='float32')
+    lon = np.linspace(-5, -0.1, 50, dtype='float32')
+    data1 = np.linspace(0, 2499, 2500, dtype='float32').reshape(50, 50)
+    data2 = np.linspace(2500, 4999, 2500, dtype='float32').reshape(50, 50)
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(20,))
+        ds.create.coord.lon(data=lon, chunk_shape=(20,))
+        dv1 = ds.create.data_var.generic('var1', ('latitude', 'longitude'), dtypes.dtype('float32'), chunk_shape=(20, 20))
+        dv1[:] = data1
+        dv2 = ds.create.data_var.generic('var2', ('latitude', 'longitude'), dtypes.dtype('float32'), chunk_shape=(20, 20))
+        dv2[:] = data2
+
+    with open_dataset(fp) as ds:
+        # map with _sum_two_vars
+        result = np.full((50, 50), np.nan, dtype='float32')
+        for target_chunk, chunk_result in ds.map(_sum_two_vars, {'latitude': 25, 'longitude': 25}, n_workers=2):
+            slices = (target_chunk['latitude'], target_chunk['longitude'])
+            result[slices] = chunk_result
+
+        assert np.allclose(result, data1 + data2)
+
+        # map returning None
+        results = list(ds.map(_ds_return_none, {'latitude': 25, 'longitude': 25}, n_workers=2))
+        assert len(results) == 0
+
+    fp.unlink()
+
+
 def test_copy_include_data_vars():
     """Test copying a dataset with include_data_vars filter."""
     fp = script_path.joinpath('test_copy_src.cfdb')
@@ -1034,6 +1178,81 @@ def test_copy_include_data_vars():
 
     fp.unlink()
     fp2.unlink()
+
+
+##############################
+### Map with chunk_shape
+
+
+def _double_rechunked(target_chunk, data):
+    return data * 2
+
+
+def test_map_with_chunk_shape(populated_dataset):
+    """Test pool-based map with rechunked chunks."""
+    with open_dataset(populated_dataset) as ds:
+        dv = ds['temperature']
+        result = np.full(dv.shape, np.nan, dtype=ind_data_var_data.dtype)
+        for slices, chunk_result in dv.map(_double_rechunked, chunk_shape={'latitude': 50}, n_workers=2):
+            result[slices] = chunk_result
+
+        assert np.allclose(result, ind_data_var_data * 2)
+
+
+##############################
+### Dataset groupby
+
+
+def test_dataset_groupby():
+    """Test dataset-level groupby."""
+    fp = script_path.joinpath('test_ds_groupby.cfdb')
+    lat = np.linspace(0, 4.9, 50, dtype='float32')
+    lon = np.linspace(-5, -0.1, 50, dtype='float32')
+    data1 = np.linspace(0, 2499, 2500, dtype='float32').reshape(50, 50)
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(20,))
+        ds.create.coord.lon(data=lon, chunk_shape=(20,))
+        dv1 = ds.create.data_var.generic('var1', ('latitude', 'longitude'), dtypes.dtype('float32'), chunk_shape=(20, 20))
+        dv1[:] = data1
+
+    with open_dataset(fp) as ds:
+        result = np.full((50, 50), np.nan, dtype='float32')
+        for target_chunk, var_data in ds.groupby('latitude', data_vars=['var1']):
+            slices = (target_chunk['latitude'], target_chunk['longitude'])
+            result[slices] = var_data['var1']
+
+        assert np.allclose(result, data1)
+
+    fp.unlink()
+
+
+##############################
+### Dataset iter_chunk_slices
+
+
+def test_dataset_iter_chunk_slices():
+    """Test dataset-level iter_chunk_slices."""
+    fp = script_path.joinpath('test_ds_iter_slices.cfdb')
+    lat = np.linspace(0, 4.9, 50, dtype='float32')
+    lon = np.linspace(-5, -0.1, 50, dtype='float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(20,))
+        ds.create.coord.lon(data=lon, chunk_shape=(20,))
+        dv = ds.create.data_var.generic('var1', ('latitude', 'longitude'), dtypes.dtype('float32'), chunk_shape=(20, 20))
+        dv[:] = np.zeros((50, 50), dtype='float32')
+
+    with open_dataset(fp) as ds:
+        chunks = list(ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}))
+        assert len(chunks) == 4
+        for chunk in chunks:
+            assert 'latitude' in chunk
+            assert 'longitude' in chunk
+            assert isinstance(chunk['latitude'], slice)
+            assert isinstance(chunk['longitude'], slice)
+
+    fp.unlink()
 
 
 

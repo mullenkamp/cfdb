@@ -66,12 +66,12 @@ with cfdb.open_dataset(file_path, flag='w') as ds:
     ds['temperature'][:] = data
 ```
 
-For large datasets, iterate over chunks:
+For large datasets, iterate over chunk positions:
 
 ```python
 with cfdb.open_dataset(file_path, flag='w') as ds:
     temp = ds['temperature']
-    for chunk_slices in temp.iter_chunks():
+    for chunk_slices in temp.iter_chunk_slices():
         temp[chunk_slices] = data[chunk_slices]
 ```
 
@@ -90,7 +90,7 @@ For large datasets, iterate over chunks:
 ```python
 with cfdb.open_dataset(file_path) as ds:
     temp = ds['temperature']
-    for chunk_slices, chunk_data in temp.iter_chunks(include_data=True):
+    for chunk_slices, chunk_data in temp.iter_chunks():
         print(chunk_slices, chunk_data.shape)
 ```
 

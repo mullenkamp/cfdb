@@ -58,7 +58,7 @@ with cfdb.open_dataset(file_path) as ds:
     print(view)
 
     # Access variables through the view
-    for chunk_slices, data in view['temperature'].iter_chunks(include_data=True):
+    for chunk_slices, data in view['temperature'].iter_chunks():
         print(data.shape)
 ```
 

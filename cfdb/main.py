@@ -7,6 +7,7 @@ Created on Tue Jan  7 11:25:06 2025
 """
 import numpy as np
 import booklet
+import rechunkit
 from typing import Union, List
 import pathlib
 import msgspec
@@ -214,6 +215,177 @@ class DatasetBase:
 
         ## Init DatasetView
         return DatasetView(self, _sel)
+
+
+    def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**27):
+        """
+        Iterate over aligned chunks of multiple data variables. Always yields (target_chunk, var_data).
+
+        Parameters
+        ----------
+        chunk_shape : dict
+            {coord_name: int} — iteration chunk size per coordinate.
+            Coords not listed use their full length (single step).
+        data_vars : list of str, optional
+            Which data variables to include. Default: all.
+        max_mem : int
+            Max memory in bytes for rechunker buffer per variable. Default 128 MB.
+
+        Yields
+        ------
+        target_chunk : dict
+            {coord_name: slice} — chunk positions in the iteration space.
+        var_data : dict
+            {var_name: ndarray} — decoded data for each variable at this position.
+        """
+        # Validate data vars
+        if data_vars is None:
+            data_vars = list(self.data_var_names)
+        else:
+            for name in data_vars:
+                if name not in self.data_var_names:
+                    raise KeyError(f'{name} is not a data variable.')
+
+        if not data_vars:
+            return
+
+        # Determine common coord_names — require all data vars share the same coords
+        first_dv = self[data_vars[0]]
+        common_coord_names = first_dv.coord_names
+        for dv_name in data_vars[1:]:
+            if self[dv_name].coord_names != common_coord_names:
+                raise ValueError(
+                    f'All data variables must share the same coordinates. '
+                    f'{data_vars[0]} has {common_coord_names}, '
+                    f'{dv_name} has {self[dv_name].coord_names}.'
+                )
+
+        # Create per-variable iter_chunks generators
+        var_gens = []
+        for dv_name in data_vars:
+            dv = self[dv_name]
+            var_gens.append(dv.iter_chunks(chunk_shape, max_mem=max_mem))
+
+        # Zip — canonical C-order guaranteed by rechunkit
+        for items in zip(*var_gens):
+            write_chunk = items[0][0]
+            target_chunk = {
+                cn: sl for cn, sl in zip(common_coord_names, write_chunk)
+            }
+            var_data = {
+                dv_name: item[1]
+                for dv_name, item in zip(data_vars, items)
+            }
+            yield target_chunk, var_data
+
+
+    def iter_chunk_slices(self, chunk_shape, data_vars=None):
+        """
+        Iterate chunk position dicts without loading data.
+
+        Parameters
+        ----------
+        chunk_shape : dict
+            {coord_name: int} — iteration chunk size per coordinate.
+        data_vars : list of str, optional
+            Which data variables to include. Default: all.
+
+        Yields
+        ------
+        dict of {coord_name: slice}
+        """
+        # Validate data vars
+        if data_vars is None:
+            data_vars = list(self.data_var_names)
+        else:
+            for name in data_vars:
+                if name not in self.data_var_names:
+                    raise KeyError(f'{name} is not a data variable.')
+
+        if not data_vars:
+            return
+
+        # Determine common coord_names
+        first_dv = self[data_vars[0]]
+        common_coord_names = first_dv.coord_names
+
+        target_chunk_shape = tuple(
+            chunk_shape.get(cn, self[cn].shape[0])
+            for cn in common_coord_names
+        )
+        starts = tuple(0 for _ in common_coord_names)
+        stops = tuple(self[cn].shape[0] for cn in common_coord_names)
+        for position in rechunkit.chunk_range(starts, stops, target_chunk_shape):
+            yield {cn: sl for cn, sl in zip(common_coord_names, position)}
+
+
+    def groupby(self, coord_names, data_vars=None, max_mem=2**27):
+        """
+        Group by one or more coordinates. Equivalent to iter_chunks with size 1 along the grouped coords.
+
+        Parameters
+        ----------
+        coord_names : str or iterable of str
+            The coord names to group by.
+        data_vars : list of str, optional
+            Which data variables to include. Default: all.
+        max_mem : int
+            Max memory for rechunker buffer per variable.
+
+        Yields
+        ------
+        tuple
+            (target_chunk dict, var_data dict)
+        """
+        if isinstance(coord_names, str):
+            coord_names = (coord_names,)
+        else:
+            coord_names = tuple(coord_names)
+        chunk_shape = {cn: 1 for cn in coord_names}
+        return self.iter_chunks(chunk_shape, data_vars=data_vars, max_mem=max_mem)
+
+
+    def map(self, func, chunk_shape, data_vars=None, max_mem=2**27, n_workers=None):
+        """
+        Apply func to aligned chunks of multiple variables in parallel.
+
+        Parameters
+        ----------
+        func : callable
+            func(target_chunk, var_data) -> result or None.
+            target_chunk: dict of {coord_name: slice}.
+            var_data: dict of {var_name: ndarray}.
+            Must be a top-level function (picklable).
+        chunk_shape : dict
+            {coord_name: int} for iteration chunk sizes.
+        data_vars : list of str, optional
+            Data variable names to include. Default: all.
+        max_mem : int
+            Max memory for rechunker buffer per variable. Default 128 MB.
+        n_workers : int, optional
+            Number of worker processes. Defaults to os.cpu_count().
+
+        Yields
+        ------
+        tuple
+            (target_chunk, result) pairs, as workers complete (unordered).
+        """
+        import multiprocessing
+        import os
+
+        if n_workers is None:
+            n_workers = os.cpu_count()
+
+        def work_iter():
+            for target_chunk, var_data in self.iter_chunks(
+                chunk_shape, data_vars=data_vars, max_mem=max_mem
+            ):
+                yield (func, target_chunk, var_data)
+
+        with multiprocessing.Pool(n_workers) as pool:
+            for result in pool.imap_unordered(sc._map_worker, work_iter()):
+                if result is not None:
+                    yield result
 
 
     # def to_pandas(self):
@@ -434,7 +606,7 @@ class DatasetBase:
 
                 h5_data_var.attrs.update(attrs)
 
-                for write_chunk, data in data_var.iter_chunks(True, decoded=False):
+                for write_chunk, data in data_var.iter_chunks(decoded=False):
                     h5_data_var[write_chunk] = data.astype(dtype_encoded)
 
             # Add global attrs

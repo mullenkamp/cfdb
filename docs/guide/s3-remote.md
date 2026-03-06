@@ -54,7 +54,7 @@ with cfdb.open_edataset(remote_conn, 'local.cfdb') as ds:
     temp = ds['temperature']
     temp.load()  # fetch all chunks from S3
 
-    for slices, data in temp.iter_chunks(include_data=True):
+    for slices, data in temp.iter_chunks():
         print(data.shape)
 ```
 

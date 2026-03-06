@@ -72,12 +72,12 @@ with cfdb.open_dataset(file_path, flag='w') as ds:
 
 ### Chunk-Based Writing (Recommended)
 
-For large datasets, iterate over chunks to control memory usage:
+For large datasets, iterate over chunk positions to control memory usage:
 
 ```python
 with cfdb.open_dataset(file_path, flag='w') as ds:
     temp = ds['temperature']
-    for chunk_slices in temp.iter_chunks():
+    for chunk_slices in temp.iter_chunk_slices():
         temp[chunk_slices] = data[chunk_slices]
 ```
 
@@ -101,11 +101,29 @@ For large datasets, iterate over chunks:
 ```python
 with cfdb.open_dataset(file_path) as ds:
     temp = ds['temperature']
-    for chunk_slices, chunk_data in temp.iter_chunks(include_data=True):
+    for chunk_slices, chunk_data in temp.iter_chunks():
         print(chunk_slices, chunk_data.shape)
 ```
 
 The `chunk_slices` tuple contains slices that can be used as numpy indexes.
+
+You can also iterate with a different chunk shape by passing a dict of `{coord_name: int}`:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    temp = ds['temperature']
+    for chunk_slices, chunk_data in temp.iter_chunks({'latitude': 50}):
+        print(chunk_slices, chunk_data.shape)
+```
+
+For position-only iteration (no data loading), use `iter_chunk_slices()`:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    temp = ds['temperature']
+    for chunk_slices in temp.iter_chunk_slices():
+        print(chunk_slices)
+```
 
 ## GroupBy
 
@@ -129,9 +147,11 @@ The `max_mem` parameter controls the memory budget for the rechunking operation 
 
 ## Parallel Map
 
-The `map()` method applies a function to each chunk in parallel using multiprocessing. It yields `(target_chunk, result)` tuples as workers complete. The function receives exactly what `iter_chunks(include_data=True)` yields: a `target_chunk` tuple of slices and a `data` numpy array.
+The `map()` method applies a function to each chunk in parallel using multiprocessing. It yields `(target_chunk, result)` tuples as workers complete. The function receives exactly what `iter_chunks()` yields: a `target_chunk` tuple of slices and a `data` numpy array.
 
 The function must be a top-level picklable function (not a lambda or closure).
+
+By default (no `chunk_shape`), `map()` uses the efficient booklet.map path where workers decompress and compute directly. Pass a `chunk_shape` dict to use a pool-based approach with rechunked chunks instead.
 
 ### Transform and Write Back
 

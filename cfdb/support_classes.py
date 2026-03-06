@@ -75,7 +75,8 @@ class Rechunker:
         tuple of ints
             shape of the chunk
         """
-        chunk_shape = rechunkit.guess_chunk_shape(self._var.shape, self._var.dtype_encoded, target_chunk_size)
+        itemsize = self._guess_itemsize()
+        chunk_shape = rechunkit.guess_chunk_shape(self._var.shape, itemsize, target_chunk_size)
 
         return chunk_shape
 
@@ -165,14 +166,14 @@ class Rechunker:
         if self._var.dtype.dtype_encoded is None:
             func = lambda sel: self._var.get_chunk(sel)
 
-            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self._var.dtype.dtype_decoded, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self._var.dtype.dtype_decoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
 
             for slices, data_decoded in rechunkit1:
                 yield slices, data_decoded
         else:
             func = lambda sel: self._var._get_encoded_chunk(sel)
 
-            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self._var.dtype.dtype_encoded, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self._var.dtype.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
 
             for slices, data_encoded in rechunkit1:
                 yield slices, self._var.dtype.decode(data_encoded)
@@ -950,17 +951,124 @@ class _ChunkMapWrapper:
         return None
 
 
+def _map_worker(args):
+    func, target_chunk, var_data = args
+    result = func(target_chunk, var_data)
+    if result is not None:
+        return (target_chunk, result)
+    return None
+
+
 class DataVariableView(Variable):
     """
 
     """
+    def _resolve_chunk_shape(self, chunk_shape):
+        coord_names = self.coord_names
+        var_shape = self.shape
+        for cn in chunk_shape:
+            if cn not in coord_names:
+                raise KeyError(f'{cn} is not a coordinate of this variable.')
+        return tuple(
+            chunk_shape.get(cn, s) for cn, s in zip(coord_names, var_shape)
+        )
+
+    def iter_chunks(self, chunk_shape=None, max_mem=2**27, decoded=True):
+        """
+        Iterate through the chunks of the variable. Always yields (slices, data).
+
+        Parameters
+        ----------
+        chunk_shape : dict or None
+            {coord_name: int} for target chunk sizes. None uses storage chunks.
+        max_mem : int
+            Max memory in bytes for rechunker buffer. Default 128 MB.
+        decoded : bool
+            If False and dtype has an encoded form, yield encoded data.
+            Only applies in storage-chunk mode (chunk_shape=None).
+
+        Yields
+        ------
+        tuple
+            (tuple of slices, ndarray)
+        """
+        if chunk_shape is None:
+            # Storage chunks — same logic as Variable.iter_chunks with include_data=True
+            coord_origins = self.get_coord_origins()
+
+            if not decoded and self.dtype.dtype_encoded is not None:
+                func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
+                blank = self._make_blank_chunk_array(decoded)
+            else:
+                func = lambda x: self.dtype.loads(self.compressor.decompress(x), self.chunk_shape)
+                blank = self._make_blank_chunk_array()
+
+            slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
+
+            self.load()
+            for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, self.name, self.chunk_shape):
+                b1 = self._blt.get(blt_key)
+                if b1 is None:
+                    blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
+                    yield target_chunk, blank[blank_slices]
+                else:
+                    data = func(b1)
+                    yield target_chunk, data[source_chunk]
+        else:
+            # Rechunked
+            target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
+            self.load()
+            rechunker = self.rechunker()
+            for write_chunk, data in rechunker.rechunk(target_chunk_shape, max_mem):
+                yield write_chunk, data
+
+    def iter_chunk_slices(self, chunk_shape=None):
+        """
+        Iterate chunk position slices without loading data.
+
+        Parameters
+        ----------
+        chunk_shape : dict or None
+            {coord_name: int} for target chunk sizes. None uses storage chunks.
+
+        Yields
+        ------
+        tuple of slices
+            Chunk position slices (0-based relative to variable shape).
+        """
+        coord_origins = self.get_coord_origins()
+        slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
+        starts = tuple(s.start for s in slices)
+        stops = tuple(s.stop for s in slices)
+
+        if chunk_shape is None:
+            step = self.chunk_shape
+        else:
+            step = self._resolve_chunk_shape(chunk_shape)
+
+        for partial_chunk in rechunkit.chunk_range(starts, stops, step):
+            yield tuple(slice(s.start - start, s.stop - start) for start, s in zip(starts, partial_chunk))
+
+    def __iter__(self):
+        return self.iter_chunk_slices()
+
+    def items(self, decoded=True):
+        """
+        Iterate through all indexes.
+        """
+        for target_chunk, data in self.iter_chunks(decoded=decoded):
+            data_starts = tuple(s.start for s in target_chunk)
+            for index in itertools.product(*(range(s.start, s.stop) for s in target_chunk)):
+                data_index = tuple(i - ds for i, ds in zip(index, data_starts))
+                yield index, data[data_index]
+
     @property
     def data(self):
         coord_origins = self.get_coord_origins()
 
         target = self._make_blank_sel_array(self._sel, coord_origins)
 
-        for target_chunk, data in self.iter_chunks(True):
+        for target_chunk, data in self.iter_chunks():
             target[target_chunk] = data
 
         return target
@@ -1058,51 +1166,34 @@ class DataVariableView(Variable):
 
     def groupby(self, coord_names: Union[str, Iterable], max_mem: int=2**27):
         """
-        This method takes one or more coord names to group by and returns a generator. This generator will return chunks of data according to these groupings with the associated tuple of slices. The more max_mem provided, the more efficient the chunking.
-        This is effectively the rechunking method where each coord name supplied is set to 1 and all other coords are set to their full their full length.
+        Group by one or more coordinates. Equivalent to iter_chunks with size 1 along the grouped coords.
 
         Parameters
         ----------
         coord_names: str or Iterable
             The coord names to group by.
         max_mem: int
-            The max allocated memory to perform the chunking operation in bytes. This will only be as large as necessary for an optimum size chunk for the rechunking.
+            The max allocated memory to perform the chunking operation in bytes.
 
         Returns
         -------
         Generator
-            tuple of the target slices to the np.ndarray of data
+            tuple of (slices, ndarray)
         """
-        self.load()
-
-        var_coord_names = self.coord_names
         if isinstance(coord_names, str):
             coord_names = (coord_names,)
         else:
             coord_names = tuple(coord_names)
 
-        # checks
-        for coord_name in coord_names:
-            if coord_name not in var_coord_names:
-                raise ValueError(f'{coord_name} is not a coord of this variable.')
+        for cn in coord_names:
+            if cn not in self.coord_names:
+                raise ValueError(f'{cn} is not a coord of this variable.')
 
-        # Build target chunk shape
-        target_chunk_shape = []
-        for coord in self.coords:
-            coord_name = coord.name
-            if coord_name in coord_names:
-                target_chunk_shape.append(1)
-            else:
-                target_chunk_shape.append(coord.shape[0])
-
-        # Do the chunking
-        rechunker = self.rechunker()
-        rechunkit1 = rechunker.rechunk(tuple(target_chunk_shape), max_mem)
-
-        return rechunkit1
+        chunk_shape = {cn: 1 for cn in coord_names}
+        return self.iter_chunks(chunk_shape, max_mem=max_mem)
 
 
-    def map(self, func, n_workers=None):
+    def map(self, func, chunk_shape=None, n_workers=None, max_mem=2**27):
         """
         Apply func to each chunk in parallel using multiprocessing.
 
@@ -1110,32 +1201,53 @@ class DataVariableView(Variable):
         ----------
         func : callable
             A picklable function: func(target_chunk, data) -> result or None.
-            target_chunk and data are the same as yielded by iter_chunks(True).
-            Return any picklable value, or None to skip.
             Must be a top-level function (not a lambda or closure).
+        chunk_shape : dict or None
+            {coord_name: int} for rechunked iteration. None uses storage chunks
+            with the efficient booklet.map path.
         n_workers : int, optional
             Number of worker processes. Defaults to os.cpu_count().
+        max_mem : int
+            Max memory for rechunker buffer. Only used when chunk_shape is set.
 
         Yields
         ------
         tuple
             (target_chunk, result) pairs, as workers complete.
         """
-        self.load()
+        if chunk_shape is None:
+            # booklet.map path (efficient — workers decompress + compute)
+            self.load()
 
-        coord_origins = self.get_coord_origins()
-        slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
+            coord_origins = self.get_coord_origins()
+            slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
 
-        starts = tuple(s.start for s in slices)
-        stops = tuple(s.stop for s in slices)
+            starts = tuple(s.start for s in slices)
+            stops = tuple(s.stop for s in slices)
 
-        chunk_keys = indexers.slices_to_keys(slices, self.name, self.chunk_shape)
+            chunk_keys = indexers.slices_to_keys(slices, self.name, self.chunk_shape)
 
-        wrapper = _ChunkMapWrapper(func, starts, stops, self.dtype, self.compressor, self.chunk_shape)
+            wrapper = _ChunkMapWrapper(func, starts, stops, self.dtype, self.compressor, self.chunk_shape)
 
-        for blt_key, result in self._blt.map(wrapper, keys=chunk_keys, n_workers=n_workers):
-            target_chunk = wrapper._parse_key(blt_key)[0]
-            yield target_chunk, result
+            for blt_key, result in self._blt.map(wrapper, keys=chunk_keys, n_workers=n_workers):
+                target_chunk = wrapper._parse_key(blt_key)[0]
+                yield target_chunk, result
+        else:
+            # pool path (main process rechunks, workers compute)
+            import multiprocessing
+            import os
+
+            if n_workers is None:
+                n_workers = os.cpu_count()
+
+            def work_iter():
+                for slices, data in self.iter_chunks(chunk_shape, max_mem=max_mem):
+                    yield (func, slices, data)
+
+            with multiprocessing.Pool(n_workers) as pool:
+                for result in pool.imap_unordered(_map_worker, work_iter()):
+                    if result is not None:
+                        yield result
 
 
     # def to_pandas(self):
