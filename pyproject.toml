@@ -35,6 +35,10 @@ dependencies = [
 [project.optional-dependencies]
 netcdf4 = ['h5netcdf', 'cftime']
 ebooklet = ['ebooklet>=0.7.0']
+xarray = ['xarray']
+
+[project.entry-points."xarray.backends"]
+cfdb = "cfdb.xarray_backend:CfdbBackendEntrypoint"
 
 [dependency-groups]
 dev = [
