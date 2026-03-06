@@ -51,6 +51,7 @@ dev = [
   'h5netcdf',
   'h5py>=3.6.0',
   'ebooklet>=0.7.0',
+  'xarray',
 ]
 docs = [
   "mkdocs-material>=9.0",
