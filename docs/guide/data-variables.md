@@ -201,6 +201,62 @@ with cfdb.open_dataset(file_path) as ds:
         print(target_chunk, result.shape)
 ```
 
+## Dataset-Level Iteration
+
+The methods above operate on a single data variable. The dataset also provides `iter_chunks`, `iter_chunk_slices`, `groupby`, and `map` that iterate over **multiple data variables in lockstep**. All data variables must share the same coordinates.
+
+### iter_chunks
+
+Yields `(target_chunk, var_data)` where `target_chunk` is a `{coord_name: slice}` dict and `var_data` is a `{var_name: ndarray}` dict:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    for target_chunk, var_data in ds.iter_chunks({'latitude': 25, 'longitude': 25}):
+        temp_data = var_data['temperature']
+        wind_data = var_data['wind_speed']
+        print(target_chunk, temp_data.shape)
+```
+
+Use `data_vars` to limit which variables are included:
+
+```python
+for target_chunk, var_data in ds.iter_chunks({'latitude': 50}, data_vars=['temperature']):
+    print(var_data.keys())  # {'temperature'}
+```
+
+### iter_chunk_slices
+
+Position-only companion — no data loading:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    for chunk in ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}):
+        print(chunk)  # {'latitude': slice(0, 25), 'longitude': slice(0, 25)}
+```
+
+### groupby
+
+Group by one or more coordinates across all data variables. Equivalent to `iter_chunks` with chunk size 1 along the grouped coordinates:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    for target_chunk, var_data in ds.groupby('latitude'):
+        print(target_chunk, {k: v.shape for k, v in var_data.items()})
+```
+
+### map
+
+Apply a function to aligned chunks of multiple variables in parallel. The function receives `(target_chunk, var_data)` — same as `iter_chunks`:
+
+```python
+def sum_two_vars(target_chunk, var_data):
+    return var_data['temperature'] + var_data['wind_speed']
+
+with cfdb.open_dataset(file_path) as ds:
+    for target_chunk, result in ds.map(sum_two_vars, {'latitude': 25}, n_workers=4):
+        print(target_chunk, result.shape)
+```
+
 ## Properties
 
 ```python
