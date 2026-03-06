@@ -85,6 +85,7 @@ nav:
         - Attributes: guide/attributes.md
         - Combining Datasets: guide/combining-datasets.md
         - S3 Remote (EDataset): guide/s3-remote.md
+        - Xarray Backend: guide/xarray-backend.md
         - Export & Copy: guide/export-copy.md
     - Concepts:
         - Architecture: concepts/architecture.md
@@ -103,5 +104,6 @@ nav:
         - Interpolation: reference/interp.md
         - Rechunker: reference/rechunker.md
         - combine: reference/combine.md
+        - Xarray Backend: reference/xarray-backend.md
         - Tools: reference/tools.md
     - Changelog: changelog.md
