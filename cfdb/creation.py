@@ -170,7 +170,7 @@ class Coord:
         self._dataset = dataset
 
 
-    def generic(self, name: str, data: np.ndarray | None = None, dtype: str | np.dtype | dtypes.DataType | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, axis: str=None):
+    def generic(self, name: str, data: np.ndarray | list | None = None, dtype: str | np.dtype | dtypes.DataType | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, axis: str=None):
         """
         The generic method to create a coordinate.
 
@@ -178,7 +178,7 @@ class Coord:
         ----------
         name: str
             The name of the coordinate. It must be unique and follow the `CF conventions for variables names <https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_naming_conventions>`_.
-        data: np.ndarray or None
+        data: np.ndarray, list, or None
             Data to be added after creation. The length and dtype of the data will override other parameters.
         dtype: str, np.dtype, Dtype, or None
             The name of the data type. It can either be a string name, a np.dtype, or a DataType. If name is a string, then it must correspond to a numpy dtype for the decoding except for geometry dtypes.
@@ -193,6 +193,10 @@ class Coord:
         -------
         cfdb.Coordinate
         """
+        ## Convert list data to ndarray
+        if isinstance(data, list):
+            data = np.asarray(data)
+
         if isinstance(axis, str):
             axis = axis.lower()
             axis1 = data_models.Axis(axis)

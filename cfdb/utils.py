@@ -330,6 +330,10 @@ def init_coord_data_checks(data: list | np.ndarray, step: int | float | bool, dt
     if len(shape) > 1:
         raise ValueError('Coordinates must be 1D.')
 
+    if dtype.kind == 'G':
+        # Geometry uniqueness is checked via WKT encoding in coord_data_checks
+        return None
+
     if len(np.unique(data)) < shape[0]:
         raise ValueError('The data for coords must be unique.')
 
@@ -533,7 +537,11 @@ def parse_coord_inputs(dataset_type: str, name: str, data: np.ndarray | None = N
         dtype = dtypes.dtype(dtype)
     elif isinstance(data, np.ndarray) and not isinstance(dtype, dtypes.DataType):
         np_dtype = data.dtype
-        dtype = dtypes.dtype(np_dtype)
+        if np_dtype.kind == 'O' and len(data) > 0 and isinstance(data.flat[0], shapely.geometry.base.BaseGeometry):
+            geom_type = data.flat[0].geom_type.lower()
+            dtype = dtypes.dtype(geom_type, precision=5)
+        else:
+            dtype = dtypes.dtype(np_dtype)
     elif not isinstance(dtype, dtypes.DataType):
         raise TypeError('dtype must not be None.')
 
