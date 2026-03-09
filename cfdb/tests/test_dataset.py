@@ -472,6 +472,31 @@ def test_coordinate_prepend():
     fp.unlink()
 
 
+def test_geometry_coord_order_preserved():
+    """Test that geometry coordinate order is preserved through a round-trip."""
+    fp = script_path.joinpath('test_geom_order.cfdb')
+
+    # Deliberately non-sorted points — order must survive storage
+    points = [
+        shapely.Point(175.0, 5.0),
+        shapely.Point(170.0, -10.0),
+        shapely.Point(180.0, 10.0),
+        shapely.Point(172.0, 0.0),
+    ]
+    expected_coords = shapely.get_coordinates(points)
+
+    with open_dataset(fp, flag='n', dataset_type='ts_ortho') as ds:
+        geo_coord = ds.create.coord.point()
+        geo_coord.append(points)
+
+    with open_dataset(fp) as ds:
+        result = ds['point'].data
+        result_coords = shapely.get_coordinates(result)
+        np.testing.assert_array_almost_equal(result_coords, expected_coords)
+
+    fp.unlink()
+
+
 ##############################
 ### Data variable operations
 
