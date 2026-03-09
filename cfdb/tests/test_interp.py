@@ -238,6 +238,53 @@ def test_to_points_no_time():
         assert values.shape == (2,)
 
 
+def test_to_points_2d_on_3d_grid():
+    """2D target points against a 3D grid should interpolate each z-level independently."""
+    n_levels = 5
+    z_data = np.arange(n_levels, dtype='float32')
+
+    gi_file_3d_z = script_path.joinpath('test_gi_3d_z.cfdb')
+
+    with open_dataset(gi_file_3d_z, flag='n') as ds:
+        ds.create.coord.generic('level', data=z_data, dtype='float32', chunk_shape=(n_levels,), axis='z')
+        ds.create.coord.lat(data=lat_data, chunk_shape=(21,))
+        ds.create.coord.lon(data=lon_data, chunk_shape=(11,))
+        ds.create.coord.time(data=time_data, dtype=time_data.dtype)
+        ds.create.crs.from_user_input(4326, 'longitude', 'latitude')
+
+        data_dtype = dtypes.dtype('float32')
+        # 4D data: time x level x lat x lon
+        data_4d = np.zeros((len(time_data), n_levels, len(lat_data), len(lon_data)), dtype='float32')
+        for t in range(len(time_data)):
+            for k in range(n_levels):
+                data_4d[t, k] = data_2d * (k + 1) * (t + 1)
+
+        dv = ds.create.data_var.generic('temperature', ('time', 'level', 'latitude', 'longitude'), data_dtype, chunk_shape=(3, n_levels, 21, 11))
+        dv[:] = data_4d
+
+    target_points = np.array([
+        [175.0, 0.0],
+        [176.0, 1.0],
+        [177.0, -1.0],
+    ])
+
+    try:
+        with open_dataset(gi_file_3d_z) as ds:
+            dv = ds['temperature']
+            gi = dv.interp()
+            results = list(gi.to_points(target_points, to_crs=4326))
+
+            assert len(results) == len(time_data)
+
+            for time_val, values in results:
+                assert isinstance(values, np.ndarray)
+                # Should have shape (n_z, n_points) = (5, 3)
+                assert values.shape == (n_levels, len(target_points))
+    finally:
+        if gi_file_3d_z.exists():
+            gi_file_3d_z.unlink()
+
+
 def test_interp_na():
     _create_2d_dataset()
 
