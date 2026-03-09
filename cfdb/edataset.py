@@ -4,6 +4,8 @@
 EDataset classes and open function for S3-backed datasets via ebooklet.
 This module is only imported when ebooklet is installed.
 """
+from __future__ import annotations
+
 import ebooklet
 from typing import Union
 import pathlib
