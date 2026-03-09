@@ -371,13 +371,15 @@ def coord_data_checks(new_data: list | np.ndarray, source_data: np.ndarray, sour
                     _ = init_parse_step(source_dtype, source_step, test_data)
 
         elif source_dtype.kind == 'G':
-            s1 = set(source_dtype.encode(source_data))
-            new_data_set = set(source_dtype.encode([shapely.normalize(geo) for geo in new_data]))
-            s1.update(new_data_set)
-            if len(s1) != (len(source_data) + len(new_data)):
+            normalized = np.asarray([shapely.normalize(geo) for geo in new_data], dtype=source_dtype.dtype_decoded)
+            existing_wkt = set(source_dtype.encode(source_data))
+            new_wkt = source_dtype.encode(normalized)
+            combined = existing_wkt.copy()
+            combined.update(new_wkt)
+            if len(combined) != (len(source_data) + len(new_data)):
                 raise ValueError('The data for coords must be unique.')
 
-            new_data = source_dtype.decode(np.fromiter(new_data_set, dtype=source_dtype.dtype_decoded, count=len(new_data_set)))
+            new_data = normalized
         else:
             s1 = set(source_data)
             s1.update(set(new_data))
@@ -390,11 +392,12 @@ def coord_data_checks(new_data: list | np.ndarray, source_data: np.ndarray, sour
                 if len(new_data) > 1:
                     _ = init_parse_step(source_dtype, source_step, new_data)
         else:
-            new_data_set = set(source_dtype.encode([shapely.normalize(geo) for geo in new_data]))
-            if len(new_data_set) < new_data.shape[0]:
+            normalized = np.asarray([shapely.normalize(geo) for geo in new_data], dtype=source_dtype.dtype_decoded)
+            new_wkt = source_dtype.encode(normalized)
+            if len(set(new_wkt)) < len(new_data):
                 raise ValueError('The data for coords must be unique.')
 
-            new_data = source_dtype.decode(np.fromiter(new_data_set, dtype=source_dtype.dtype_decoded, count=len(new_data_set)))
+            new_data = normalized
 
     return new_data
 

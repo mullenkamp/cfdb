@@ -294,7 +294,9 @@ class GridInterp:
         tuple of (dim_value, np.ndarray)
             dim_value is None when there is no iter_dim. The array
             is a 1D array of shape (M,) with interpolated values at each
-            target point.
+            target point. When target_points is 2D (M, 2) but the source
+            grid has a z dimension, each z-level is interpolated
+            independently and the result has shape (n_z, M).
         """
         from .support_classes import DataVariableView
 
@@ -307,10 +309,24 @@ class GridInterp:
 
         source_coords = self._get_source_coords()
         gi = GridInterpolator(from_crs=self._dataset.crs)
-        interp_func = gi.to_points(source_coords, target_points, to_crs=to_crs, order=order, min_val=min_val)
 
-        for time_val, data in self._iter_slices():
-            yield (time_val, interp_func(data))
+        if self._z_name is not None and target_points.shape[1] == 2:
+            # 2D points against 3D grid: interpolate each z-level independently
+            source_coords_2d = source_coords[:2]  # (x_arr, y_arr) only
+            interp_func = gi.to_points(source_coords_2d, target_points, to_crs=to_crs, order=order, min_val=min_val)
+            z_data = self._dataset[self._z_name].data.ravel()
+
+            for time_val, data in self._iter_slices():
+                # data shape: (n_z, n_y, n_x) after spatial transpose
+                results = []
+                for zi in range(len(z_data)):
+                    results.append(interp_func(data[zi]))
+                yield (time_val, np.stack(results))
+        else:
+            interp_func = gi.to_points(source_coords, target_points, to_crs=to_crs, order=order, min_val=min_val)
+
+            for time_val, data in self._iter_slices():
+                yield (time_val, interp_func(data))
 
     def interp_na(self, method='linear', min_val=None):
         """
