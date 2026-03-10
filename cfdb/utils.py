@@ -926,6 +926,117 @@ def get_var_params(name, kwargs=None):
     return cf_name, kwargs, attrs
 
 
+########################################################
+### Period groupby utilities
+
+_period_units = {'Y', 'M', 'W', 'D', 'h', 'm', 's', 'ms', 'us', 'ns'}
+_irregular_period_units = {'Y', 'M'}
+
+_period_regex = re.compile(r'^(\d+)?(Y|M|W|D|h|ms|us|ns|m|s)$')
+
+
+def parse_period_string(period_str):
+    """
+    Parse a period string like '1D', '7D', 'M', '3M', '6h' into (count, unit).
+
+    Parameters
+    ----------
+    period_str : str
+
+    Returns
+    -------
+    tuple of (int, str)
+    """
+    m = _period_regex.match(period_str)
+    if m is None:
+        raise ValueError(
+            f"Invalid period string '{period_str}'. "
+            f"Expected format like 'D', '7D', 'M', '6h', etc. "
+            f"Valid units: {', '.join(sorted(_period_units))}"
+        )
+    count = int(m.group(1)) if m.group(1) else 1
+    unit = m.group(2)
+    if count < 1:
+        raise ValueError('Period count must be >= 1.')
+    return count, unit
+
+
+def compute_time_groups(coord_data, count, unit):
+    """
+    Compute group boundary slices for a sorted datetime64 coordinate.
+
+    Parameters
+    ----------
+    coord_data : numpy.ndarray
+        Sorted datetime64 array.
+    count : int
+        Number of units per group (e.g. 7 for '7D').
+    unit : str
+        Datetime64 unit code (e.g. 'D', 'M', 'Y', 'h').
+
+    Returns
+    -------
+    list of slice
+        Each slice covers one contiguous group in the coordinate.
+    """
+    truncated = coord_data.astype(f'datetime64[{unit}]')
+
+    if count > 1:
+        origin = truncated[0]
+        offsets = (truncated - origin).astype(np.int64) // count
+        _, start_indices = np.unique(offsets, return_index=True)
+    else:
+        _, start_indices = np.unique(truncated, return_index=True)
+
+    n = len(coord_data)
+    groups = []
+    for i in range(len(start_indices)):
+        start = int(start_indices[i])
+        stop = int(start_indices[i + 1]) if i + 1 < len(start_indices) else n
+        groups.append(slice(start, stop))
+
+    return groups
+
+
+def period_to_chunk_size(count, unit, coord_step, coord_dtype):
+    """
+    Try to convert a period to a fixed chunk size given the coordinate's step and dtype.
+
+    Returns the integer chunk size if the period maps to a fixed number of steps,
+    or None if the period is irregular or doesn't divide evenly.
+
+    Parameters
+    ----------
+    count : int
+    unit : str
+    coord_step : int or None
+    coord_dtype : numpy.dtype
+
+    Returns
+    -------
+    int or None
+    """
+    if unit in _irregular_period_units:
+        return None
+    if coord_step is None:
+        return None
+
+    # Extract the resolution unit from the coordinate dtype (e.g. 'h' from datetime64[h])
+    coord_unit = np.datetime_data(coord_dtype)[0]
+
+    try:
+        period_td = np.timedelta64(count, unit)
+        step_td = np.timedelta64(coord_step, coord_unit)
+        ratio = period_td / step_td
+    except Exception:
+        return None
+
+    if ratio != int(ratio) or ratio < 1:
+        return None
+
+    return int(ratio)
+
+
 
 
 

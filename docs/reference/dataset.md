@@ -92,10 +92,15 @@ for chunk in ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}):
 
 ### groupby(coord_names, data_vars=None, max_mem=2\*\*27)
 
-Group by one or more coordinates across all data variables. Equivalent to `iter_chunks` with size 1 along the grouped coords.
+Group by one or more coordinates across all data variables. Accepts a string, list of strings, or dict. Dict values can be `int` (chunk size) or `str` (time period like `'D'`, `'M'`, `'Y'`, `'6h'`).
 
 ```python
+# Group by individual coordinate values
 for target_chunk, var_data in ds.groupby('latitude'):
+    print(target_chunk, {k: v.shape for k, v in var_data.items()})
+
+# Group by time period
+for target_chunk, var_data in ds.groupby({'time': 'M'}, data_vars=['temperature']):
     print(target_chunk, {k: v.shape for k, v in var_data.items()})
 ```
 

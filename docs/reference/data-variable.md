@@ -112,13 +112,34 @@ Set data at index positions. The `decoded` parameter controls whether input data
 
 ### groupby(coord_names, max_mem=2**27)
 
-Group by one or more coordinates. Returns a generator of `(slices, data)` tuples:
+Group by one or more coordinates. Returns a generator of `(slices, data)` tuples.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `coord_names` | str, list of str, or dict | Coordinates to group by. Dict values can be `int` (chunk size) or `str` (time period). |
+| `max_mem` | int | Max memory for rechunker buffer (default 128 MB). |
+
+**Period strings:** `'D'` (day), `'7D'` (7 days), `'M'` (month), `'Y'` (year), `'6h'` (6 hours), etc. Valid units: `Y`, `M`, `W`, `D`, `h`, `m`, `s`, `ms`, `us`, `ns`. Only valid on datetime coordinates.
 
 ```python
+# Group by individual coordinate values
 for slices, data in temp.groupby('latitude'):
     print(slices, data.shape)
 
 for slices, data in temp.groupby(('latitude', 'time')):
+    print(slices, data.shape)
+
+# Group by time period
+for slices, data in temp.groupby({'time': 'D'}):
+    print(slices, data.shape)
+
+for slices, data in temp.groupby({'time': 'M'}):
+    print(slices, data.shape)
+
+# Mixed: period on time, chunk size on spatial
+for slices, data in temp.groupby({'time': 'D', 'latitude': 50}):
     print(slices, data.shape)
 ```
 

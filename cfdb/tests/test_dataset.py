@@ -1280,6 +1280,291 @@ def test_dataset_iter_chunk_slices():
     fp.unlink()
 
 
+##############################
+### Period groupby utilities
+
+
+def test_parse_period_string():
+    """Test period string parsing."""
+    from cfdb.utils import parse_period_string
+
+    assert parse_period_string('D') == (1, 'D')
+    assert parse_period_string('7D') == (7, 'D')
+    assert parse_period_string('M') == (1, 'M')
+    assert parse_period_string('3M') == (3, 'M')
+    assert parse_period_string('6h') == (6, 'h')
+    assert parse_period_string('Y') == (1, 'Y')
+    assert parse_period_string('1Y') == (1, 'Y')
+    assert parse_period_string('30m') == (30, 'm')
+    assert parse_period_string('100ms') == (100, 'ms')
+
+    with pytest.raises(ValueError):
+        parse_period_string('abc')
+    with pytest.raises(ValueError):
+        parse_period_string('0D')
+    with pytest.raises(ValueError):
+        parse_period_string('')
+
+
+def test_compute_time_groups():
+    """Test computing time groups from datetime coordinate data."""
+    from cfdb.utils import compute_time_groups
+
+    # Daily data grouped by month
+    dates = np.arange('2020-01-01', '2020-04-01', dtype='datetime64[D]')
+    groups = compute_time_groups(dates, 1, 'M')
+    assert len(groups) == 3  # Jan, Feb, Mar
+    assert groups[0] == slice(0, 31)   # Jan: 31 days
+    assert groups[1] == slice(31, 60)  # Feb: 29 days (2020 is leap year)
+    assert groups[2] == slice(60, 91)  # Mar: 31 days
+
+    # Daily data grouped by year
+    dates = np.arange('2019-01-01', '2021-01-01', dtype='datetime64[D]')
+    groups = compute_time_groups(dates, 1, 'Y')
+    assert len(groups) == 2  # 2019, 2020
+    assert groups[0].stop - groups[0].start == 365  # 2019
+    assert groups[1].stop - groups[1].start == 366  # 2020 (leap)
+
+    # Hourly data grouped by day
+    times = np.arange('2020-01-01', '2020-01-04', dtype='datetime64[h]')
+    groups = compute_time_groups(times, 1, 'D')
+    assert len(groups) == 3
+    for g in groups:
+        assert g.stop - g.start == 24
+
+    # Hourly data grouped by 6 hours
+    times = np.arange('2020-01-01', '2020-01-02', dtype='datetime64[h]')
+    groups = compute_time_groups(times, 6, 'h')
+    assert len(groups) == 4
+    for g in groups:
+        assert g.stop - g.start == 6
+
+
+def test_period_to_chunk_size():
+    """Test converting period to chunk size."""
+    from cfdb.utils import period_to_chunk_size
+
+    # Hourly data, daily period → 24
+    assert period_to_chunk_size(1, 'D', 1, np.dtype('datetime64[h]')) == 24
+
+    # Hourly data, 6-hour period → 6
+    assert period_to_chunk_size(6, 'h', 1, np.dtype('datetime64[h]')) == 6
+
+    # Daily data, weekly period → 7
+    assert period_to_chunk_size(7, 'D', 1, np.dtype('datetime64[D]')) == 7
+
+    # 3-hourly data (step=3, datetime64[h]), daily → 8
+    assert period_to_chunk_size(1, 'D', 3, np.dtype('datetime64[h]')) == 8
+
+    # Monthly → always None (irregular)
+    assert period_to_chunk_size(1, 'M', 1, np.dtype('datetime64[D]')) is None
+
+    # Yearly → always None (irregular)
+    assert period_to_chunk_size(1, 'Y', 1, np.dtype('datetime64[D]')) is None
+
+    # No step → None
+    assert period_to_chunk_size(1, 'D', None, np.dtype('datetime64[h]')) is None
+
+    # Non-integer ratio → None
+    assert period_to_chunk_size(1, 'D', 7, np.dtype('datetime64[h]')) is None
+
+
+##############################
+### Period groupby (DataVariable level)
+
+
+def test_groupby_period_rechunker_path():
+    """Test groupby with period string that uses the rechunker (uniform groups)."""
+    fp = script_path.joinpath('test_groupby_period_rechunk.cfdb')
+
+    # 72 hours of hourly data → 3 full days
+    time_data = np.arange('2020-01-01', '2020-01-04', dtype='datetime64[h]')
+    lat = np.linspace(0, 4.9, 10, dtype='float32')
+    data = np.random.default_rng(42).standard_normal((10, 72)).astype('float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(10,))
+        ds.create.coord.time(data=time_data, dtype=time_data.dtype, chunk_shape=(24,))
+        dv = ds.create.data_var.generic('temp', ('latitude', 'time'), dtypes.dtype('float32'), chunk_shape=(10, 24))
+        dv[:] = data
+
+    with open_dataset(fp) as ds:
+        dv = ds['temp']
+        result = np.full(dv.shape, np.nan, dtype='float32')
+        count = 0
+        for slices, chunk_data in dv.groupby({'time': 'D'}):
+            result[slices] = chunk_data
+            assert chunk_data.shape == (10, 24)
+            count += 1
+
+        assert count == 3
+        assert np.allclose(result, data)
+
+    fp.unlink()
+
+
+def test_groupby_period_slice_path_monthly():
+    """Test groupby with monthly period (irregular, uses slice-based path)."""
+    fp = script_path.joinpath('test_groupby_period_monthly.cfdb')
+
+    # 90 days of daily data spanning 3 months
+    time_data = np.arange('2020-01-01', '2020-04-01', dtype='datetime64[D]')
+    lat = np.linspace(0, 4.9, 5, dtype='float32')
+    n_times = len(time_data)
+    data = np.random.default_rng(42).standard_normal((5, n_times)).astype('float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(5,))
+        ds.create.coord.time(data=time_data, dtype=time_data.dtype, chunk_shape=(30,))
+        dv = ds.create.data_var.generic('temp', ('latitude', 'time'), dtypes.dtype('float32'), chunk_shape=(5, 30))
+        dv[:] = data
+
+    with open_dataset(fp) as ds:
+        dv = ds['temp']
+        result = np.full(dv.shape, np.nan, dtype='float32')
+        group_sizes = []
+        for slices, chunk_data in dv.groupby({'time': 'M'}):
+            result[slices] = chunk_data
+            group_sizes.append(chunk_data.shape[1])
+
+        assert len(group_sizes) == 3
+        assert group_sizes[0] == 31  # Jan
+        assert group_sizes[1] == 29  # Feb (2020 leap year)
+        assert group_sizes[2] == 31  # Mar
+        assert np.allclose(result, data)
+
+    fp.unlink()
+
+
+def test_groupby_period_slice_path_yearly():
+    """Test groupby with yearly period (irregular, uses slice-based path)."""
+    fp = script_path.joinpath('test_groupby_period_yearly.cfdb')
+
+    time_data = np.arange('2019-01-01', '2021-01-01', dtype='datetime64[D]')
+    n_times = len(time_data)
+    data = np.random.default_rng(42).standard_normal((1, n_times)).astype('float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=np.array([0.0], dtype='float32'), chunk_shape=(1,))
+        ds.create.coord.time(data=time_data, dtype=time_data.dtype, chunk_shape=(120,))
+        dv = ds.create.data_var.generic('temp', ('latitude', 'time'), dtypes.dtype('float32'), chunk_shape=(1, 120))
+        dv[:] = data
+
+    with open_dataset(fp) as ds:
+        dv = ds['temp']
+        result = np.full(dv.shape, np.nan, dtype='float32')
+        group_sizes = []
+        for slices, chunk_data in dv.groupby({'time': 'Y'}):
+            result[slices] = chunk_data
+            group_sizes.append(chunk_data.shape[1])
+
+        assert len(group_sizes) == 2
+        assert group_sizes[0] == 365  # 2019
+        assert group_sizes[1] == 366  # 2020 (leap)
+        assert np.allclose(result, data)
+
+    fp.unlink()
+
+
+def test_groupby_period_backward_compat(populated_dataset):
+    """Test that existing groupby('coord_name') still works."""
+    with open_dataset(populated_dataset) as ds:
+        dv = ds['temperature']
+        result = np.full(dv.shape, np.nan, dtype=ind_data_var_data.dtype)
+        for slices, data in dv.groupby('time'):
+            result[slices] = data
+
+        assert np.allclose(result, ind_data_var_data)
+
+
+def test_groupby_period_dict_int(populated_dataset):
+    """Test groupby with dict of int values (should use rechunker path)."""
+    with open_dataset(populated_dataset) as ds:
+        dv = ds['temperature']
+        result = np.full(dv.shape, np.nan, dtype=ind_data_var_data.dtype)
+        for slices, data in dv.groupby({'time': 5}):
+            result[slices] = data
+
+        assert np.allclose(result, ind_data_var_data)
+
+
+def test_groupby_period_invalid_coord(populated_dataset):
+    """Test groupby with period string on non-datetime coord raises ValueError."""
+    with open_dataset(populated_dataset) as ds:
+        dv = ds['temperature']
+        with pytest.raises(ValueError, match='datetime'):
+            list(dv.groupby({'latitude': 'D'}))
+
+
+def test_groupby_period_invalid_string(populated_dataset):
+    """Test groupby with invalid period string raises ValueError."""
+    with open_dataset(populated_dataset) as ds:
+        dv = ds['temperature']
+        with pytest.raises(ValueError, match='Invalid period string'):
+            list(dv.groupby({'time': 'abc'}))
+
+
+##############################
+### Period groupby (Dataset level)
+
+
+def test_dataset_groupby_period_monthly():
+    """Test dataset-level groupby with monthly period."""
+    fp = script_path.joinpath('test_ds_groupby_period.cfdb')
+
+    time_data = np.arange('2020-01-01', '2020-04-01', dtype='datetime64[D]')
+    lat = np.linspace(0, 4.9, 5, dtype='float32')
+    n_times = len(time_data)
+    data1 = np.random.default_rng(42).standard_normal((5, n_times)).astype('float32')
+    data2 = np.random.default_rng(43).standard_normal((5, n_times)).astype('float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(5,))
+        ds.create.coord.time(data=time_data, dtype=time_data.dtype, chunk_shape=(30,))
+        dv1 = ds.create.data_var.generic('temp', ('latitude', 'time'), dtypes.dtype('float32'), chunk_shape=(5, 30))
+        dv1[:] = data1
+        dv2 = ds.create.data_var.generic('precip', ('latitude', 'time'), dtypes.dtype('float32'), chunk_shape=(5, 30))
+        dv2[:] = data2
+
+    with open_dataset(fp) as ds:
+        result1 = np.full((5, n_times), np.nan, dtype='float32')
+        result2 = np.full((5, n_times), np.nan, dtype='float32')
+        count = 0
+        for target_chunk, var_data in ds.groupby({'time': 'M'}):
+            slices = (target_chunk['latitude'], target_chunk['time'])
+            result1[slices] = var_data['temp']
+            result2[slices] = var_data['precip']
+            count += 1
+
+        assert count == 3
+        assert np.allclose(result1, data1)
+        assert np.allclose(result2, data2)
+
+    fp.unlink()
+
+
+def test_dataset_groupby_backward_compat():
+    """Test that existing dataset groupby('coord_name') still works."""
+    fp = script_path.joinpath('test_ds_groupby_compat.cfdb')
+    lat = np.linspace(0, 4.9, 50, dtype='float32')
+    lon = np.linspace(-5, -0.1, 50, dtype='float32')
+    data1 = np.linspace(0, 2499, 2500, dtype='float32').reshape(50, 50)
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(20,))
+        ds.create.coord.lon(data=lon, chunk_shape=(20,))
+        dv1 = ds.create.data_var.generic('var1', ('latitude', 'longitude'), dtypes.dtype('float32'), chunk_shape=(20, 20))
+        dv1[:] = data1
+
+    with open_dataset(fp) as ds:
+        result = np.full((50, 50), np.nan, dtype='float32')
+        for target_chunk, var_data in ds.groupby('latitude', data_vars=['var1']):
+            slices = (target_chunk['latitude'], target_chunk['longitude'])
+            result[slices] = var_data['var1']
+
+        assert np.allclose(result, data1)
+
+    fp.unlink()
 
 
 
