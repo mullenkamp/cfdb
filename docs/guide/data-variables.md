@@ -143,6 +143,43 @@ with cfdb.open_dataset(file_path) as ds:
         print(slices, data.shape)
 ```
 
+### Time Period GroupBy
+
+Pass a dict with period strings to group by time periods. This works on any datetime coordinate:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    temp = ds['temperature']
+
+    # Daily groups (hourly data → 24 time steps per group)
+    for slices, data in temp.groupby({'time': 'D'}):
+        print(slices, data.shape)
+
+    # Monthly groups (variable size — Jan=31, Feb=28/29, etc.)
+    for slices, data in temp.groupby({'time': 'M'}):
+        print(slices, data.shape)
+
+    # Yearly groups
+    for slices, data in temp.groupby({'time': 'Y'}):
+        print(slices, data.shape)
+
+    # Every 6 hours
+    for slices, data in temp.groupby({'time': '6h'}):
+        print(slices, data.shape)
+```
+
+**Supported period units:** `Y` (year), `M` (month), `W` (week), `D` (day), `h` (hour), `m` (minute), `s` (second), `ms`, `us`, `ns`. Prefix with a count for multiples, e.g. `'7D'`, `'3M'`, `'6h'`.
+
+Dict values can also be integers (chunk sizes), which can be mixed with period strings on different coordinates:
+
+```python
+# Group by day on time, chunk size 50 on latitude
+for slices, data in temp.groupby({'time': 'D', 'latitude': 50}):
+    print(slices, data.shape)
+```
+
+**Performance:** When the period maps to a fixed number of time steps (e.g. daily on hourly data = 24 steps) and all groups are the same size, cfdb uses the efficient rechunker path. For irregular periods like monthly or yearly, it falls back to a slice-based iteration that reads each group separately.
+
 The `max_mem` parameter controls the memory budget for the rechunking operation (default 128 MB).
 
 ## Parallel Map
@@ -236,11 +273,16 @@ with cfdb.open_dataset(file_path) as ds:
 
 ### groupby
 
-Group by one or more coordinates across all data variables. Equivalent to `iter_chunks` with chunk size 1 along the grouped coordinates:
+Group by one or more coordinates across all data variables. Supports the same period string syntax as the variable-level `groupby`:
 
 ```python
 with cfdb.open_dataset(file_path) as ds:
+    # Group by single coordinate values
     for target_chunk, var_data in ds.groupby('latitude'):
+        print(target_chunk, {k: v.shape for k, v in var_data.items()})
+
+    # Group by time period
+    for target_chunk, var_data in ds.groupby({'time': 'M'}, data_vars=['temperature']):
         print(target_chunk, {k: v.shape for k, v in var_data.items()})
 ```
 

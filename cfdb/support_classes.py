@@ -1164,33 +1164,123 @@ class DataVariableView(Variable):
         self.set(sel, data)
 
 
-    def groupby(self, coord_names: Union[str, Iterable], max_mem: int=2**27):
+    def groupby(self, coord_names: Union[str, Iterable, dict], max_mem: int=2**27):
         """
-        Group by one or more coordinates. Equivalent to iter_chunks with size 1 along the grouped coords.
+        Group by one or more coordinates.
 
         Parameters
         ----------
-        coord_names: str or Iterable
-            The coord names to group by.
-        max_mem: int
+        coord_names : str, list of str, or dict
+            - str or list of str: group by each value (chunk size 1) along named coords.
+            - dict: keys are coord names, values are int (chunk size) or str (time
+              period like 'D', '7D', 'M', 'Y', '6h'). Period strings are only
+              valid on datetime coordinates.
+        max_mem : int
             The max allocated memory to perform the chunking operation in bytes.
 
-        Returns
-        -------
-        Generator
-            tuple of (slices, ndarray)
+        Yields
+        ------
+        tuple
+            (tuple of slices, ndarray)
         """
+        # Normalize input to dict
         if isinstance(coord_names, str):
-            coord_names = (coord_names,)
+            chunk_shape = {coord_names: 1}
+        elif isinstance(coord_names, dict):
+            chunk_shape = dict(coord_names)
         else:
-            coord_names = tuple(coord_names)
+            chunk_shape = {cn: 1 for cn in coord_names}
 
-        for cn in coord_names:
+        # Validate coord names
+        for cn in chunk_shape:
             if cn not in self.coord_names:
                 raise ValueError(f'{cn} is not a coord of this variable.')
 
-        chunk_shape = {cn: 1 for cn in coord_names}
-        return self.iter_chunks(chunk_shape, max_mem=max_mem)
+        # Resolve period strings
+        period_coord = None
+        period_groups = None
+
+        for cn, val in chunk_shape.items():
+            if isinstance(val, str):
+                # Validate this is a datetime coordinate
+                coord_meta = self._sys_meta.variables[cn]
+                coord_dtype_obj = dtypes.dtype(**msgspec.to_builtins(coord_meta.dtype))
+                if coord_dtype_obj.kind != 'M':
+                    raise ValueError(
+                        f"Period strings are only valid on datetime coordinates, "
+                        f"but '{cn}' has kind '{coord_dtype_obj.kind}'."
+                    )
+                if period_coord is not None:
+                    raise ValueError('Only one period-based coordinate is supported per groupby call.')
+
+                count, unit = utils.parse_period_string(val)
+
+                # Try the rechunker fast path
+                chunk_size = utils.period_to_chunk_size(
+                    count, unit, coord_meta.step, coord_dtype_obj.dtype_decoded
+                )
+
+                # Read the coordinate data to compute actual groups
+                coord_obj = self._dataset[cn]
+                coord_data = coord_obj.data
+                groups = utils.compute_time_groups(coord_data, count, unit)
+
+                if chunk_size is not None:
+                    # Check if all groups are actually uniform
+                    group_sizes = [g.stop - g.start for g in groups]
+                    if len(set(group_sizes)) == 1:
+                        # All groups same size — use rechunker
+                        chunk_shape[cn] = group_sizes[0]
+                        continue
+
+                # Fall back to slice-based iteration
+                period_coord = cn
+                period_groups = groups
+
+        if period_coord is None:
+            # All values are ints — use existing rechunker path
+            return self.iter_chunks(chunk_shape, max_mem=max_mem)
+
+        # Check for mixed irregular period + spatial chunking
+        other_overrides = {
+            cn: v for cn, v in chunk_shape.items()
+            if cn != period_coord and isinstance(v, int) and v != self.shape[self.coord_names.index(cn)]
+        }
+        if other_overrides:
+            raise ValueError(
+                f"Mixing irregular time period groupby with spatial chunk sizes "
+                f"is not yet supported. Got spatial overrides: {other_overrides}"
+            )
+
+        return self._groupby_period(period_coord, period_groups)
+
+    def _groupby_period(self, time_coord_name, groups):
+        """
+        Iterate data by irregular time-period groups using slice-based reads.
+
+        Parameters
+        ----------
+        time_coord_name : str
+        groups : list of slice
+
+        Yields
+        ------
+        tuple
+            (tuple of slices, ndarray)
+        """
+        time_dim_idx = self.coord_names.index(time_coord_name)
+
+        for group_slice in groups:
+            # Build selection: group_slice on time dim, full range on others
+            sel = tuple(
+                group_slice if i == time_dim_idx else slice(0, s)
+                for i, s in enumerate(self.shape)
+            )
+
+            view = self.get(sel)
+            data = view.data
+
+            yield sel, data
 
 
     def map(self, func, chunk_shape=None, n_workers=None, max_mem=2**27):

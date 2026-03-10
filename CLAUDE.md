@@ -66,6 +66,7 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 - **Dataset types**: `grid` (standard N-D) and `ts_ortho` (time series with point geometries). Controlled by `data_models.Type` enum.
 - **Compression**: All data compressed with zstd (default) or lz4, configured at dataset level.
 - **Coordinates are immutable once written** — values cannot be changed, only appended/prepended. Must be unique and ascending.
+- **GroupBy with time periods**: `groupby()` on both `DataVariableView` and `Dataset` accepts a dict with period strings (e.g. `{'time': 'D'}`, `{'time': 'M'}`). Regular periods (D, h, W, etc.) with uniform groups use the rechunker fast path; irregular periods (M, Y) or non-uniform groups fall back to slice-based iteration. Period parsing and group computation utilities live in `utils.py` (`parse_period_string`, `compute_time_groups`, `period_to_chunk_size`).
 
 ### Dependencies
 
