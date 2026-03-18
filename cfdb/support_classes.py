@@ -973,7 +973,7 @@ class DataVariableView(Variable):
             chunk_shape.get(cn, s) for cn, s in zip(coord_names, var_shape)
         )
 
-    def iter_chunks(self, chunk_shape=None, max_mem=2**27, decoded=True):
+    def iter_chunks(self, chunk_shape=None, max_mem=2**29, decoded=True):
         """
         Iterate through the chunks of the variable. Always yields (slices, data).
 
@@ -1220,20 +1220,16 @@ class DataVariableView(Variable):
                     count, unit, coord_meta.step, coord_dtype_obj.dtype_decoded
                 )
 
-                # Read the coordinate data to compute actual groups
+                if chunk_size is not None:
+                    # Regular period (D, h, W, etc.) — use rechunker.
+                    # The rechunker handles remainder chunks natively.
+                    chunk_shape[cn] = chunk_size
+                    continue
+
+                # Irregular period (M, Y) — compute groups for slice-based iteration
                 coord_obj = self._dataset[cn]
                 coord_data = coord_obj.data
                 groups = utils.compute_time_groups(coord_data, count, unit)
-
-                if chunk_size is not None:
-                    # Check if all groups are actually uniform
-                    group_sizes = [g.stop - g.start for g in groups]
-                    if len(set(group_sizes)) == 1:
-                        # All groups same size — use rechunker
-                        chunk_shape[cn] = group_sizes[0]
-                        continue
-
-                # Fall back to slice-based iteration
                 period_coord = cn
                 period_groups = groups
 
@@ -1283,7 +1279,7 @@ class DataVariableView(Variable):
             yield sel, data
 
 
-    def map(self, func, chunk_shape=None, n_workers=None, max_mem=2**27):
+    def map(self, func, chunk_shape=None, n_workers=None, max_mem=2**29):
         """
         Apply func to each chunk in parallel using multiprocessing.
 

@@ -1504,6 +1504,41 @@ def test_groupby_period_invalid_string(populated_dataset):
             list(dv.groupby({'time': 'abc'}))
 
 
+def test_groupby_period_remainder_uses_rechunker():
+    """Regular period with remainder (e.g. 50 days / 7D) must use rechunker, not _groupby_period."""
+    fp = script_path.joinpath('test_groupby_remainder.cfdb')
+
+    # 50 days → 7 groups of 7 + 1 group of 1
+    time_data = np.arange('2020-01-01', '2020-02-20', dtype='datetime64[D]')
+    assert len(time_data) == 50
+    lat = np.linspace(0, 4.9, 10, dtype='float32')
+    data = np.random.default_rng(42).standard_normal((10, 50)).astype('float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(10,))
+        ds.create.coord.time(data=time_data, dtype=time_data.dtype, chunk_shape=(15,))
+        dv = ds.create.data_var.generic('temp', ('latitude', 'time'),
+                                         dtypes.dtype('float32'), chunk_shape=(10, 15))
+        dv[:] = data
+
+    with open_dataset(fp) as ds:
+        dv = ds['temp']
+
+        # Patch _groupby_period to fail if called — proves rechunker path is used
+        from unittest.mock import patch
+        with patch.object(type(dv), '_groupby_period', side_effect=AssertionError('slow path was used')):
+            result = np.full(dv.shape, np.nan, dtype='float32')
+            count = 0
+            for slices, chunk_data in dv.groupby({'time': '7D'}):
+                result[slices] = chunk_data
+                count += 1
+
+        assert count == 8  # 7 full + 1 remainder
+        assert np.allclose(result, data)
+
+    fp.unlink()
+
+
 ##############################
 ### Period groupby (Dataset level)
 

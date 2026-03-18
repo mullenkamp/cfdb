@@ -217,7 +217,7 @@ class DatasetBase:
         return DatasetView(self, _sel)
 
 
-    def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**27):
+    def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**29):
         """
         Iterate over aligned chunks of multiple data variables. Always yields (target_chunk, var_data).
 
@@ -319,7 +319,7 @@ class DatasetBase:
             yield {cn: sl for cn, sl in zip(common_coord_names, position)}
 
 
-    def groupby(self, coord_names, data_vars=None, max_mem=2**27):
+    def groupby(self, coord_names, data_vars=None, max_mem=2**29):
         """
         Group by one or more coordinates.
 
@@ -372,16 +372,16 @@ class DatasetBase:
                     count, unit, coord_meta.step, coord_dtype_obj.dtype_decoded
                 )
 
+                if chunk_size is not None:
+                    # Regular period (D, h, W, etc.) — use rechunker.
+                    # The rechunker handles remainder chunks natively.
+                    chunk_shape[cn] = chunk_size
+                    continue
+
+                # Irregular period (M, Y) — compute groups for slice-based iteration
                 coord_obj = self[cn]
                 coord_data = coord_obj.data
                 groups = utils.compute_time_groups(coord_data, count, unit)
-
-                if chunk_size is not None:
-                    group_sizes = [g.stop - g.start for g in groups]
-                    if len(set(group_sizes)) == 1:
-                        chunk_shape[cn] = group_sizes[0]
-                        continue
-
                 period_coord = cn
                 period_groups = groups
 
@@ -444,7 +444,7 @@ class DatasetBase:
             yield target_chunk, var_data
 
 
-    def map(self, func, chunk_shape, data_vars=None, max_mem=2**27, n_workers=None):
+    def map(self, func, chunk_shape, data_vars=None, max_mem=2**29, n_workers=None):
         """
         Apply func to aligned chunks of multiple variables in parallel.
 
