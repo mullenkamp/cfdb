@@ -86,7 +86,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
     num_groups : int or None
         The number of groups for grouped S3 object storage. Required when creating a new database (flag='n'). For existing databases, this value is read from S3 metadata and the user-provided value is ignored.
     **kwargs
-        Any kwargs that can be passed to ``ebooklet.open``.
+        Any kwargs that can be passed to ``ebooklet.open_ebooklet``.
 
     Returns
     -------
@@ -97,7 +97,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
 
     fp = pathlib.Path(file_path)
     fp_exists = fp.exists()
-    open_blt = ebooklet.open(remote_conn, file_path, flag, num_groups=num_groups, **kwargs)
+    open_blt = ebooklet.open_ebooklet(remote_conn, file_path, flag, num_groups=num_groups, **kwargs)
 
     if (not fp_exists or flag == 'n') and open_blt.writable:
         create = True

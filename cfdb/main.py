@@ -544,7 +544,7 @@ class DatasetBase:
         """
         kwargs = dict(n_buckets=self._blt._n_buckets, buffer_size=self._blt._write_buffer_size)
 
-        new_ds = open_dataset(file_path, 'n', compression=self.compression, compression_level=self.compression_level, **kwargs)
+        new_ds = open_dataset(file_path, 'n', dataset_type=self._sys_meta.dataset_type.value, compression=self.compression, compression_level=self.compression_level, **kwargs)
 
         data_var_names, coord_names = utils.filter_var_names(self, include_data_vars, exclude_data_vars)
 
@@ -552,6 +552,10 @@ class DatasetBase:
             coord = self[coord_name]
             new_coord = new_ds.create.coord.like(coord_name, coord, True)
             new_coord.attrs.update(coord.attrs.data)
+
+        if self._sys_meta.crs is not None:
+            new_ds._sys_meta.crs = self._sys_meta.crs
+            new_ds.crs = self.crs
 
         for data_var_name in data_var_names:
             data_var = self[data_var_name]
