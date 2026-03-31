@@ -169,7 +169,7 @@ requires-dist = [
     { name = "cfdb-models", specifier = ">=0.1.0" },
     { name = "cfdb-vars", specifier = ">=0.2.0" },
     { name = "cftime", marker = "extra == 'netcdf4'" },
-    { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.7.0" },
+    { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.8.0" },
     { name = "geointerp", specifier = ">=0.1.1" },
     { name = "h5netcdf", marker = "extra == 'netcdf4'" },
     { name = "lz4" },
@@ -186,7 +186,7 @@ provides-extras = ["ebooklet", "netcdf4", "xarray"]
 [package.metadata.requires-dev]
 dev = [
     { name = "black" },
-    { name = "ebooklet", specifier = ">=0.7.0" },
+    { name = "ebooklet", specifier = ">=0.8.0" },
     { name = "h5netcdf" },
     { name = "h5py", specifier = ">=3.6.0" },
     { name = "mypy" },
@@ -197,7 +197,7 @@ dev = [
     { name = "xarray" },
 ]
 docs = [
-    { name = "ebooklet", specifier = ">=0.7.0" },
+    { name = "ebooklet", specifier = ">=0.8.0" },
     { name = "mkdocs-material", specifier = ">=9.0" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.24" },
 ]
@@ -571,16 +571,16 @@ wheels = [
 
 [[package]]
 name = "ebooklet"
-version = "0.7.0"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "booklet" },
     { name = "s3func" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/25/4d/c824d0ca4d713b6480664abb408214fee8e8c3bd5719d9f39aaae42bfb11/ebooklet-0.7.0.tar.gz", hash = "sha256:f02695a75f26f1de176c512c3d927223925bad922047442cd9e38a99daa9c975", size = 19282, upload-time = "2026-03-01T21:22:53.451Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/37/ffc62ca5cdac04aceb53aff20eb52f324738b1b6d55c84d2280d85aa7a3b/ebooklet-0.8.0.tar.gz", hash = "sha256:041b650e4d4ed17079d35ea9eba11e23388166fd594376673cfdd61e66973eef", size = 19303, upload-time = "2026-03-18T19:43:38.524Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/f1/c27cfe8f6cdd45a41a71c70385c2e409b04a57e17966a94d1de49f38331c/ebooklet-0.7.0-py3-none-any.whl", hash = "sha256:e1953ef9a18c0abdb1e7e872734dbceb042f4fedec0dddc839a7699f9f431232", size = 20055, upload-time = "2026-03-01T21:22:51.957Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/d7/f469fc284cd372450e1a31d1b344ae8918f75d304942911b76189717fabf/ebooklet-0.8.0-py3-none-any.whl", hash = "sha256:aede3610a9445b93d3e134388f7614b442a276302cc0682452c6f2835fe26acf", size = 20070, upload-time = "2026-03-18T19:43:37.015Z" },
 ]
 
 [[package]]

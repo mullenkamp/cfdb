@@ -472,6 +472,29 @@ def test_coordinate_prepend():
     fp.unlink()
 
 
+def test_coordinate_prepend_then_append():
+    """Test appending after a prepend — verifies chunk_stop accounts for non-zero origin."""
+    fp = script_path.joinpath('test_prepend_append.cfdb')
+    main_data = np.linspace(0, 4.9, 50, dtype='float32')
+    prepend_data = np.linspace(-5.0, -0.1, 50, dtype='float32')
+    append_data = np.linspace(5.0, 9.9, 50, dtype='float32')
+    combined = np.concatenate([prepend_data, main_data, append_data])
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.lat(data=main_data, chunk_shape=(20,))
+        coord.prepend(prepend_data)
+        coord.append(append_data)
+        assert coord.shape == (150,)
+        assert np.allclose(coord.data, combined)
+
+    # Verify data survives a reopen
+    with open_dataset(fp) as ds:
+        assert ds['latitude'].shape == (150,)
+        assert np.allclose(ds['latitude'].data, combined)
+
+    fp.unlink()
+
+
 def test_geometry_coord_order_preserved():
     """Test that geometry coordinate order is preserved through a round-trip."""
     fp = script_path.joinpath('test_geom_order.cfdb')

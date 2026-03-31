@@ -909,7 +909,7 @@ class Coordinate(CoordinateView):
         shape = (updated_data.size,)
 
         chunk_start = (self.origin,)
-        chunk_stop = shape
+        chunk_stop = (self.origin + updated_data.size,)
 
         self._add_updated_data(chunk_start, chunk_stop, self.origin, updated_data)
 
