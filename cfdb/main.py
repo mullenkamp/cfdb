@@ -217,6 +217,17 @@ class DatasetBase:
         return DatasetView(self, _sel)
 
 
+    def rechunker(self, data_vars=None):
+        """
+        Return a DatasetRechunker for multiple variables.
+
+        Parameters
+        ----------
+        data_vars : list of str, optional
+            The data variables to include. Defaults to all.
+        """
+        return sc.DatasetRechunker(self, data_vars=data_vars)
+
     def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**29):
         """
         Iterate over aligned chunks of multiple data variables. Always yields (target_chunk, var_data).
@@ -229,7 +240,7 @@ class DatasetBase:
         data_vars : list of str, optional
             Which data variables to include. Default: all.
         max_mem : int
-            Max memory in bytes for rechunker buffer per variable. Default 128 MB.
+            Total max memory budget in bytes for the entire batch. Default 512 MB.
 
         Yields
         ------
@@ -238,45 +249,7 @@ class DatasetBase:
         var_data : dict
             {var_name: ndarray} — decoded data for each variable at this position.
         """
-        # Validate data vars
-        if data_vars is None:
-            data_vars = list(self.data_var_names)
-        else:
-            for name in data_vars:
-                if name not in self.data_var_names:
-                    raise KeyError(f'{name} is not a data variable.')
-
-        if not data_vars:
-            return
-
-        # Determine common coord_names — require all data vars share the same coords
-        first_dv = self[data_vars[0]]
-        common_coord_names = first_dv.coord_names
-        for dv_name in data_vars[1:]:
-            if self[dv_name].coord_names != common_coord_names:
-                raise ValueError(
-                    f'All data variables must share the same coordinates. '
-                    f'{data_vars[0]} has {common_coord_names}, '
-                    f'{dv_name} has {self[dv_name].coord_names}.'
-                )
-
-        # Create per-variable iter_chunks generators
-        var_gens = []
-        for dv_name in data_vars:
-            dv = self[dv_name]
-            var_gens.append(dv.iter_chunks(chunk_shape, max_mem=max_mem))
-
-        # Zip — canonical C-order guaranteed by rechunkit
-        for items in zip(*var_gens):
-            write_chunk = items[0][0]
-            target_chunk = {
-                cn: sl for cn, sl in zip(common_coord_names, write_chunk)
-            }
-            var_data = {
-                dv_name: item[1]
-                for dv_name, item in zip(data_vars, items)
-            }
-            yield target_chunk, var_data
+        return self.rechunker(data_vars).rechunk(chunk_shape, max_mem=max_mem)
 
 
     def iter_chunk_slices(self, chunk_shape, data_vars=None):

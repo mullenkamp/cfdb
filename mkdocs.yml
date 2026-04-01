@@ -103,6 +103,7 @@ nav:
         - Data Types: reference/dtypes.md
         - Interpolation: reference/interp.md
         - Rechunker: reference/rechunker.md
+        - Dataset Rechunker: reference/dataset-rechunker.md
         - combine: reference/combine.md
         - Xarray Backend: reference/xarray-backend.md
         - Tools: reference/tools.md

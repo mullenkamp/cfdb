@@ -179,6 +179,110 @@ class Rechunker:
                 yield slices, self._var.dtype.decode(data_encoded)
 
 
+class DatasetRechunker:
+    """
+    Assistant class for rechunking multiple variables in a dataset simultaneously.
+    
+    Ensures synchronized chunk iteration across variables sharing the same 
+    coordinates, with efficient memory management.
+    """
+    def __init__(self, ds, data_vars=None):
+        """
+        Initialize the dataset rechunker.
+
+        Parameters
+        ----------
+        ds : Dataset
+            The source dataset.
+        data_vars : list of str, optional
+            The data variables to include. Defaults to all.
+        """
+        self._ds = ds
+        if data_vars is None:
+            self._data_vars = list(ds.data_var_names)
+        else:
+            self._data_vars = []
+            for name in data_vars:
+                if name not in ds.data_var_names:
+                    raise KeyError(f'{name} is not a data variable.')
+                self._data_vars.append(name)
+
+        if not self._data_vars:
+            raise ValueError('No data variables specified for rechunking.')
+
+        # Validate that all variables share the same coordinates and shape
+        first_name = self._data_vars[0]
+        first_dv = ds[first_name]
+        self._coord_names = first_dv.coord_names
+        self._shape = first_dv.shape
+        self._chunk_shape = first_dv.chunk_shape
+
+        for name in self._data_vars[1:]:
+            dv = ds[name]
+            if dv.coord_names != self._coord_names:
+                raise ValueError(
+                    f'All variables must share the same coordinates for synchronized rechunking. '
+                    f'{first_name} has {self._coord_names}, {name} has {dv.coord_names}.'
+                )
+            if dv.shape != self._shape:
+                raise ValueError(f'Variables must have identical shapes. {first_name}: {self._shape}, {name}: {dv.shape}')
+            if dv.chunk_shape != self._chunk_shape:
+                raise ValueError(f'Variables must have identical storage chunk shapes. {first_name}: {self._chunk_shape}, {name}: {dv.chunk_shape}')
+
+    def _resolve_chunk_shape(self, chunk_shape):
+        """Resolve dict chunk_shape to tuple."""
+        return self._ds[self._data_vars[0]]._resolve_chunk_shape(chunk_shape)
+
+    def calc_ideal_read_chunk_mem(self, chunk_shape):
+        """Calculate total ideal memory for the batch."""
+        target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
+        total_mem = 0
+        for name in self._data_vars:
+            total_mem += self._ds[name].rechunker().calc_ideal_read_chunk_mem(target_chunk_shape)
+        return total_mem
+
+    def calc_n_reads_rechunker(self, chunk_shape, max_mem=2**29):
+        """Calculate number of reads for the batch."""
+        target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
+        per_var_mem = max_mem // len(self._data_vars)
+        # rechunkit plan is deterministic, so n_reads is same for all vars
+        return self._ds[self._data_vars[0]].rechunker().calc_n_reads_rechunker(target_chunk_shape, per_var_mem)
+
+    def rechunk(self, chunk_shape, max_mem=2**29):
+        """
+        Synchronized multivariable rechunking generator.
+
+        Parameters
+        ----------
+        chunk_shape : dict
+            {coord_name: int} for target chunk sizes.
+        max_mem : int
+            Total max memory budget in bytes for all variables combined.
+
+        Yields
+        ------
+        target_chunk : dict
+            {coord_name: slice}
+        var_data : dict
+            {var_name: ndarray}
+        """
+        target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
+        per_var_mem = max_mem // len(self._data_vars)
+
+        # Initialize synchronized generators
+        var_gens = []
+        for name in self._data_vars:
+            var_gens.append(self._ds[name].rechunker().rechunk(target_chunk_shape, per_var_mem))
+
+        # Zip generators — canonical order is guaranteed by rechunkit
+        for items in zip(*var_gens):
+            # items is a tuple of (slices_tuple, ndarray)
+            write_slices = items[0][0]
+            target_chunk = {cn: sl for cn, sl in zip(self._coord_names, write_slices)}
+            var_data = {name: item[1] for name, item in zip(self._data_vars, items)}
+            yield target_chunk, var_data
+
+
 class Attributes:
     """
 
