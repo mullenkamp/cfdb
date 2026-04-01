@@ -1088,9 +1088,12 @@ class DataVariableView(Variable):
         -------
         cfdb.DataVariableView
         """
-        coord_origins = self.get_coord_origins()
+        # Use zero origins so _sel stays in 0-based logical coordinates.
+        # Coordinate origins are applied once at the point of data access
+        # (in iter_chunks, set, data, etc.), avoiding double-application.
+        zero_origins = tuple(0 for _ in self.coord_names)
 
-        slices = indexers.index_combo_all(sel, coord_origins, self.shape)
+        slices = indexers.index_combo_all(sel, zero_origins, self.shape)
 
         if self._sel is not None:
             slices = tuple(slice(s.start, s.stop) if ss.start is None else slice(ss.start + s.start, ss.start + s.stop) for ss, s in zip(self._sel, slices))

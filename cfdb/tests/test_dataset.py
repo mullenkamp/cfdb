@@ -495,6 +495,37 @@ def test_coordinate_prepend_then_append():
     fp.unlink()
 
 
+def test_data_var_read_write_after_prepend():
+    """Test that data variable reads/writes work correctly after coordinate prepend."""
+    fp = script_path.joinpath('test_prepend_data_var.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.time(data=np.array(['2023-01-03', '2023-01-04', '2023-01-05'], dtype='datetime64[D]'))
+        ds.create.coord.generic('x', data=np.array([1.0, 2.0]), dtype='float32')
+        dv = ds.create.data_var.generic('val', ('time', 'x'), dtype='float32')
+        dv[(0, slice(None))] = np.array([10.0, 10.0])
+        dv[(1, slice(None))] = np.array([20.0, 20.0])
+        dv[(2, slice(None))] = np.array([30.0, 30.0])
+
+    with open_dataset(fp, flag='w') as ds:
+        ds['time'].prepend(np.array(['2023-01-01', '2023-01-02'], dtype='datetime64[D]'))
+        ds['val'][(0, slice(None))] = np.array([1.0, 1.0])
+        ds['val'][(1, slice(None))] = np.array([2.0, 2.0])
+
+    with open_dataset(fp) as ds:
+        times = ds['time'].data
+        assert len(times) == 5
+        expected = np.array([[1, 1], [2, 2], [10, 10], [20, 20], [30, 30]], dtype='float32')
+        for t in range(5):
+            vals = ds['val'][(t, slice(None))].data[0]
+            assert np.allclose(vals, expected[t]), f't={t}: got {vals}, expected {expected[t]}'
+        # Also verify full .data read
+        full = ds['val'].data
+        assert np.allclose(full, expected)
+
+    fp.unlink()
+
+
 def test_geometry_coord_order_preserved():
     """Test that geometry coordinate order is preserved through a round-trip."""
     fp = script_path.joinpath('test_geom_order.cfdb')
