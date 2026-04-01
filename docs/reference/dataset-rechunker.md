@@ -2,7 +2,7 @@
 
 Assistant class for rechunking multiple variables in a dataset simultaneously. Created via [`ds.rechunker()`](dataset.md#rechunker).
 
-All variables in a batch must share the same coordinates, shapes, and storage chunking to ensure synchronized iteration.
+All variables in a batch must share the same coordinates and shapes to ensure synchronized iteration. Storage chunks can differ.
 
 ## Methods
 

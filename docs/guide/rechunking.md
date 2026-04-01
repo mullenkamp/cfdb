@@ -43,7 +43,7 @@ with cfdb.open_dataset(file_path) as ds:
         speed = np.sqrt(u**2 + v**2)
 ```
 
-**Note:** All variables in a multivariable rechunk operation must share identical coordinates, shapes, and storage chunking.
+**Note:** All variables in a multivariable rechunk operation must share identical coordinates and shapes. Storage chunk sizes can differ.
 
 ### Using the DatasetRechunker
 

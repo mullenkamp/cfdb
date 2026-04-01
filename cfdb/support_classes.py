@@ -215,7 +215,6 @@ class DatasetRechunker:
         first_dv = ds[first_name]
         self._coord_names = first_dv.coord_names
         self._shape = first_dv.shape
-        self._chunk_shape = first_dv.chunk_shape
 
         for name in self._data_vars[1:]:
             dv = ds[name]
@@ -226,8 +225,6 @@ class DatasetRechunker:
                 )
             if dv.shape != self._shape:
                 raise ValueError(f'Variables must have identical shapes. {first_name}: {self._shape}, {name}: {dv.shape}')
-            if dv.chunk_shape != self._chunk_shape:
-                raise ValueError(f'Variables must have identical storage chunk shapes. {first_name}: {self._chunk_shape}, {name}: {dv.chunk_shape}')
 
     def _resolve_chunk_shape(self, chunk_shape):
         """Resolve dict chunk_shape to tuple."""
@@ -245,8 +242,13 @@ class DatasetRechunker:
         """Calculate number of reads for the batch."""
         target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
         per_var_mem = max_mem // len(self._data_vars)
-        # rechunkit plan is deterministic, so n_reads is same for all vars
-        return self._ds[self._data_vars[0]].rechunker().calc_n_reads_rechunker(target_chunk_shape, per_var_mem)
+        total_reads = 0
+        total_writes = 0
+        for name in self._data_vars:
+            n_reads, n_writes = self._ds[name].rechunker().calc_n_reads_rechunker(target_chunk_shape, per_var_mem)
+            total_reads += n_reads
+            total_writes = n_writes
+        return total_reads, total_writes
 
     def rechunk(self, chunk_shape, max_mem=2**29):
         """

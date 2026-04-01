@@ -71,7 +71,7 @@ mkdocs serve           # Serve documentation locally
 
 ## Implementation Learnings & Constraints
 
-*   **Rechunkit Determinism:** The underlying `rechunkit` engine is deterministic. Multivariable rechunking works by zipping synchronized generators. This requires all involved variables to share identical coordinate names, shapes, and storage chunking.
+*   **Rechunkit Determinism:** The underlying `rechunkit` engine is deterministic. Multivariable rechunking works by zipping synchronized generators. This requires all involved variables to share identical coordinate names and shapes. Storage chunking can differ.
 *   **Memory Management:** `DatasetRechunker` implements a shared memory budget. It divides the user-provided `max_mem` by the number of variables to ensure the total buffer footprint stays within limits.
 *   **Indexing vs Slicing:** When verifying data, remember that `cfdb` indexers preserve dimensions. Slicing a `DataVariableView` result (e.g., `.data[0]`) will collapse the first dimension, which can cause shape mismatches in tests.
 *   **HDF5/S3 State:** Metadata like `shape` and `dtype` should be captured while file handles are open. Accessing properties on closed underlying handles will trigger errors.
