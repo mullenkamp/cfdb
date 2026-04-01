@@ -26,13 +26,44 @@ with cfdb.open_dataset(file_path) as ds:
         print(slices)
 ```
 
-This also works at the dataset level:
+## Multivariable Rechunking
+
+When performing calculations that involve multiple variables (e.g., computing wind speed from $u$ and $v$), it is highly efficient to iterate over **synchronized chunks**.
+
+### Using iter_chunks
+
+The `iter_chunks` method at the dataset level ensures that all variables are read using the same rechunking plan. It yields a dictionary of data blocks:
 
 ```python
 with cfdb.open_dataset(file_path) as ds:
-    for target_chunk, var_data in ds.iter_chunks({'latitude': 50}):
-        print(target_chunk, {k: v.shape for k, v in var_data.items()})
+    # Synchronized iteration over u and v
+    for target_chunk, var_data in ds.iter_chunks({'latitude': 50, 'longitude': 50}):
+        u = var_data['u_wind']
+        v = var_data['v_wind']
+        speed = np.sqrt(u**2 + v**2)
 ```
+
+**Note:** All variables in a multivariable rechunk operation must share identical coordinates and shapes. Storage chunk sizes can differ.
+
+### Using the DatasetRechunker
+
+For advanced planning across multiple variables, use the `DatasetRechunker` class:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    dr = ds.rechunker(data_vars=['u_wind', 'v_wind'])
+    
+    # Calculate total memory required for the ideal synchronized chunk
+    ideal_mem = dr.calc_ideal_read_chunk_mem({'latitude': 50})
+    print(f"Ideal buffer: {ideal_mem / 1e6:.1f} MB")
+
+    # Perform the rechunk with a shared memory budget
+    for target_chunk, var_data in dr.rechunk({'latitude': 50}, max_mem=2**30):
+        # var_data contains aligned arrays for all requested variables
+        pass
+```
+
+The `DatasetRechunker` automatically manages a single `max_mem` budget, dividing it across the variables to prevent memory exhaustion.
 
 ## Using the Rechunker Directly
 

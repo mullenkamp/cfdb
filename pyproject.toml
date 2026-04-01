@@ -21,7 +21,7 @@ requires-python = ">=3.10"
 dependencies = [
   'booklet>=0.9.2',
   'cfdb-models>=0.1.0',
-  'cfdb-vars>=0.1.0',
+  'cfdb-vars>=0.2.0',
   'rechunkit>=0.5.0',
   'numpy>2',
   'zstandard',
@@ -34,7 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 netcdf4 = ['h5netcdf', 'cftime']
-ebooklet = ['ebooklet>=0.7.0']
+ebooklet = ['ebooklet>=0.8.0']
 xarray = ['xarray']
 
 [project.entry-points."xarray.backends"]
@@ -50,13 +50,13 @@ dev = [
   "pytest-cov",
   'h5netcdf',
   'h5py>=3.6.0',
-  'ebooklet>=0.7.0',
+  'ebooklet>=0.8.0',
   'xarray',
 ]
 docs = [
   "mkdocs-material>=9.0",
   "mkdocstrings[python]>=0.24",
-  "ebooklet>=0.7.0",
+  "ebooklet>=0.8.0",
 ]
 
 [tool.hatch]

@@ -13,13 +13,14 @@ This file provides context for the Gemini AI agent to understand and work with t
     *   **Datasets:** Collections of variables. Two types: `grid` (default) and `orthogonal_multidimensional_array_representation_of_time_series`.
     *   **Coordinates:** 1D, unique, sorted, non-null arrays defining dimensions (e.g., lat, lon, time). Immutable values (append/prepend only).
     *   **Data Variables:** N-dimensional arrays linked to coordinates. Data never held fully in memory; accessed via chunks.
+*   **Rechunking:** Native multivariable rechunking for synchronized, high-performance block iteration.
 *   **Compression:** Supports `zstd` and `lz4`.
 
 ## Architecture & Core Modules
 
 *   **Entry Points** (`cfdb/main.py`): `open_dataset` (local) and `open_edataset` (S3).
 *   **Data Models** (`cfdb/data_models.py`): `msgspec` Structs for metadata (`SysMeta`, `CoordinateVariable`, `DataVariable`).
-*   **Support Classes** (`cfdb/support_classes.py`): Runtime objects (`Variable`, `Coordinate`, `DataVariable`, `Rechunker`).
+*   **Support Classes** (`cfdb/support_classes.py`): Runtime objects (`Variable`, `Coordinate`, `DataVariable`, `Rechunker`, `DatasetRechunker`).
 *   **Data Types** (`cfdb/dtypes.py`): Custom type system (`Float`, `Integer`, `DateTime`, `Geometry` w/ WKT).
 *   **Creation** (`cfdb/creation.py`): Factory patterns for creating coords and variables.
 *   **Indexing** (`cfdb/indexers.py`): Handling selection logic (`.loc[]`, integer indexing).
@@ -67,3 +68,10 @@ mkdocs serve           # Serve documentation locally
     *   Prefer context managers (`with cfdb.open_dataset(...)`) for safe file handling.
     *   Iterate over chunks (`iter_chunks`) for large data operations to minimize memory usage.
     *   Coordinates must be created before data variables.
+
+## Implementation Learnings & Constraints
+
+*   **Rechunkit Determinism:** The underlying `rechunkit` engine is deterministic. Multivariable rechunking works by zipping synchronized generators. This requires all involved variables to share identical coordinate names and shapes. Storage chunking can differ.
+*   **Memory Management:** `DatasetRechunker` implements a shared memory budget. It divides the user-provided `max_mem` by the number of variables to ensure the total buffer footprint stays within limits.
+*   **Indexing vs Slicing:** When verifying data, remember that `cfdb` indexers preserve dimensions. Slicing a `DataVariableView` result (e.g., `.data[0]`) will collapse the first dimension, which can cause shape mismatches in tests.
+*   **HDF5/S3 State:** Metadata like `shape` and `dtype` should be captured while file handles are open. Accessing properties on closed underlying handles will trigger errors.

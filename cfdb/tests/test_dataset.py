@@ -472,6 +472,60 @@ def test_coordinate_prepend():
     fp.unlink()
 
 
+def test_coordinate_prepend_then_append():
+    """Test appending after a prepend — verifies chunk_stop accounts for non-zero origin."""
+    fp = script_path.joinpath('test_prepend_append.cfdb')
+    main_data = np.linspace(0, 4.9, 50, dtype='float32')
+    prepend_data = np.linspace(-5.0, -0.1, 50, dtype='float32')
+    append_data = np.linspace(5.0, 9.9, 50, dtype='float32')
+    combined = np.concatenate([prepend_data, main_data, append_data])
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.lat(data=main_data, chunk_shape=(20,))
+        coord.prepend(prepend_data)
+        coord.append(append_data)
+        assert coord.shape == (150,)
+        assert np.allclose(coord.data, combined)
+
+    # Verify data survives a reopen
+    with open_dataset(fp) as ds:
+        assert ds['latitude'].shape == (150,)
+        assert np.allclose(ds['latitude'].data, combined)
+
+    fp.unlink()
+
+
+def test_data_var_read_write_after_prepend():
+    """Test that data variable reads/writes work correctly after coordinate prepend."""
+    fp = script_path.joinpath('test_prepend_data_var.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.time(data=np.array(['2023-01-03', '2023-01-04', '2023-01-05'], dtype='datetime64[D]'))
+        ds.create.coord.generic('x', data=np.array([1.0, 2.0]), dtype='float32')
+        dv = ds.create.data_var.generic('val', ('time', 'x'), dtype='float32')
+        dv[(0, slice(None))] = np.array([10.0, 10.0])
+        dv[(1, slice(None))] = np.array([20.0, 20.0])
+        dv[(2, slice(None))] = np.array([30.0, 30.0])
+
+    with open_dataset(fp, flag='w') as ds:
+        ds['time'].prepend(np.array(['2023-01-01', '2023-01-02'], dtype='datetime64[D]'))
+        ds['val'][(0, slice(None))] = np.array([1.0, 1.0])
+        ds['val'][(1, slice(None))] = np.array([2.0, 2.0])
+
+    with open_dataset(fp) as ds:
+        times = ds['time'].data
+        assert len(times) == 5
+        expected = np.array([[1, 1], [2, 2], [10, 10], [20, 20], [30, 30]], dtype='float32')
+        for t in range(5):
+            vals = ds['val'][(t, slice(None))].data[0]
+            assert np.allclose(vals, expected[t]), f't={t}: got {vals}, expected {expected[t]}'
+        # Also verify full .data read
+        full = ds['val'].data
+        assert np.allclose(full, expected)
+
+    fp.unlink()
+
+
 def test_geometry_coord_order_preserved():
     """Test that geometry coordinate order is preserved through a round-trip."""
     fp = script_path.joinpath('test_geom_order.cfdb')
@@ -1502,6 +1556,41 @@ def test_groupby_period_invalid_string(populated_dataset):
         dv = ds['temperature']
         with pytest.raises(ValueError, match='Invalid period string'):
             list(dv.groupby({'time': 'abc'}))
+
+
+def test_groupby_period_remainder_uses_rechunker():
+    """Regular period with remainder (e.g. 50 days / 7D) must use rechunker, not _groupby_period."""
+    fp = script_path.joinpath('test_groupby_remainder.cfdb')
+
+    # 50 days → 7 groups of 7 + 1 group of 1
+    time_data = np.arange('2020-01-01', '2020-02-20', dtype='datetime64[D]')
+    assert len(time_data) == 50
+    lat = np.linspace(0, 4.9, 10, dtype='float32')
+    data = np.random.default_rng(42).standard_normal((10, 50)).astype('float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(10,))
+        ds.create.coord.time(data=time_data, dtype=time_data.dtype, chunk_shape=(15,))
+        dv = ds.create.data_var.generic('temp', ('latitude', 'time'),
+                                         dtypes.dtype('float32'), chunk_shape=(10, 15))
+        dv[:] = data
+
+    with open_dataset(fp) as ds:
+        dv = ds['temp']
+
+        # Patch _groupby_period to fail if called — proves rechunker path is used
+        from unittest.mock import patch
+        with patch.object(type(dv), '_groupby_period', side_effect=AssertionError('slow path was used')):
+            result = np.full(dv.shape, np.nan, dtype='float32')
+            count = 0
+            for slices, chunk_data in dv.groupby({'time': '7D'}):
+                result[slices] = chunk_data
+                count += 1
+
+        assert count == 8  # 7 full + 1 remainder
+        assert np.allclose(result, data)
+
+    fp.unlink()
 
 
 ##############################

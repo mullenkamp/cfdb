@@ -138,7 +138,7 @@ def parse_cf_dates(units, dtype_encoded):
     return units, dtype_decoded, dtype_encoded, origin_date
 
 
-def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pathlib.Path], sel: dict=None, sel_loc: dict=None, include_data_vars: List[str]=None, exclude_data_vars: List[str]=None, max_mem: int=2**27, **kwargs):
+def netcdf4_to_cfdb(nc_path: Union[str, pathlib.Path], cfdb_path: Union[str, pathlib.Path], sel: dict=None, sel_loc: dict=None, include_data_vars: List[str]=None, exclude_data_vars: List[str]=None, max_mem: int=2**29, **kwargs):
     """
     Simple function to convert a netcdf4 to a cfdb. Selection options are also available. The h5netcdf package must be installed to read netcdf4 files.
 

@@ -217,7 +217,18 @@ class DatasetBase:
         return DatasetView(self, _sel)
 
 
-    def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**27):
+    def rechunker(self, data_vars=None):
+        """
+        Return a DatasetRechunker for multiple variables.
+
+        Parameters
+        ----------
+        data_vars : list of str, optional
+            The data variables to include. Defaults to all.
+        """
+        return sc.DatasetRechunker(self, data_vars=data_vars)
+
+    def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**29):
         """
         Iterate over aligned chunks of multiple data variables. Always yields (target_chunk, var_data).
 
@@ -229,7 +240,7 @@ class DatasetBase:
         data_vars : list of str, optional
             Which data variables to include. Default: all.
         max_mem : int
-            Max memory in bytes for rechunker buffer per variable. Default 128 MB.
+            Total max memory budget in bytes for the entire batch. Default 512 MB.
 
         Yields
         ------
@@ -238,45 +249,7 @@ class DatasetBase:
         var_data : dict
             {var_name: ndarray} — decoded data for each variable at this position.
         """
-        # Validate data vars
-        if data_vars is None:
-            data_vars = list(self.data_var_names)
-        else:
-            for name in data_vars:
-                if name not in self.data_var_names:
-                    raise KeyError(f'{name} is not a data variable.')
-
-        if not data_vars:
-            return
-
-        # Determine common coord_names — require all data vars share the same coords
-        first_dv = self[data_vars[0]]
-        common_coord_names = first_dv.coord_names
-        for dv_name in data_vars[1:]:
-            if self[dv_name].coord_names != common_coord_names:
-                raise ValueError(
-                    f'All data variables must share the same coordinates. '
-                    f'{data_vars[0]} has {common_coord_names}, '
-                    f'{dv_name} has {self[dv_name].coord_names}.'
-                )
-
-        # Create per-variable iter_chunks generators
-        var_gens = []
-        for dv_name in data_vars:
-            dv = self[dv_name]
-            var_gens.append(dv.iter_chunks(chunk_shape, max_mem=max_mem))
-
-        # Zip — canonical C-order guaranteed by rechunkit
-        for items in zip(*var_gens):
-            write_chunk = items[0][0]
-            target_chunk = {
-                cn: sl for cn, sl in zip(common_coord_names, write_chunk)
-            }
-            var_data = {
-                dv_name: item[1]
-                for dv_name, item in zip(data_vars, items)
-            }
-            yield target_chunk, var_data
+        return self.rechunker(data_vars).rechunk(chunk_shape, max_mem=max_mem)
 
 
     def iter_chunk_slices(self, chunk_shape, data_vars=None):
@@ -319,7 +292,7 @@ class DatasetBase:
             yield {cn: sl for cn, sl in zip(common_coord_names, position)}
 
 
-    def groupby(self, coord_names, data_vars=None, max_mem=2**27):
+    def groupby(self, coord_names, data_vars=None, max_mem=2**29):
         """
         Group by one or more coordinates.
 
@@ -372,16 +345,16 @@ class DatasetBase:
                     count, unit, coord_meta.step, coord_dtype_obj.dtype_decoded
                 )
 
+                if chunk_size is not None:
+                    # Regular period (D, h, W, etc.) — use rechunker.
+                    # The rechunker handles remainder chunks natively.
+                    chunk_shape[cn] = chunk_size
+                    continue
+
+                # Irregular period (M, Y) — compute groups for slice-based iteration
                 coord_obj = self[cn]
                 coord_data = coord_obj.data
                 groups = utils.compute_time_groups(coord_data, count, unit)
-
-                if chunk_size is not None:
-                    group_sizes = [g.stop - g.start for g in groups]
-                    if len(set(group_sizes)) == 1:
-                        chunk_shape[cn] = group_sizes[0]
-                        continue
-
                 period_coord = cn
                 period_groups = groups
 
@@ -444,7 +417,7 @@ class DatasetBase:
             yield target_chunk, var_data
 
 
-    def map(self, func, chunk_shape, data_vars=None, max_mem=2**27, n_workers=None):
+    def map(self, func, chunk_shape, data_vars=None, max_mem=2**29, n_workers=None):
         """
         Apply func to aligned chunks of multiple variables in parallel.
 
@@ -544,7 +517,7 @@ class DatasetBase:
         """
         kwargs = dict(n_buckets=self._blt._n_buckets, buffer_size=self._blt._write_buffer_size)
 
-        new_ds = open_dataset(file_path, 'n', compression=self.compression, compression_level=self.compression_level, **kwargs)
+        new_ds = open_dataset(file_path, 'n', dataset_type=self._sys_meta.dataset_type.value, compression=self.compression, compression_level=self.compression_level, **kwargs)
 
         data_var_names, coord_names = utils.filter_var_names(self, include_data_vars, exclude_data_vars)
 
@@ -552,6 +525,10 @@ class DatasetBase:
             coord = self[coord_name]
             new_coord = new_ds.create.coord.like(coord_name, coord, True)
             new_coord.attrs.update(coord.attrs.data)
+
+        if self._sys_meta.crs is not None:
+            new_ds._sys_meta.crs = self._sys_meta.crs
+            new_ds.crs = self.crs
 
         for data_var_name in data_var_names:
             data_var = self[data_var_name]

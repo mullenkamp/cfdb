@@ -39,6 +39,19 @@ with cfdb.open_dataset('example.cfdb', flag='n') as ds:
 with cfdb.open_dataset('example.cfdb') as ds:
     for slices, data in ds['temperature'].iter_chunks(include_data=True):
         print(slices, data.shape)
+
+## Multivariable Rechunking
+
+Efficiently iterate over multiple variables with synchronized chunks:
+
+```python
+with cfdb.open_dataset('data.cfdb') as ds:
+    # Synchronized iteration over temperature and pressure
+    for target_chunk, var_data in ds.iter_chunks({'latitude': 50, 'longitude': 50}):
+        temp = var_data['temperature']
+        pres = var_data['pressure']
+        # Perform calculations on aligned blocks
+```
 ```
 
 See the [full documentation](https://mullenkamp.github.io/cfdb/) for user guides, concepts, and API reference.

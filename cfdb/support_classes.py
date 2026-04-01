@@ -179,6 +179,112 @@ class Rechunker:
                 yield slices, self._var.dtype.decode(data_encoded)
 
 
+class DatasetRechunker:
+    """
+    Assistant class for rechunking multiple variables in a dataset simultaneously.
+    
+    Ensures synchronized chunk iteration across variables sharing the same 
+    coordinates, with efficient memory management.
+    """
+    def __init__(self, ds, data_vars=None):
+        """
+        Initialize the dataset rechunker.
+
+        Parameters
+        ----------
+        ds : Dataset
+            The source dataset.
+        data_vars : list of str, optional
+            The data variables to include. Defaults to all.
+        """
+        self._ds = ds
+        if data_vars is None:
+            self._data_vars = list(ds.data_var_names)
+        else:
+            self._data_vars = []
+            for name in data_vars:
+                if name not in ds.data_var_names:
+                    raise KeyError(f'{name} is not a data variable.')
+                self._data_vars.append(name)
+
+        if not self._data_vars:
+            raise ValueError('No data variables specified for rechunking.')
+
+        # Validate that all variables share the same coordinates and shape
+        first_name = self._data_vars[0]
+        first_dv = ds[first_name]
+        self._coord_names = first_dv.coord_names
+        self._shape = first_dv.shape
+
+        for name in self._data_vars[1:]:
+            dv = ds[name]
+            if dv.coord_names != self._coord_names:
+                raise ValueError(
+                    f'All variables must share the same coordinates for synchronized rechunking. '
+                    f'{first_name} has {self._coord_names}, {name} has {dv.coord_names}.'
+                )
+            if dv.shape != self._shape:
+                raise ValueError(f'Variables must have identical shapes. {first_name}: {self._shape}, {name}: {dv.shape}')
+
+    def _resolve_chunk_shape(self, chunk_shape):
+        """Resolve dict chunk_shape to tuple."""
+        return self._ds[self._data_vars[0]]._resolve_chunk_shape(chunk_shape)
+
+    def calc_ideal_read_chunk_mem(self, chunk_shape):
+        """Calculate total ideal memory for the batch."""
+        target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
+        total_mem = 0
+        for name in self._data_vars:
+            total_mem += self._ds[name].rechunker().calc_ideal_read_chunk_mem(target_chunk_shape)
+        return total_mem
+
+    def calc_n_reads_rechunker(self, chunk_shape, max_mem=2**29):
+        """Calculate number of reads for the batch."""
+        target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
+        per_var_mem = max_mem // len(self._data_vars)
+        total_reads = 0
+        total_writes = 0
+        for name in self._data_vars:
+            n_reads, n_writes = self._ds[name].rechunker().calc_n_reads_rechunker(target_chunk_shape, per_var_mem)
+            total_reads += n_reads
+            total_writes = n_writes
+        return total_reads, total_writes
+
+    def rechunk(self, chunk_shape, max_mem=2**29):
+        """
+        Synchronized multivariable rechunking generator.
+
+        Parameters
+        ----------
+        chunk_shape : dict
+            {coord_name: int} for target chunk sizes.
+        max_mem : int
+            Total max memory budget in bytes for all variables combined.
+
+        Yields
+        ------
+        target_chunk : dict
+            {coord_name: slice}
+        var_data : dict
+            {var_name: ndarray}
+        """
+        target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
+        per_var_mem = max_mem // len(self._data_vars)
+
+        # Initialize synchronized generators
+        var_gens = []
+        for name in self._data_vars:
+            var_gens.append(self._ds[name].rechunker().rechunk(target_chunk_shape, per_var_mem))
+
+        # Zip generators — canonical order is guaranteed by rechunkit
+        for items in zip(*var_gens):
+            # items is a tuple of (slices_tuple, ndarray)
+            write_slices = items[0][0]
+            target_chunk = {cn: sl for cn, sl in zip(self._coord_names, write_slices)}
+            var_data = {name: item[1] for name, item in zip(self._data_vars, items)}
+            yield target_chunk, var_data
+
+
 class Attributes:
     """
 
@@ -909,7 +1015,7 @@ class Coordinate(CoordinateView):
         shape = (updated_data.size,)
 
         chunk_start = (self.origin,)
-        chunk_stop = shape
+        chunk_stop = (self.origin + updated_data.size,)
 
         self._add_updated_data(chunk_start, chunk_stop, self.origin, updated_data)
 
@@ -973,7 +1079,7 @@ class DataVariableView(Variable):
             chunk_shape.get(cn, s) for cn, s in zip(coord_names, var_shape)
         )
 
-    def iter_chunks(self, chunk_shape=None, max_mem=2**27, decoded=True):
+    def iter_chunks(self, chunk_shape=None, max_mem=2**29, decoded=True):
         """
         Iterate through the chunks of the variable. Always yields (slices, data).
 
@@ -1088,9 +1194,12 @@ class DataVariableView(Variable):
         -------
         cfdb.DataVariableView
         """
-        coord_origins = self.get_coord_origins()
+        # Use zero origins so _sel stays in 0-based logical coordinates.
+        # Coordinate origins are applied once at the point of data access
+        # (in iter_chunks, set, data, etc.), avoiding double-application.
+        zero_origins = tuple(0 for _ in self.coord_names)
 
-        slices = indexers.index_combo_all(sel, coord_origins, self.shape)
+        slices = indexers.index_combo_all(sel, zero_origins, self.shape)
 
         if self._sel is not None:
             slices = tuple(slice(s.start, s.stop) if ss.start is None else slice(ss.start + s.start, ss.start + s.stop) for ss, s in zip(self._sel, slices))
@@ -1220,20 +1329,16 @@ class DataVariableView(Variable):
                     count, unit, coord_meta.step, coord_dtype_obj.dtype_decoded
                 )
 
-                # Read the coordinate data to compute actual groups
+                if chunk_size is not None:
+                    # Regular period (D, h, W, etc.) — use rechunker.
+                    # The rechunker handles remainder chunks natively.
+                    chunk_shape[cn] = chunk_size
+                    continue
+
+                # Irregular period (M, Y) — compute groups for slice-based iteration
                 coord_obj = self._dataset[cn]
                 coord_data = coord_obj.data
                 groups = utils.compute_time_groups(coord_data, count, unit)
-
-                if chunk_size is not None:
-                    # Check if all groups are actually uniform
-                    group_sizes = [g.stop - g.start for g in groups]
-                    if len(set(group_sizes)) == 1:
-                        # All groups same size — use rechunker
-                        chunk_shape[cn] = group_sizes[0]
-                        continue
-
-                # Fall back to slice-based iteration
                 period_coord = cn
                 period_groups = groups
 
@@ -1283,7 +1388,7 @@ class DataVariableView(Variable):
             yield sel, data
 
 
-    def map(self, func, chunk_shape=None, n_workers=None, max_mem=2**27):
+    def map(self, func, chunk_shape=None, n_workers=None, max_mem=2**29):
         """
         Apply func to each chunk in parallel using multiprocessing.
 

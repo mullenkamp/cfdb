@@ -48,6 +48,13 @@ del ds['temperature']   # Delete a variable (writable only)
 
 Get a variable by name. Returns a `Coordinate` or `DataVariable`.
 
+### rechunker(data_vars=None)
+
+Return a [`DatasetRechunker`](dataset-rechunker.md) for multiple variables.
+
+Parameters:
+- `data_vars` (list of str, optional): The data variables to include. Defaults to all.
+
 ### select(sel)
 
 Filter the dataset by coordinate index positions. Returns a read-only `DatasetView`.
@@ -72,14 +79,14 @@ Copy the dataset to a new cfdb file. Returns the new `Dataset` (caller must clos
 
 Export to netCDF4 format. Requires h5netcdf.
 
-### iter_chunks(chunk_shape, data_vars=None, max_mem=2\*\*27)
+### iter_chunks(chunk_shape, data_vars=None, max_mem=2\*\*29)
 
 Iterate over aligned chunks of multiple data variables. Always yields `(target_chunk, var_data)` where `target_chunk` is a dict of `{coord_name: slice}` and `var_data` is a dict of `{var_name: ndarray}`.
 
-```python
-for target_chunk, var_data in ds.iter_chunks({'latitude': 25, 'longitude': 25}):
-    print(target_chunk, {k: v.shape for k, v in var_data.items()})
-```
+Parameters:
+- `chunk_shape` (dict): `{coord_name: int}` for target chunk sizes.
+- `data_vars` (list of str, optional): Variables to include.
+- `max_mem` (int): Total memory budget in bytes for the entire batch. Default 512 MB.
 
 ### iter_chunk_slices(chunk_shape, data_vars=None)
 
