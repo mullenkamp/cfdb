@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.4.3 (Latest)
+## 0.6.0 (Latest)
+
+- Added `DatasetRechunker` class for native multivariable rechunking
+- Added `rechunker()` method to `DatasetBase` to expose the new multivariable `DatasetRechunker`
+- Upgraded `iter_chunks` to use `DatasetRechunker` internally, ensuring optimized synchronization and shared memory budget across variables
+- Fixed prepend and append bugs
+- Fixed `copy()` dataset issue
+- Updated dependencies
+
+## 0.5.0
+
+- Added Xarray backend for `cfdb` (read-only mapping)
+- Added time aggregation capabilities (e.g. `groupby(period)`)
+- Fixed Geometry insertion order
+- Added comprehensive benchmarks
+
+## 0.4.3
 
 - Added `map()` method to `DataVariableView` for parallel chunk processing using multiprocessing
 - Added pickling support (`__reduce__`) to `Geometry`, `String`, and `Compressor` classes

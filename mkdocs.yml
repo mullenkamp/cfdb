@@ -91,6 +91,7 @@ nav:
         - Architecture: concepts/architecture.md
         - CF Conventions: concepts/cf-conventions.md
         - Chunking & Storage: concepts/chunking-storage.md
+        - Rechunking Internals: concepts/rechunking-internals.md
     - API Reference:
         - Overview: reference/index.md
         - open_dataset: reference/open-dataset.md

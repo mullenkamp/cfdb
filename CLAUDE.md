@@ -47,7 +47,8 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 - `Variable` → `DataVariableView` → `DataVariable` (data vars never hold full data in memory, support `__setitem__`)
 - `Attributes` — JSON-serializable attrs stored as a separate Booklet key (`_{var_name}.attrs`)
 - `Compressor` — wraps zstd or lz4 compression
-- `Rechunker` — wraps the rechunkit package for chunk shape conversion
+- `Rechunker` — wraps the rechunkit package for chunk shape conversion. Uses a multi-chunk source function (not `get_chunk`) because coordinate origins from prepend/append can misalign the 0-based index space with the storage chunk grid. Single-chunk fast path avoids allocations when the read maps to one chunk.
+- `DatasetRechunker` — synchronized multi-variable rechunking. Zips per-variable `Rechunker` generators, relying on rechunkit's deterministic iteration order.
 
 **Data types** (`dtypes.py`): Custom type system for serialization. `DataType` base class with subclasses: `Float`, `Integer`, `DateTime`, `Bool`, `String`, `Point`, `LineString`, `Polygon`. Each dtype handles encode/decode (scaling, offset) and dumps/loads (bytes serialization). Geometry types use WKT via shapely + msgpack.
 
@@ -66,6 +67,7 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 - **Dataset types**: `grid` (standard N-D) and `ts_ortho` (time series with point geometries). Controlled by `data_models.Type` enum.
 - **Compression**: All data compressed with zstd (default) or lz4, configured at dataset level.
 - **Coordinates are immutable once written** — values cannot be changed, only appended/prepended. Must be unique and ascending.
+- **Rechunking and coordinate origins**: rechunkit guarantees source-chunk-aligned reads when a selection offset is non-aligned, but coordinate origins (from prepend) create a separate misalignment between 0-based indices and storage chunk keys. The `Rechunker` source function in `support_classes.py` uses `slices_to_chunks_keys()` to assemble reads across storage chunks when needed. Do not simplify this to `get_chunk()` — it will break for non-zero origins. See `docs/concepts/rechunking-internals.md` for details.
 - **GroupBy with time periods**: `groupby()` on both `DataVariableView` and `Dataset` accepts a dict with period strings (e.g. `{'time': 'D'}`, `{'time': 'M'}`). Regular periods (D, h, W, etc.) with uniform groups use the rechunker fast path; irregular periods (M, Y) or non-uniform groups fall back to slice-based iteration. Period parsing and group computation utilities live in `utils.py` (`parse_period_string`, `compute_time_groups`, `period_to_chunk_size`).
 
 ### Dependencies

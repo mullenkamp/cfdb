@@ -15,7 +15,7 @@ from xarray.core import indexing
 import xarray as xr
 
 from cfdb.main import open_dataset
-from cfdb import data_models
+# from cfdb import data_models
 
 
 class CfdbBackendArray(BackendArray):

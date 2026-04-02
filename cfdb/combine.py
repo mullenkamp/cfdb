@@ -229,77 +229,101 @@ def _collect_data_vars(ds_list, include_data_vars, exclude_data_vars):
     return var_infos
 
 
+def _precompute_index_maps(ds_list, coord_infos):
+    """
+    Precompute the mapping from each dataset's coordinate indices to the combined coordinate indices.
+    Returns a dict mapping id(ds) -> {coord_name: mapping_array}.
+    """
+    coord_data_map = {ci["name"]: ci["data"] for ci in coord_infos}
+    index_maps = {}
+
+    for ds in ds_list:
+        ds_id = id(ds)
+        index_maps[ds_id] = {}
+        for coord_name in ds.coord_names:
+            src_coord = ds[coord_name]
+            src_data = src_coord.data
+            out_data = coord_data_map[coord_name]
+
+            if src_coord.dtype.kind == "G":
+                ci_match = next(c for c in coord_infos if c["name"] == coord_name)
+                out_dtype = dtypes_mod.dtype(**ci_match["dtype_dict"])
+                out_encoded = out_dtype.encode(out_data)
+                src_encoded = out_dtype.encode(src_data)
+                wkt_to_idx = {wkt: i for i, wkt in enumerate(out_encoded)}
+                mapping = np.array([wkt_to_idx[wkt] for wkt in src_encoded], dtype=np.intp)
+            elif src_coord.dtype.kind == "f":
+                mapping = np.array([
+                    int(np.nonzero(np.isclose(out_data, v))[0][0]) for v in src_data
+                ], dtype=np.intp)
+            else:
+                mapping = np.searchsorted(out_data, src_data).astype(np.intp)
+                
+            index_maps[ds_id][coord_name] = mapping
+
+    return index_maps
+
+
 def _write_data(ds_list, output_ds, var_infos, coord_infos, overlap):
     """
     Write data from source datasets into the output dataset.
-    Uses iter_chunks which correctly handles DatasetView selections.
+    Uses iter_chunks for synchronized multivariable transfer.
     """
-    # Build coord lookup: name -> combined data array
-    coord_data_map = {ci["name"]: ci["data"] for ci in coord_infos}
+    # Precompute index maps for all datasets
+    index_maps_cache = _precompute_index_maps(ds_list, coord_infos)
+    
+    # Filter var_infos to a lookup for quick validation
+    valid_var_names = {vi["name"]: vi for vi in var_infos}
 
-    for var_info in var_infos:
-        var_name = var_info["name"]
-        out_var = output_ds[var_name]
-        coord_names = var_info["coords"]
+    for ds in ds_list:
+        ds_id = id(ds)
+        ds_index_maps = index_maps_cache[ds_id]
 
-        for ds in ds_list:
-            if var_name not in ds.data_var_names:
+        # Group variables in this dataset by their coord_names and shape
+        # DatasetRechunker requires identical coords and shapes.
+        groups = {}
+        for var_name in ds.data_var_names:
+            if var_name not in valid_var_names:
                 continue
+            var = ds[var_name]
+            # Key by (coords_tuple, shape_tuple)
+            group_key = (var.coord_names, var.shape)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(var_name)
 
-            src_var = ds[var_name]
-
-            # Precompute index mapping for each dimension
-            # Maps source coord position (within the view) to output coord position
-            index_maps = []
-            for coord_name in coord_names:
-                src_coord = ds[coord_name]
-                src_data = src_coord.data  # Respects view selection
-                out_data = coord_data_map[coord_name]
-
-                if src_coord.dtype.kind == "G":
-                    ci_match = next(
-                        c for c in coord_infos if c["name"] == coord_name
-                    )
-                    out_dtype = dtypes_mod.dtype(**ci_match["dtype_dict"])
-                    out_encoded = out_dtype.encode(out_data)
-                    src_encoded = out_dtype.encode(src_data)
-                    wkt_to_idx = {wkt: i for i, wkt in enumerate(out_encoded)}
-                    mapping = np.array([wkt_to_idx[wkt] for wkt in src_encoded], dtype=np.intp)
-                elif src_coord.dtype.kind == "f":
-                    mapping = np.array([
-                        int(np.nonzero(np.isclose(out_data, v))[0][0]) for v in src_data
-                    ], dtype=np.intp)
-                else:
-                    mapping = np.searchsorted(out_data, src_data).astype(np.intp)
-
-                index_maps.append(mapping)
-
-            # Transfer data chunk by chunk using iter_chunks
-            # iter_chunks handles selections/views transparently
-            for target_chunk, data in src_var.iter_chunks():
-                if data is None:
+        # Process each group with synchronized iteration
+        for (coord_names, _shape), group_vars in groups.items():
+            
+            # Use ds.iter_chunks for synchronized, multi-variable block iteration.
+            # chunk_shape={} uses the source dataset's storage chunking (from the first var in group).
+            for target_chunk, var_data in ds.iter_chunks(chunk_shape={}, data_vars=group_vars):
+                if not var_data:
                     continue
 
                 # target_chunk is relative to the view start (0-based)
-                # Map source chunk positions to output positions
+                # Map source chunk positions to output positions ONCE for the whole group
                 out_slices = []
-                for dim_i in range(len(coord_names)):
-                    tc = target_chunk[dim_i]
+                valid_chunk = True
+                
+                for dim_i, coord_name in enumerate(coord_names):
+                    tc = target_chunk[coord_name]
                     src_indices = np.arange(tc.start, tc.stop)
 
                     # Clip to valid range of the mapping
-                    valid_mask = src_indices < len(index_maps[dim_i])
+                    mapping_array = ds_index_maps[coord_name]
+                    valid_mask = src_indices < len(mapping_array)
                     if not np.all(valid_mask):
                         src_indices = src_indices[valid_mask]
 
                     if len(src_indices) == 0:
-                        out_slices.append(None)
-                        continue
+                        valid_chunk = False
+                        break
 
-                    out_indices = index_maps[dim_i][src_indices]
+                    out_indices = mapping_array[src_indices]
                     out_slices.append((int(out_indices[0]), int(out_indices[-1]) + 1, out_indices))
 
-                if any(s is None for s in out_slices):
+                if not valid_chunk:
                     continue
 
                 # Check if all dimensions map contiguously
@@ -310,22 +334,29 @@ def _write_data(ds_list, output_ds, var_infos, coord_infos, overlap):
                 if all_contiguous:
                     out_sel = tuple(slice(s[0], s[1]) for s in out_slices)
 
-                    if overlap == "first":
-                        existing = out_var.get_chunk(out_sel, missing_none=True)
-                        if existing is not None:
-                            continue
-                    elif overlap == "error":
-                        existing = out_var.get_chunk(out_sel, missing_none=True)
-                        if existing is not None:
-                            msg = (
-                                f"Overlap detected for variable {var_name} at {out_sel}. "
-                                f'Use overlap="last" or overlap="first" to handle overlaps.'
-                            )
-                            raise ValueError(msg)
+                    # Write each variable in the synchronized group
+                    for var_name in group_vars:
+                        out_var = output_ds[var_name]
+                        data = var_data[var_name]
+                        
+                        if overlap == "first":
+                            existing = out_var.get_chunk(out_sel, missing_none=True)
+                            if existing is not None:
+                                continue
+                        elif overlap == "error":
+                            existing = out_var.get_chunk(out_sel, missing_none=True)
+                            if existing is not None:
+                                msg = (
+                                    f"Overlap detected for variable {var_name} at {out_sel}. "
+                                    f'Use overlap="last" or overlap="first" to handle overlaps.'
+                                )
+                                raise ValueError(msg)
 
-                    out_var.set(out_sel, data)
+                        out_var.set(out_sel, data)
                 else:
-                    _write_noncontiguous(out_var, data, out_slices, overlap, var_name)
+                    # Write each variable in the synchronized group individually
+                    for var_name in group_vars:
+                        _write_noncontiguous(output_ds[var_name], var_data[var_name], out_slices, overlap, var_name)
 
 
 def _write_noncontiguous(out_var, src_data, out_slices, overlap, var_name):
