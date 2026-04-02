@@ -165,18 +165,89 @@ class Rechunker:
         itemsize = self._guess_itemsize()
         full_shape = tuple(self._var._sys_meta.variables[c].shape[0] for c in self._var.coord_names)
         base_var = self._var._dataset.get(self._var.name)
+        coord_origins = base_var.get_coord_origins()
 
         if self._var.dtype.dtype_encoded is None:
-            func = lambda sel: base_var.get_chunk(sel)
+            deserialize = lambda x: base_var.dtype.loads(base_var.compressor.decompress(x), base_var.chunk_shape)
+            blank = base_var._make_blank_chunk_array()
 
-            rechunkit1 = rechunkit.rechunker(func, full_shape, self._var.dtype.dtype_decoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
+            def read_decoded(sel):
+                slices = indexers.index_combo_all(sel, coord_origins, full_shape)
+                chunks = indexers.slices_to_chunks_keys(slices, base_var.name, base_var.chunk_shape)
+                tgt_chunk, src_chunk, blt_key = next(chunks)
+                b1 = base_var._blt.get(blt_key)
+                if b1 is None:
+                    blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in src_chunk)
+                    first = blank[blank_slices]
+                else:
+                    first = deserialize(b1)[src_chunk]
+
+                second_item = next(chunks, None)
+                if second_item is None:
+                    return first
+
+                out_shape = tuple(s.stop - s.start for s in slices)
+                target = np.empty(out_shape, dtype=base_var.dtype.dtype_decoded)
+                target[tgt_chunk] = first
+                tgt_chunk, src_chunk, blt_key = second_item
+                b1 = base_var._blt.get(blt_key)
+                if b1 is None:
+                    blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in src_chunk)
+                    target[tgt_chunk] = blank[blank_slices]
+                else:
+                    target[tgt_chunk] = deserialize(b1)[src_chunk]
+                for tgt_chunk, src_chunk, blt_key in chunks:
+                    b1 = base_var._blt.get(blt_key)
+                    if b1 is None:
+                        blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in src_chunk)
+                        target[tgt_chunk] = blank[blank_slices]
+                    else:
+                        target[tgt_chunk] = deserialize(b1)[src_chunk]
+                return target
+
+            rechunkit1 = rechunkit.rechunker(read_decoded, full_shape, self._var.dtype.dtype_decoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
 
             for slices, data_decoded in rechunkit1:
                 yield slices, data_decoded
         else:
-            func = lambda sel: base_var._get_encoded_chunk(sel)
+            deserialize = lambda x: base_var.dtype.from_bytes(base_var.compressor.decompress(x), base_var.chunk_shape)
+            blank = base_var._make_blank_chunk_array(False)
 
-            rechunkit1 = rechunkit.rechunker(func, full_shape, self._var.dtype.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
+            def read_encoded(sel):
+                slices = indexers.index_combo_all(sel, coord_origins, full_shape)
+                chunks = indexers.slices_to_chunks_keys(slices, base_var.name, base_var.chunk_shape)
+                tgt_chunk, src_chunk, blt_key = next(chunks)
+                b1 = base_var._blt.get(blt_key)
+                if b1 is None:
+                    blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in src_chunk)
+                    first = blank[blank_slices]
+                else:
+                    first = deserialize(b1)[src_chunk]
+
+                second_item = next(chunks, None)
+                if second_item is None:
+                    return first
+
+                out_shape = tuple(s.stop - s.start for s in slices)
+                target = np.empty(out_shape, dtype=base_var.dtype.dtype_encoded)
+                target[tgt_chunk] = first
+                tgt_chunk, src_chunk, blt_key = second_item
+                b1 = base_var._blt.get(blt_key)
+                if b1 is None:
+                    blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in src_chunk)
+                    target[tgt_chunk] = blank[blank_slices]
+                else:
+                    target[tgt_chunk] = deserialize(b1)[src_chunk]
+                for tgt_chunk, src_chunk, blt_key in chunks:
+                    b1 = base_var._blt.get(blt_key)
+                    if b1 is None:
+                        blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in src_chunk)
+                        target[tgt_chunk] = blank[blank_slices]
+                    else:
+                        target[tgt_chunk] = deserialize(b1)[src_chunk]
+                return target
+
+            rechunkit1 = rechunkit.rechunker(read_encoded, full_shape, self._var.dtype.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
 
             for slices, data_encoded in rechunkit1:
                 yield slices, self._var.dtype.decode(data_encoded)
