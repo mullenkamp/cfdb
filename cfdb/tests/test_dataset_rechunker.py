@@ -54,6 +54,33 @@ def test_dataset_rechunker_validation(populated_dataset):
         with pytest.raises(ValueError, match="No data variables specified"):
             ds.rechunker(data_vars=[])
 
+def test_dataset_rechunker_with_selection(populated_dataset):
+    """Test DatasetRechunker works correctly on a subset DatasetView."""
+    with open_dataset(populated_dataset) as ds:
+        # Create a DatasetView
+        view = ds.select({'latitude': slice(10, 40), 'time': slice(2, 8)})
+        
+        # We need variables that share the same coords.
+        # Assuming 'temperature' and 'pressure' exist and share coords in populated_dataset.
+        data_vars = [name for name in view.data_var_names if view[name].coord_names == ('latitude', 'longitude', 'time')]
+        if len(data_vars) < 2:
+            pytest.skip("Test requires at least 2 data variables with the same coords")
+            
+        dr = view.rechunker(data_vars=data_vars)
+        chunk_shape = {'latitude': 15, 'longitude': 20}
+        
+        # Test iteration on the view
+        count = 0
+        for target_chunk, var_data in dr.rechunk(chunk_shape):
+            # Verify alignment against the view
+            for name in data_vars:
+                dv_view = view[name]
+                sel = tuple(target_chunk[cn] for cn in dv_view.coord_names)
+                expected = dv_view[sel].data
+                np.testing.assert_allclose(var_data[name], expected)
+            count += 1
+        assert count > 0
+
 def test_dataset_iter_chunks_uses_rechunker(populated_dataset):
     """Verify Dataset.iter_chunks uses the new rechunker path."""
     with open_dataset(populated_dataset) as ds:

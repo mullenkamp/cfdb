@@ -139,8 +139,9 @@ class Rechunker:
             of n_reads, n_writes
         """
         itemsize = self._guess_itemsize()
+        full_shape = tuple(self._var._sys_meta.variables[c].shape[0] for c in self._var.coord_names)
 
-        return rechunkit.calc_n_reads_rechunker(self._var.shape, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+        return rechunkit.calc_n_reads_rechunker(full_shape, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
 
 
     def rechunk(self, target_chunk_shape, max_mem: int=2**27):
@@ -162,18 +163,20 @@ class Rechunker:
         self._var.load()
 
         itemsize = self._guess_itemsize()
+        full_shape = tuple(self._var._sys_meta.variables[c].shape[0] for c in self._var.coord_names)
+        base_var = self._var._dataset.get(self._var.name)
 
         if self._var.dtype.dtype_encoded is None:
-            func = lambda sel: self._var.get_chunk(sel)
+            func = lambda sel: base_var.get_chunk(sel)
 
-            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self._var.dtype.dtype_decoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
+            rechunkit1 = rechunkit.rechunker(func, full_shape, self._var.dtype.dtype_decoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
 
             for slices, data_decoded in rechunkit1:
                 yield slices, data_decoded
         else:
-            func = lambda sel: self._var._get_encoded_chunk(sel)
+            func = lambda sel: base_var._get_encoded_chunk(sel)
 
-            rechunkit1 = rechunkit.rechunker(func, self._var.shape, self._var.dtype.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
+            rechunkit1 = rechunkit.rechunker(func, full_shape, self._var.dtype.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
 
             for slices, data_encoded in rechunkit1:
                 yield slices, self._var.dtype.decode(data_encoded)
@@ -665,7 +668,7 @@ class Variable:
         coord_origins = self.get_coord_origins()
         slices = indexers.index_combo_all(sel, coord_origins, self.shape)
         starts_chunk = tuple((pc.start//cs) * cs for cs, pc in zip(self.chunk_shape, slices))
-        slices2 = tuple(slice(0, min(pc.stop - sc, sc + cs)) for sc, cs, pc in zip(starts_chunk, self.chunk_shape, slices))
+        slices2 = tuple(slice(pc.start - sc, min(pc.stop - sc, cs)) for sc, cs, pc in zip(starts_chunk, self.chunk_shape, slices))
         blt_key = utils.make_var_chunk_key(self.name, starts_chunk)
         b1 = self._blt.get(blt_key)
 

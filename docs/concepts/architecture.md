@@ -18,10 +18,12 @@ open_dataset() / open_edataset()
         │
         ├── Attributes (JSON dict stored as Booklet key)
         │
+        ├── DatasetRechunker (synchronized multi-variable rechunkit wrapper)
+        │
         └── Variable objects (Coordinate / DataVariable)
               ├── DataType (encoding/decoding)
               ├── Compressor (zstd/lz4)
-              └── Rechunker (rechunkit wrapper)
+              └── Rechunker (single-variable rechunkit wrapper)
 ```
 
 ## Booklet Storage
@@ -103,3 +105,4 @@ Changes that were not synced are lost. The `weakref.finalize` mechanism ensures 
 | cfdb-vars | Variable definitions and templates |
 | geointerp | Grid interpolation and CRS transformation |
 | h5netcdf | NetCDF4 I/O (optional) |
+| xarray | Xarray backend integration (optional) |
