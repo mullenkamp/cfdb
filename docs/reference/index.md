@@ -47,7 +47,8 @@ This section provides detailed API documentation for cfdb's public interface.
 
 | Function | Description |
 |----------|-------------|
-| [`combine`](combine.md) | Merge multiple datasets into one |
+| [`combine`](combine.md) | Merge multiple datasets into a new file |
+| [`merge_into`](merge_into.md) | Merge datasets in-place into an existing file |
 
 ## Tools
 
@@ -68,7 +69,8 @@ cfdb/
 ├── interp.py            # GridInterp / PointInterp wrappers
 ├── data_models.py       # msgspec Structs for metadata
 ├── indexers.py           # Index and location-based selection
-├── combine.py           # Dataset combining/merging
+├── combine.py           # Dataset out-of-place combining
+├── merge.py             # Dataset in-place merging
 ├── tools.py             # NetCDF4 conversion functions
 └── utils.py             # Internal utilities
 ```

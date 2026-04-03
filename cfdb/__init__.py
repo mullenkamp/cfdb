@@ -3,6 +3,7 @@ from cfdb.main import open_dataset
 from cfdb.utils import compute_scale_and_offset
 from cfdb.tools import cfdb_to_netcdf4
 from cfdb.combine import combine
+from cfdb.merge import merge_into
 from cfdb import dtypes
 from rechunkit import guess_chunk_shape
 
@@ -11,4 +12,4 @@ try:
 except (ImportError, AttributeError):
     pass
 
-__version__ = '0.6.0'
+__version__ = '0.7.0'

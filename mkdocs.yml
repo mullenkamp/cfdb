@@ -106,6 +106,7 @@ nav:
         - Rechunker: reference/rechunker.md
         - Dataset Rechunker: reference/dataset-rechunker.md
         - combine: reference/combine.md
+        - merge_into: reference/merge_into.md
         - Xarray Backend: reference/xarray-backend.md
         - Tools: reference/tools.md
     - Changelog: changelog.md

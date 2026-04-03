@@ -344,6 +344,23 @@ with open_dataset('data.cfdb') as ds:
         print(result)
 ```
 
+### Merging and Combining
+
+Combine multiple dataset files together or merge data into an existing dataset:
+
+```python
+from cfdb import combine, merge_into
+
+# Out-of-place combine (creates a new file with the coordinate union):
+# overlap can be 'last' (default), 'first', or 'error'
+new_ds = combine(['file1.cfdb', 'file2.cfdb'], 'combined.cfdb', overlap='last')
+
+# In-place merge (destructively modifies the target file):
+# Much faster for appending/prepending time steps (O(B) vs O(A+B)).
+# By default, enforces strict spatial bounds (allow_expansion=True allows appending time).
+merge_into(['new_data.cfdb'], 'existing_target.cfdb', allow_expansion=['time'], overlap='last')
+```
+
 ### Copying and Converting
 
 ```python

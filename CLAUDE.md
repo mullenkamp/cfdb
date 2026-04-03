@@ -58,7 +58,7 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 
 **Conversion tools** (`tools.py`): `netcdf4_to_cfdb()` and `cfdb_to_netcdf4()` for format conversion. Requires h5netcdf.
 
-**Legacy code** (`core.py`): Old h5py-based implementation, not part of the current API. `combine.py` is also legacy (uses h5py/xarray directly).
+**Legacy code** (`core.py`): Old h5py-based implementation, not part of the current API.
 
 ### Key Patterns
 
