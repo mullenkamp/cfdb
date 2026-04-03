@@ -37,6 +37,14 @@ def merge_into(
         - 'first': first dataset wins (keeps existing target data, ignores new data)
         - 'error': raise ValueError on overlap
 
+        .. note::
+            ``overlap='first'`` and ``overlap='error'`` operate at chunk granularity.
+            When coordinate expansion (append/prepend) causes a source chunk to span
+            both existing and newly expanded regions, the entire chunk is skipped
+            (``'first'``) or raises (``'error'``), even though the expanded portion
+            has no existing data. ``overlap='last'`` is unaffected because it writes
+            unconditionally.
+
     Returns
     -------
     Dataset
@@ -111,10 +119,16 @@ def merge_into(
                     combined_incoming = np.union1d(combined_incoming, d)
                     
                 target_min, target_max = tgt_data[0], tgt_data[-1]
-                
-                prepend_mask = combined_incoming < target_min
-                append_mask = combined_incoming > target_max
-                middle_mask = (combined_incoming >= target_min) & (combined_incoming <= target_max)
+
+                if kind == "f":
+                    # For floats, use isclose tolerance at the boundaries to avoid
+                    # classifying near-identical values as expansion candidates.
+                    prepend_mask = (combined_incoming < target_min) & ~np.isclose(combined_incoming, target_min)
+                    append_mask = (combined_incoming > target_max) & ~np.isclose(combined_incoming, target_max)
+                else:
+                    prepend_mask = combined_incoming < target_min
+                    append_mask = combined_incoming > target_max
+                middle_mask = ~prepend_mask & ~append_mask
                 
                 prepend_vals = combined_incoming[prepend_mask]
                 append_vals = combined_incoming[append_mask]
@@ -155,6 +169,13 @@ def merge_into(
                     if var_name in ds.data_var_names:
                         target_ds[var_name].attrs.update(ds[var_name].attrs.data)
                         break
+            else:
+                target_coords = target_ds[var_name].coord_names
+                if vi["coords"] != target_coords:
+                    raise ValueError(
+                        f"Data variable '{var_name}' has coords {vi['coords']} in source "
+                        f"but {target_coords} in target."
+                    )
         
         coord_infos = []
         for coord_name in target_ds.coord_names:

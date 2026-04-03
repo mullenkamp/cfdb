@@ -211,6 +211,11 @@ with open_dataset('data.cfdb', flag='w') as ds:
     lat = ds['latitude']
     lat.append(new_lat_values)
     lat.prepend(earlier_lat_values)
+
+    # Truncate coordinate (keep only values in [start, stop], inclusive):
+    ds['time'].truncate(start='2023-02-01', stop='2023-02-28')
+    ds['latitude'].truncate(start=-45.0)       # keep from -45 onward
+    ds['latitude'].truncate(stop=0.0)          # keep up to 0
 ```
 
 ### Attributes
@@ -412,7 +417,7 @@ with open_dataset('data.cfdb') as ds:
 ### Key Rules
 
 - Coordinate values must be **unique and ascending** (sorted).
-- Coordinates are **append/prepend only** -- values cannot be modified in-place.
+- Coordinates support **append**, **prepend**, and **truncate** (remove values from start/end). Values cannot be modified in place.
 - Data variables support `__setitem__` for writing data to any position.
 - Always use context managers (`with`) to ensure proper cleanup.
 - `DataVariable.data` loads the **entire array** into memory -- use `iter_chunks()` for large data.

@@ -526,6 +526,184 @@ def test_data_var_read_write_after_prepend():
     fp.unlink()
 
 
+def test_coordinate_truncate_from_start():
+    """Truncate removes values from the start of a coordinate."""
+    fp = script_path.joinpath('test_truncate_start.cfdb')
+    data = np.linspace(0, 9.0, 10, dtype='float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.lat(data=data, chunk_shape=(5,))
+        coord.truncate(start=3.0)
+        assert coord.shape == (7,)
+        assert np.allclose(coord.data, data[3:])
+
+    with open_dataset(fp) as ds:
+        assert ds['latitude'].shape == (7,)
+        assert np.allclose(ds['latitude'].data, data[3:])
+
+    fp.unlink()
+
+
+def test_coordinate_truncate_from_end():
+    """Truncate removes values from the end of a coordinate."""
+    fp = script_path.joinpath('test_truncate_end.cfdb')
+    data = np.linspace(0, 9.0, 10, dtype='float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.lat(data=data, chunk_shape=(5,))
+        coord.truncate(stop=6.0)
+        assert coord.shape == (7,)
+        assert np.allclose(coord.data, data[:7])
+
+    fp.unlink()
+
+
+def test_coordinate_truncate_both_ends():
+    """Truncate from both start and end."""
+    fp = script_path.joinpath('test_truncate_both.cfdb')
+    data = np.linspace(0, 9.0, 10, dtype='float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.lat(data=data, chunk_shape=(5,))
+        coord.truncate(start=2.0, stop=7.0)
+        assert coord.shape == (6,)
+        assert np.allclose(coord.data, data[2:8])
+
+    fp.unlink()
+
+
+def test_coordinate_truncate_with_data_var():
+    """Data variable returns correct data after coordinate truncation."""
+    fp = script_path.joinpath('test_truncate_dv.cfdb')
+    times = np.array(['2023-01-01', '2023-01-02', '2023-01-03', '2023-01-04', '2023-01-05'], dtype='datetime64[D]')
+    lat = np.array([10.0, 20.0])
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.time(data=times)
+        ds.create.coord.generic('lat', data=lat, dtype='float64')
+        dv = ds.create.data_var.generic('temp', ('time', 'lat'), dtype='float32')
+        for t in range(5):
+            dv[(t, slice(None))] = np.full(2, float(t + 1), dtype='float32')
+
+        # Truncate to keep only Jan 2-4
+        ds['time'].truncate(start=np.datetime64('2023-01-02'), stop=np.datetime64('2023-01-04'))
+        assert ds['time'].shape == (3,)
+
+        data = ds['temp'].data
+        assert data.shape == (3, 2)
+        assert np.allclose(data[0], 2.0)  # Jan 2
+        assert np.allclose(data[1], 3.0)  # Jan 3
+        assert np.allclose(data[2], 4.0)  # Jan 4
+
+    fp.unlink()
+
+
+def test_coordinate_truncate_after_prepend():
+    """Truncate works correctly with negative origin from prepend."""
+    fp = script_path.joinpath('test_truncate_prepend.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.time(data=np.array(['2023-01-03', '2023-01-04', '2023-01-05'], dtype='datetime64[D]'))
+        ds.create.coord.generic('x', data=np.array([1.0, 2.0]), dtype='float32')
+        dv = ds.create.data_var.generic('val', ('time', 'x'), dtype='float32')
+        dv[(0, slice(None))] = np.array([30.0, 30.0])
+        dv[(1, slice(None))] = np.array([40.0, 40.0])
+        dv[(2, slice(None))] = np.array([50.0, 50.0])
+
+    with open_dataset(fp, flag='w') as ds:
+        ds['time'].prepend(np.array(['2023-01-01', '2023-01-02'], dtype='datetime64[D]'))
+        ds['val'][(0, slice(None))] = np.array([10.0, 10.0])
+        ds['val'][(1, slice(None))] = np.array([20.0, 20.0])
+
+        # Now truncate to remove prepended data
+        ds['time'].truncate(start=np.datetime64('2023-01-03'))
+        assert ds['time'].shape == (3,)
+        data = ds['val'].data
+        assert data.shape == (3, 2)
+        assert np.allclose(data[0], 30.0)
+        assert np.allclose(data[1], 40.0)
+        assert np.allclose(data[2], 50.0)
+
+    fp.unlink()
+
+
+def test_coordinate_truncate_roundtrip():
+    """Truncated data persists across close/reopen."""
+    fp = script_path.joinpath('test_truncate_roundtrip.cfdb')
+    times = np.array(['2023-01-01', '2023-01-02', '2023-01-03', '2023-01-04'], dtype='datetime64[D]')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.time(data=times)
+        ds.create.coord.generic('x', data=np.array([1.0]), dtype='float32')
+        dv = ds.create.data_var.generic('val', ('time', 'x'), dtype='float32')
+        for t in range(4):
+            dv[(t, slice(None))] = np.array([float(t + 1)])
+
+    with open_dataset(fp, flag='w') as ds:
+        ds['time'].truncate(start=np.datetime64('2023-01-02'), stop=np.datetime64('2023-01-03'))
+
+    with open_dataset(fp) as ds:
+        assert ds['time'].shape == (2,)
+        assert ds['time'].data[0] == np.datetime64('2023-01-02')
+        assert ds['time'].data[-1] == np.datetime64('2023-01-03')
+        data = ds['val'].data
+        assert data.shape == (2, 1)
+        assert data[0, 0] == 2.0
+        assert data[1, 0] == 3.0
+
+    fp.unlink()
+
+
+def test_coordinate_truncate_validation():
+    """Invalid truncation inputs raise errors."""
+    fp = script_path.joinpath('test_truncate_validation.cfdb')
+    data = np.linspace(0, 9.0, 10, dtype='float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.lat(data=data, chunk_shape=(5,))
+
+        # Truncating everything should raise
+        with pytest.raises(ValueError, match='remove all data'):
+            coord.truncate(start=20.0)
+
+    fp.unlink()
+
+
+def test_coordinate_truncate_string_datetime():
+    """Truncate accepts string values for datetime coordinates."""
+    fp = script_path.joinpath('test_truncate_str.cfdb')
+    times = np.array(['2023-01-01', '2023-01-02', '2023-01-03', '2023-01-04', '2023-01-05'], dtype='datetime64[D]')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.time(data=times)
+        ds.create.coord.generic('x', data=np.array([1.0]), dtype='float32')
+        dv = ds.create.data_var.generic('val', ('time', 'x'), dtype='float32')
+        for t in range(5):
+            dv[(t, slice(None))] = np.array([float(t + 1)])
+
+        ds['time'].truncate(start='2023-01-02', stop='2023-01-04')
+        assert ds['time'].shape == (3,)
+        assert ds['time'].data[0] == np.datetime64('2023-01-02')
+        assert ds['time'].data[-1] == np.datetime64('2023-01-04')
+        assert ds['val'].data[0, 0] == 2.0
+
+    fp.unlink()
+
+
+def test_coordinate_truncate_noop():
+    """Truncate with full range is a no-op."""
+    fp = script_path.joinpath('test_truncate_noop.cfdb')
+    data = np.linspace(0, 9.0, 10, dtype='float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.lat(data=data, chunk_shape=(5,))
+        coord.truncate()  # No args = keep everything
+        assert coord.shape == (10,)
+        assert np.allclose(coord.data, data)
+
+    fp.unlink()
+
+
 def test_geometry_coord_order_preserved():
     """Test that geometry coordinate order is preserved through a round-trip."""
     fp = script_path.joinpath('test_geom_order.cfdb')

@@ -1,6 +1,6 @@
 # Coordinate
 
-Coordinate variables define the labeled dimensions of a dataset. They hold all data in memory and support append/prepend operations.
+Coordinate variables define the labeled dimensions of a dataset. They hold all data in memory and support append, prepend, and truncate operations.
 
 ## Class Hierarchy
 
@@ -10,7 +10,7 @@ Variable (base)
         └── Coordinate (full coordinate, writable)
 ```
 
-- `Coordinate` — the full coordinate with append/prepend, returned by `ds['coord_name']` or creation methods
+- `Coordinate` — the full coordinate with append/prepend/truncate, returned by `ds['coord_name']` or creation methods
 - `CoordinateView` — a sliced subset, returned by indexing a coordinate
 
 ## Usage
@@ -69,6 +69,18 @@ Prepend data to the beginning of the coordinate.
 
 ```python
 lat.prepend(np.array([-0.2, -0.1], dtype='float32'))
+```
+
+### truncate(start=None, stop=None)
+
+Truncate the coordinate to keep only values in `[start, stop]` (inclusive). Accepts coordinate values (e.g., datetimes, floats, or strings for datetime coordinates). `None` means "from the beginning" / "to the end". Deletes orphaned chunks for both the coordinate and all associated data variables.
+
+```python
+# Keep only February 2023
+ds['time'].truncate(start='2023-02-01', stop='2023-02-28')
+
+# Remove everything before a latitude
+ds['latitude'].truncate(start=-45.0)
 ```
 
 ### iter_chunks(include_data=False, decoded=True)
