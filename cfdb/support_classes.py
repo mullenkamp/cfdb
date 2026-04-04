@@ -658,7 +658,7 @@ class Variable:
         if len(self) == 0:
             return None
         else:
-            return self.get(sel)
+            return self._get(sel)
 
 
     # def __delitem__(self, sel):
@@ -668,7 +668,7 @@ class Variable:
         # TODO
 
 
-    def iter_chunks(self, include_data=False, decoded=True):
+    def iter_chunks(self, include_data=True, decoded=True):
         """
         Iterate through the chunks of the variable and return numpy arrays associated with the index slices (Optional). This should be the main way for users to get large amounts of data from a variable. The "ends" of the data will be clipped to the shape of the variable (i.e. not all chunks will be the chunk_shape).
 
@@ -715,14 +715,14 @@ class Variable:
                 yield target_chunk
 
     def __iter__(self):
-        return self.iter_chunks()
+        return self.iter_chunks(include_data=False)
 
 
     def items(self, decoded=True):
         """
         Iterate through all indexes.
         """
-        for target_chunk, data in self.iter_chunks(True, decoded=True):
+        for target_chunk, data in self.iter_chunks(include_data=True, decoded=True):
             data_starts = tuple(s.start for s in target_chunk)
             for index in itertools.product(*(range(s.start, s.stop) for s in target_chunk)):
                 data_index = tuple(i - ds for i, ds in zip(index, data_starts))
@@ -864,7 +864,7 @@ class CoordinateView(Variable):
         return self._var_meta.axis
 
 
-    def get(self, sel):
+    def _get(self, sel):
         """
         Get a CoordinateView based on the index position(s).
         The parameter sel can be an int, slice, or some combo within a tuple. For example, a tuple of slices (of the index positions).
@@ -878,7 +878,9 @@ class CoordinateView(Variable):
         -------
         cfdb.CoordinateView
         """
-        coord_origins = self.get_coord_origins()
+        # Use zero origins so _sel stays in origin-free coordinates.
+        # Coordinate origins are applied once at the point of data access.
+        coord_origins = tuple(0 for _ in range(self.ndims))
 
         slices = indexers.index_combo_all(sel, coord_origins, self.shape)
 
@@ -1279,9 +1281,9 @@ class DataVariableView(Variable):
             chunk_shape.get(cn, s) for cn, s in zip(coord_names, var_shape)
         )
 
-    def iter_chunks(self, chunk_shape=None, max_mem=2**29, decoded=True):
+    def iter_chunks(self, chunk_shape=None, max_mem=2**29, decoded=True, include_data=True):
         """
-        Iterate through the chunks of the variable. Always yields (slices, data).
+        Iterate through the chunks of the variable.
 
         Parameters
         ----------
@@ -1292,14 +1294,33 @@ class DataVariableView(Variable):
         decoded : bool
             If False and dtype has an encoded form, yield encoded data.
             Only applies in storage-chunk mode (chunk_shape=None).
+        include_data : bool
+            If True (default), yields (tuple of slices, ndarray).
+            If False, yields only the tuple of slices (no data loaded).
 
         Yields
         ------
         tuple
-            (tuple of slices, ndarray)
+            (tuple of slices, ndarray) when include_data=True, or
+            tuple of slices when include_data=False.
         """
+        if not include_data:
+            coord_origins = self.get_coord_origins()
+            slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
+            starts = tuple(s.start for s in slices)
+            stops = tuple(s.stop for s in slices)
+
+            if chunk_shape is None:
+                step = self.chunk_shape
+            else:
+                step = self._resolve_chunk_shape(chunk_shape)
+
+            for partial_chunk in rechunkit.chunk_range(starts, stops, step):
+                yield tuple(slice(s.start - start, s.stop - start) for start, s in zip(starts, partial_chunk))
+            return
+
         if chunk_shape is None:
-            # Storage chunks — same logic as Variable.iter_chunks with include_data=True
+            # Storage chunks
             coord_origins = self.get_coord_origins()
 
             if not decoded and self.dtype.dtype_encoded is not None:
@@ -1328,35 +1349,8 @@ class DataVariableView(Variable):
             for write_chunk, data in rechunker.rechunk(target_chunk_shape, max_mem):
                 yield write_chunk, data
 
-    def iter_chunk_slices(self, chunk_shape=None):
-        """
-        Iterate chunk position slices without loading data.
-
-        Parameters
-        ----------
-        chunk_shape : dict or None
-            {coord_name: int} for target chunk sizes. None uses storage chunks.
-
-        Yields
-        ------
-        tuple of slices
-            Chunk position slices (0-based relative to variable shape).
-        """
-        coord_origins = self.get_coord_origins()
-        slices = indexers.index_combo_all(self._sel, coord_origins, self.shape)
-        starts = tuple(s.start for s in slices)
-        stops = tuple(s.stop for s in slices)
-
-        if chunk_shape is None:
-            step = self.chunk_shape
-        else:
-            step = self._resolve_chunk_shape(chunk_shape)
-
-        for partial_chunk in rechunkit.chunk_range(starts, stops, step):
-            yield tuple(slice(s.start - start, s.stop - start) for start, s in zip(starts, partial_chunk))
-
     def __iter__(self):
-        return self.iter_chunk_slices()
+        return self.iter_chunks(include_data=False)
 
     def items(self, decoded=True):
         """
@@ -1380,7 +1374,7 @@ class DataVariableView(Variable):
         return target
 
 
-    def get(self, sel):
+    def _get(self, sel):
         """
         Get a DataVariableView based on the index position(s).
         The parameter sel can be an int, slice, or some combo within a tuple. For example, a tuple of slices (of the index positions).
@@ -1473,7 +1467,7 @@ class DataVariableView(Variable):
         self.set(sel, data)
 
 
-    def groupby(self, coord_names: Union[str, Iterable, dict], max_mem: int=2**27):
+    def groupby(self, coord_names: Union[str, Iterable, dict], max_mem: int=2**29):
         """
         Group by one or more coordinates.
 
@@ -1582,13 +1576,13 @@ class DataVariableView(Variable):
                 for i, s in enumerate(self.shape)
             )
 
-            view = self.get(sel)
+            view = self._get(sel)
             data = view.data
 
             yield sel, data
 
 
-    def map(self, func, chunk_shape=None, n_workers=None, max_mem=2**29):
+    def map(self, func, chunk_shape=None, max_mem=2**29, n_workers=None):
         """
         Apply func to each chunk in parallel using multiprocessing.
 

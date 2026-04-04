@@ -319,6 +319,8 @@ def check_sel_input_data(sel, input_data, coord_origins, shape, dtype):
 ### Classes
 
 
+import weakref
+
 class LocationIndexer:
     """
 
@@ -327,7 +329,7 @@ class LocationIndexer:
         """
 
         """
-        self.variable = variable
+        self.variable = weakref.proxy(variable)
 
 
     def __getitem__(self, key):
@@ -336,7 +338,7 @@ class LocationIndexer:
         """
         idx = loc_index_combo_all(key, self.variable.coords)
 
-        return self.variable.get(idx)
+        return self.variable._get(idx)
 
 
     def __setitem__(self, key, data):

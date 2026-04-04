@@ -44,6 +44,7 @@ jobs:
           endpoint_url: ${{ secrets.ENDPOINT_URL }}
           access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        run: uv run pytest
+        timeout-minutes: 5
+        run: uv run pytest -v
 
 

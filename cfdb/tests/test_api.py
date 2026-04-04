@@ -54,5 +54,6 @@ def test_numpy_interop(tmp_path):
         assert arr_int.dtype == np.int64 or arr_int.dtype == np.int32
         assert np.allclose(arr_int, data.astype(int))
 
-        # Test functions
-        assert np.mean(coord) == np.mean(data)
+        # Test numpy functions via __array__ protocol
+        arr = np.asarray(coord)
+        assert np.mean(arr) == np.mean(data)

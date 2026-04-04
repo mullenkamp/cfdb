@@ -46,15 +46,6 @@ with cfdb.open_dataset(file_path) as ds:
 
 ## Methods
 
-### get(sel)
-
-Get a `CoordinateView` by index position. `sel` can be an int, slice, or tuple.
-
-```python
-subset = lat[10:20]      # CoordinateView
-subset = lat.get(slice(10, 20))  # equivalent
-```
-
 ### append(data)
 
 Append data to the end of the coordinate. Data must maintain uniqueness and ascending order.

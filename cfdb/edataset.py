@@ -42,7 +42,7 @@ class EGrid(EDataset):
 
     """
 
-class ETimeSeriesOrtho(Dataset):
+class ETimeSeriesOrtho(EDataset):
     """
 
     """

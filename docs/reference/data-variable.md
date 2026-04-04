@@ -71,20 +71,7 @@ for chunk_slices, data in temp.iter_chunks({'latitude': 50}):
 | `chunk_shape` | dict or None | `{coord_name: int}` for target chunk sizes. `None` uses storage chunks. |
 | `max_mem` | int | Max memory for rechunker buffer (default 128 MB). |
 | `decoded` | bool | If `False`, yield encoded data. Only applies in storage-chunk mode. |
-
-### iter_chunk_slices(chunk_shape=None)
-
-Iterate chunk position slices without loading data (no I/O).
-
-```python
-# Storage chunk positions
-for chunk_slices in temp.iter_chunk_slices():
-    print(chunk_slices)
-
-# Rechunked positions
-for chunk_slices in temp.iter_chunk_slices({'latitude': 50}):
-    print(chunk_slices)
-```
+| `include_data` | bool | If `False`, yield only chunk position slices without loading data. Default `True`. |
 
 ### get_chunk(sel=None, missing_none=False)
 
@@ -110,7 +97,7 @@ Set data at index positions. The `decoded` parameter controls whether input data
 
 ## GroupBy
 
-### groupby(coord_names, max_mem=2**27)
+### groupby(coord_names, max_mem=2**29)
 
 Group by one or more coordinates. Returns a generator of `(slices, data)` tuples.
 

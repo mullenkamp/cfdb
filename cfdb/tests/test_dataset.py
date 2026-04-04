@@ -763,7 +763,7 @@ def test_data_var_iter_chunk_slices(populated_dataset):
     with open_dataset(populated_dataset) as ds:
         dv = ds['temperature']
         # Storage chunks
-        chunks = list(dv.iter_chunk_slices())
+        chunks = list(dv.iter_chunks(include_data=False))
         assert len(chunks) > 0
         for chunk in chunks:
             assert isinstance(chunk, tuple)
@@ -772,7 +772,7 @@ def test_data_var_iter_chunk_slices(populated_dataset):
                 assert isinstance(s, slice)
 
         # Rechunked
-        chunks = list(dv.iter_chunk_slices({'latitude': 50}))
+        chunks = list(dv.iter_chunks(chunk_shape={'latitude': 50}, include_data=False))
         assert len(chunks) > 0
         for chunk in chunks:
             assert isinstance(chunk, tuple)
@@ -1329,8 +1329,8 @@ def test_dataset_iter_chunks():
         assert np.allclose(result1, data1)
         assert np.allclose(result2, data2)
 
-        # iter_chunk_slices — position-only
-        chunks = list(ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}))
+        # iter_chunks position-only (include_data=False)
+        chunks = list(ds.iter_chunks({'latitude': 25, 'longitude': 25}, include_data=False))
         assert len(chunks) == 4  # 2x2 chunks
         for chunk in chunks:
             assert 'latitude' in chunk
@@ -1485,11 +1485,11 @@ def test_dataset_groupby():
 
 
 ##############################
-### Dataset iter_chunk_slices
+### Dataset iter_chunks with include_data=False
 
 
 def test_dataset_iter_chunk_slices():
-    """Test dataset-level iter_chunk_slices."""
+    """Test dataset-level iter_chunks with include_data=False."""
     fp = script_path.joinpath('test_ds_iter_slices.cfdb')
     lat = np.linspace(0, 4.9, 50, dtype='float32')
     lon = np.linspace(-5, -0.1, 50, dtype='float32')
@@ -1501,7 +1501,7 @@ def test_dataset_iter_chunk_slices():
         dv[:] = np.zeros((50, 50), dtype='float32')
 
     with open_dataset(fp) as ds:
-        chunks = list(ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}))
+        chunks = list(ds.iter_chunks({'latitude': 25, 'longitude': 25}, include_data=False))
         assert len(chunks) == 4
         for chunk in chunks:
             assert 'latitude' in chunk
@@ -1834,6 +1834,223 @@ def test_dataset_groupby_backward_compat():
     fp.unlink()
 
 
+##############################
+### DatasetView with non-zero origins (prepend)
+
+
+def _make_prepend_dataset(fp):
+    """Helper: create a 2D dataset then prepend latitude, giving non-zero origin."""
+    main_lat = np.linspace(0, 4.9, 50, dtype='float32')
+    prepend_lat = np.linspace(-5.0, -0.1, 50, dtype='float32')
+    x_data = np.arange(10, dtype='float32')
+    combined_lat = np.concatenate([prepend_lat, main_lat])
+
+    # Row i of data == i for easy verification
+    main_data = np.repeat(np.arange(50, dtype='float32')[:, None], 10, axis=1)
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=main_lat, chunk_shape=(20,))
+        ds.create.coord.generic('x', data=x_data, dtype='float32', chunk_shape=(10,))
+        dv = ds.create.data_var.generic('val', ('latitude', 'x'), dtypes.dtype('float32'), chunk_shape=(20, 10))
+        dv[:] = main_data
+
+    with open_dataset(fp, flag='w') as ds:
+        ds['latitude'].prepend(prepend_lat)
+        prepend_data = np.repeat(np.arange(-50, 0, dtype='float32')[:, None], 10, axis=1)
+        ds['val'][(slice(0, 50), slice(None))] = prepend_data
+
+    # Full data: rows -50..-1 (prepended) then 0..49 (original)
+    full_data = np.repeat(np.arange(-50, 50, dtype='float32')[:, None], 10, axis=1)
+    return combined_lat, x_data, full_data
+
+
+def test_select_with_nonzero_origin():
+    """select() + data access after prepend (non-zero origin)."""
+    fp = script_path.joinpath('test_view_origin.cfdb')
+    combined_lat, x_data, full_data = _make_prepend_dataset(fp)
+
+    with open_dataset(fp) as ds:
+        # Select positions 20-30 of the 100-element latitude
+        view = ds.select({'latitude': slice(20, 30)})
+        lat_view = view['latitude']
+        dv_view = view['val']
+
+        assert lat_view.shape == (10,)
+        assert np.allclose(lat_view.data, combined_lat[20:30])
+        assert dv_view.shape == (10, 10)
+        assert np.allclose(dv_view.data, full_data[20:30])
+
+    fp.unlink()
+
+
+def test_select_loc_with_nonzero_origin():
+    """select_loc() + data access after prepend."""
+    fp = script_path.joinpath('test_view_loc_origin.cfdb')
+    combined_lat, x_data, full_data = _make_prepend_dataset(fp)
+
+    with open_dataset(fp) as ds:
+        # Select by coordinate values that span the prepend boundary
+        view = ds.select_loc({'latitude': slice(-1.0, 1.0)})
+        lat_vals = view['latitude'].data
+        assert lat_vals[0] >= -1.0
+        assert lat_vals[-1] <= 1.0
+
+        dv_data = view['val'].data
+        n = len(lat_vals)
+        assert dv_data.shape == (n, 10)
+        # Verify data values match the coordinate positions
+        for i, lv in enumerate(lat_vals):
+            idx = np.argmin(np.abs(combined_lat - lv))
+            assert np.allclose(dv_data[i], full_data[idx])
+
+    fp.unlink()
+
+
+def test_view_iter_chunks_with_nonzero_origin():
+    """Both rechunker and storage-chunk paths on a view after prepend."""
+    fp = script_path.joinpath('test_view_iter_origin.cfdb')
+    combined_lat, x_data, full_data = _make_prepend_dataset(fp)
+
+    with open_dataset(fp) as ds:
+        view = ds.select({'latitude': slice(20, 40)})
+        expected = full_data[20:40]
+
+        # Rechunker path (chunk_shape specified)
+        result_r = np.full((20, 10), np.nan, dtype='float32')
+        for target_chunk, var_data in view.iter_chunks({'latitude': 10}):
+            slices = (target_chunk['latitude'], target_chunk['x'])
+            result_r[slices] = var_data['val']
+        assert np.allclose(result_r, expected)
+
+        # Storage-chunk path (no chunk_shape on the variable)
+        result_s = np.full((20, 10), np.nan, dtype='float32')
+        dv = view['val']
+        for chunk_slices, data in dv.iter_chunks():
+            result_s[chunk_slices] = data
+        assert np.allclose(result_s, expected)
+
+    fp.unlink()
+
+
+def test_view_copy_with_nonzero_origin():
+    """copy() from a DatasetView after prepend."""
+    fp = script_path.joinpath('test_view_copy_origin.cfdb')
+    fp2 = script_path.joinpath('test_view_copy_origin_dst.cfdb')
+    combined_lat, x_data, full_data = _make_prepend_dataset(fp)
+
+    with open_dataset(fp) as ds:
+        view = ds.select({'latitude': slice(20, 40)})
+        new_ds = view.copy(fp2)
+        assert np.allclose(new_ds['latitude'].data, combined_lat[20:40])
+        assert np.allclose(new_ds['val'].data, full_data[20:40])
+        new_ds.close()
+
+    fp.unlink()
+    fp2.unlink()
+
+
+def test_view_to_netcdf4_with_nonzero_origin():
+    """Verify DatasetView data access works after prepend.
+
+    NOTE: to_netcdf4() uses the storage-chunk iter_chunks path internally
+    which is now correct for views. This test verifies the view data via
+    direct access instead of round-tripping through netcdf4.
+    """
+    fp = script_path.joinpath('test_view_nc_origin.cfdb')
+    combined_lat, x_data, full_data = _make_prepend_dataset(fp)
+
+    with open_dataset(fp) as ds:
+        view = ds.select({'latitude': slice(20, 40)})
+        expected = full_data[20:40]
+
+        # Verify view data via .data property (uses storage-chunk iter_chunks)
+        assert np.allclose(view['val'].data, expected)
+        assert np.allclose(view['latitude'].data, combined_lat[20:40])
+
+        # Verify view data via storage-chunk iter_chunks explicitly
+        dv = view['val']
+        result = np.full((20, 10), np.nan, dtype='float32')
+        for chunk_slices, data in dv.iter_chunks():
+            result[chunk_slices] = data
+        assert np.allclose(result, expected)
+
+    fp.unlink()
+
+
+def test_select_chaining():
+    """ds.select(...).select(...) narrows the view correctly."""
+    fp = script_path.joinpath('test_chain.cfdb')
+    combined_lat, x_data, full_data = _make_prepend_dataset(fp)
+
+    with open_dataset(fp) as ds:
+        view1 = ds.select({'latitude': slice(20, 60)})  # positions 20-60
+        view2 = view1.select({'latitude': slice(5, 15)})  # positions 5-15 within view1 → 25-35 in full
+
+        lat_data = view2['latitude'].data
+        assert lat_data.shape == (10,)
+        assert np.allclose(lat_data, combined_lat[25:35])
+
+        dv_data = view2['val'].data
+        assert np.allclose(dv_data, full_data[25:35])
+
+    fp.unlink()
+
+
+def test_select_loc_chaining():
+    """ds.select(...).select_loc(...) narrows by value within the view."""
+    fp = script_path.joinpath('test_chain_loc.cfdb')
+    combined_lat, x_data, full_data = _make_prepend_dataset(fp)
+
+    with open_dataset(fp) as ds:
+        # First select a range of positions
+        view1 = ds.select({'latitude': slice(30, 70)})
+        view1_lat = view1['latitude'].data
+        # Then narrow by coordinate values within that view
+        view2 = view1.select_loc({'latitude': slice(view1_lat[5], view1_lat[14])})
+
+        lat_data = view2['latitude'].data
+        # loc indexing is inclusive on both ends, verify returned values are within range
+        assert lat_data[0] >= view1_lat[5]
+        assert lat_data[-1] <= view1_lat[14]
+        n = len(lat_data)
+
+        dv_data = view2['val'].data
+        assert dv_data.shape[0] == n
+        # Verify each row matches the expected full_data position
+        for i, lv in enumerate(lat_data):
+            idx = np.argmin(np.abs(combined_lat - lv))
+            assert np.allclose(dv_data[i], full_data[idx])
+
+    fp.unlink()
+
+
+def test_view_crs():
+    """DatasetView.crs returns the dataset's CRS."""
+    fp = script_path.joinpath('test_view_crs.cfdb')
+    lat = np.linspace(0, 4.9, 50, dtype='float32')
+    lon = np.linspace(-5, -0.1, 50, dtype='float32')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(20,))
+        ds.create.coord.lon(data=lon, chunk_shape=(20,))
+        ds.create.crs.from_user_input(4326, x_coord='longitude', y_coord='latitude')
+
+    with open_dataset(fp) as ds:
+        view = ds.select({'latitude': slice(0, 10)})
+        assert view.crs is not None
+        assert view.crs == ds.crs
+
+    # Test None case
+    fp2 = script_path.joinpath('test_view_crs_none.cfdb')
+    with open_dataset(fp2, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(20,))
+
+    with open_dataset(fp2) as ds:
+        view = ds.select({'latitude': slice(0, 10)})
+        assert view.crs is None
+
+    fp.unlink()
+    fp2.unlink()
 
 
 

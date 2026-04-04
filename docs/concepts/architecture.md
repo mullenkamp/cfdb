@@ -28,11 +28,12 @@ open_dataset() / open_edataset()
 
 ## Public API
 
+### Datasets
+
 ```mermaid
 classDiagram
     direction TB
 
-    %% ── Entry Points ──────────────────────────────────
     class cfdb {
         <<module>>
         open_dataset(file_path, flag, dataset_type, compression, compression_level) Dataset
@@ -55,7 +56,6 @@ classDiagram
         cfdb_to_netcdf4(cfdb_path, nc_path, compression, sel, sel_loc, ...)
     }
 
-    %% ── Dataset Layer ─────────────────────────────────
     class Dataset {
         +file_path : Path
         +compression : str
@@ -73,10 +73,9 @@ classDiagram
         +get(var_name) Coordinate | DataVariable
         +select(sel) DatasetView
         +select_loc(sel) DatasetView
-        +iter_chunks(chunk_shape, data_vars, max_mem) Generator
-        +iter_chunk_slices(chunk_shape, data_vars) Generator
+        +iter_chunks(chunk_shape, data_vars, max_mem, include_data) Generator
         +groupby(coord_names, data_vars, max_mem) Generator
-        +map(func, chunk_shape, data_vars, n_workers) Generator
+        +map(func, chunk_shape, data_vars, max_mem, n_workers) Generator
         +rechunker(data_vars) DatasetRechunker
         +copy(file_path, include_data_vars, exclude_data_vars) Dataset
         +to_netcdf4(file_path, compression, include_data_vars, exclude_data_vars)
@@ -97,67 +96,12 @@ classDiagram
         +coords : tuple
         +data_vars : tuple
         +attrs : Attributes
+        +crs : pyproj.CRS
         +get(var_name) CoordinateView | DataVariableView
+        +select(sel) DatasetView
+        +select_loc(sel) DatasetView
     }
 
-    %% ── Variable Hierarchy ────────────────────────────
-    class Variable {
-        <<abstract>>
-        +name : str
-        +shape : tuple
-        +chunk_shape : tuple
-        +dtype : DataType
-        +ndims : int
-        +coord_names : tuple
-        +attrs : Attributes
-        +writable : bool
-        +is_open : bool
-        +units : str
-        +loc : LocationIndexer
-        +data : ndarray
-        +values : ndarray
-    }
-
-    class CoordinateView {
-        +get(sel) CoordinateView
-        +iter_chunks(include_data, decoded) Generator
-        +items(decoded) Generator
-        +get_chunk(sel, missing_none) ndarray
-    }
-
-    class Coordinate {
-        +step : number
-        +origin : int
-        +axis : str
-        +auto_increment : bool
-        +append(data)
-        +prepend(data)
-        +truncate(start, stop)
-        +update_step(step)
-        +update_axis(axis)
-        +get_coord_origins() tuple
-        +load()
-    }
-
-    class DataVariableView {
-        +coords : tuple~Coordinate~
-        +get(sel) DataVariableView
-        +set(sel, data, decoded)
-        +iter_chunks(chunk_shape, max_mem, decoded) Generator
-        +iter_chunk_slices(chunk_shape) Generator
-        +items(decoded) Generator
-        +get_chunk(sel, missing_none) ndarray
-        +groupby(coord_names, max_mem) Generator
-        +map(func, chunk_shape, n_workers, max_mem) Generator
-        +interp(x, y, z, xy) GridInterp | PointInterp
-    }
-
-    class DataVariable {
-        +rechunker() Rechunker
-        +load()
-    }
-
-    %% ── Creator ───────────────────────────────────────
     class Creator {
         +coord : Coord
         +data_var : DataVar
@@ -190,7 +134,75 @@ classDiagram
         +from_user_input(crs, x_coord, y_coord, xy_coord) pyproj.CRS
     }
 
-    %% ── Supporting Classes ────────────────────────────
+    cfdb --> Dataset : open_dataset()
+    cfdb --> EDataset : open_edataset()
+    EDataset --|> Dataset
+    Dataset --> DatasetView : select() / select_loc()
+    Dataset *-- Creator : create
+    Creator *-- Coord : coord
+    Creator *-- DataVar : data_var
+    Creator *-- CRS : crs
+```
+
+### Variables
+
+```mermaid
+classDiagram
+    direction TB
+
+    class Variable {
+        <<abstract>>
+        +name : str
+        +shape : tuple
+        +chunk_shape : tuple
+        +dtype : DataType
+        +ndims : int
+        +coord_names : tuple
+        +attrs : Attributes
+        +writable : bool
+        +is_open : bool
+        +units : str
+        +loc : LocationIndexer
+        +data : ndarray
+        +values : ndarray
+    }
+
+    class CoordinateView {
+        +iter_chunks(include_data, decoded) Generator
+        +items(decoded) Generator
+        +get_chunk(sel, missing_none) ndarray
+    }
+
+    class Coordinate {
+        +step : number
+        +origin : int
+        +axis : str
+        +auto_increment : bool
+        +append(data)
+        +prepend(data)
+        +truncate(start, stop)
+        +update_step(step)
+        +update_axis(axis)
+        +get_coord_origins() tuple
+        +load()
+    }
+
+    class DataVariableView {
+        +coords : tuple~Coordinate~
+        +set(sel, data, decoded)
+        +iter_chunks(chunk_shape, max_mem, decoded, include_data) Generator
+        +items(decoded) Generator
+        +get_chunk(sel, missing_none) ndarray
+        +groupby(coord_names, max_mem) Generator
+        +map(func, chunk_shape, max_mem, n_workers) Generator
+        +interp(x, y, z, xy) GridInterp | PointInterp
+    }
+
+    class DataVariable {
+        +rechunker() Rechunker
+        +load()
+    }
+
     class Attributes {
         +data : dict
         +writable : bool
@@ -223,7 +235,21 @@ classDiagram
         +__getitem__(sel) View
     }
 
-    %% ── DataType Hierarchy ────────────────────────────
+    Variable <|-- CoordinateView
+    CoordinateView <|-- Coordinate
+    Variable <|-- DataVariableView
+    DataVariableView <|-- DataVariable
+    Variable *-- LocationIndexer : loc
+    Variable *-- Attributes : attrs
+    DataVariable --> Rechunker : rechunker()
+```
+
+### Data Types
+
+```mermaid
+classDiagram
+    direction TB
+
     class DataType {
         <<abstract>>
         +name : str
@@ -274,40 +300,6 @@ classDiagram
     class LineString
     class Polygon
 
-    %% ── Relationships ─────────────────────────────────
-
-    %% Entry points
-    cfdb --> Dataset : open_dataset()
-    cfdb --> EDataset : open_edataset()
-    dtypes --> DataType : dtype()
-
-    %% Dataset layer
-    EDataset --|> Dataset
-    Dataset --> DatasetView : select() / select_loc()
-    Dataset *-- Creator : create
-    Dataset *-- Attributes : attrs
-    Dataset --> DatasetRechunker : rechunker()
-
-    %% Variable hierarchy (inheritance)
-    Variable <|-- CoordinateView
-    CoordinateView <|-- Coordinate
-    Variable <|-- DataVariableView
-    DataVariableView <|-- DataVariable
-
-    %% Variable composition
-    Variable *-- LocationIndexer : loc
-    Variable *-- Attributes : attrs
-    Variable o-- DataType : dtype
-    DataVariable --> Rechunker : rechunker()
-
-    %% Creator composition
-    Creator *-- Coord : coord
-    Creator *-- DataVar : data_var
-    Creator *-- CRS : crs
-    Coord --> Coordinate : creates
-    DataVar --> DataVariable : creates
-
-    %% DataType hierarchy
     DataType <|-- Float
     DataType <|-- Integer
     DataType <|-- DateTime
@@ -380,6 +372,17 @@ When an error occurs, cfdb attempts to:
 2. Remove file/object locks
 
 Changes that were not synced are lost. The `weakref.finalize` mechanism ensures cleanup runs even on unexpected exits.
+
+## Reference Cycles and `weakref.finalize`
+
+`Dataset` uses `weakref.finalize` to flush metadata on close/GC. Any class that holds a **strong** reference back to the `Dataset` creates a reference cycle that can prevent the finalizer from running. Python 3.12+ is strict about this — on earlier versions the GC would break the cycle, but on 3.12+ the finalizer may never fire, causing file locks to persist and tests to hang silently.
+
+**Rule**: Classes that receive a `Dataset` (or `Variable`) reference and are stored as attributes on that same object must use `weakref.proxy(dataset)` instead of a direct reference. This currently applies to:
+
+- `Creator`, `Coord`, `DataVar`, `CRS` (in `creation.py`) — stored on `Dataset.create`
+- `LocationIndexer` (in `indexers.py`) — stored on `Variable.loc`
+
+If you add a new class that is both (a) stored as an attribute on a `Dataset`/`Variable` and (b) holds a reference back to it, use `weakref.proxy`.
 
 ## Dependencies
 

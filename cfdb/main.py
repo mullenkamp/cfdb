@@ -165,14 +165,15 @@ class DatasetBase:
             if key not in coord_names:
                 raise KeyError(f'The coordinate {key} does not exist in the dataset.')
 
-        ## Create selections per coord
+        ## Create selections per coord (origin-free: origins applied once at data access)
         _sel = {}
         for coord_name in coord_names:
             coord = self[coord_name]
+            zero_origins = tuple(0 for _ in range(coord.ndims))
             if coord_name in sel:
-                slices = indexers.index_combo_all(sel[coord_name], coord.get_coord_origins(), coord.shape)
+                slices = indexers.index_combo_all(sel[coord_name], zero_origins, coord.shape)
             else:
-                slices = indexers.index_combo_all(None, coord.get_coord_origins(), coord.shape)
+                slices = indexers.index_combo_all(None, zero_origins, coord.shape)
             _sel[coord_name] = slices
 
         ## Create selections for data vars
@@ -196,14 +197,15 @@ class DatasetBase:
             if key not in coord_names:
                 raise KeyError(f'The coordinate {key} does not exist in the dataset.')
 
-        ## Create selections per coord
+        ## Create selections per coord (origin-free: origins applied once at data access)
         _sel = {}
         for coord_name in coord_names:
             coord = self[coord_name]
+            zero_origins = tuple(0 for _ in range(coord.ndims))
             if coord_name in sel:
-                slices = indexers.index_combo_all(indexers.loc_index_combo_all(sel[coord_name], (coord,)), coord.get_coord_origins(), coord.shape)
+                slices = indexers.index_combo_all(indexers.loc_index_combo_all(sel[coord_name], (coord,)), zero_origins, coord.shape)
             else:
-                slices = indexers.index_combo_all(None, coord.get_coord_origins(), coord.shape)
+                slices = indexers.index_combo_all(None, zero_origins, coord.shape)
             _sel[coord_name] = slices
 
         ## Create selections for data vars
@@ -228,9 +230,9 @@ class DatasetBase:
         """
         return sc.DatasetRechunker(self, data_vars=data_vars)
 
-    def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**29):
+    def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**29, include_data=True):
         """
-        Iterate over aligned chunks of multiple data variables. Always yields (target_chunk, var_data).
+        Iterate over aligned chunks of multiple data variables.
 
         Parameters
         ----------
@@ -241,6 +243,9 @@ class DatasetBase:
             Which data variables to include. Default: all.
         max_mem : int
             Total max memory budget in bytes for the entire batch. Default 512 MB.
+        include_data : bool
+            If True (default), yields (target_chunk, var_data).
+            If False, yields only target_chunk dicts (no data loaded).
 
         Yields
         ------
@@ -248,48 +253,33 @@ class DatasetBase:
             {coord_name: slice} — chunk positions in the iteration space.
         var_data : dict
             {var_name: ndarray} — decoded data for each variable at this position.
+            Only yielded when include_data=True.
         """
-        return self.rechunker(data_vars).rechunk(chunk_shape, max_mem=max_mem)
+        if not include_data:
+            if data_vars is None:
+                data_vars = list(self.data_var_names)
+            else:
+                for name in data_vars:
+                    if name not in self.data_var_names:
+                        raise KeyError(f'{name} is not a data variable.')
 
+            if not data_vars:
+                return
 
-    def iter_chunk_slices(self, chunk_shape, data_vars=None):
-        """
-        Iterate chunk position dicts without loading data.
+            first_dv = self[data_vars[0]]
+            common_coord_names = first_dv.coord_names
 
-        Parameters
-        ----------
-        chunk_shape : dict
-            {coord_name: int} — iteration chunk size per coordinate.
-        data_vars : list of str, optional
-            Which data variables to include. Default: all.
-
-        Yields
-        ------
-        dict of {coord_name: slice}
-        """
-        # Validate data vars
-        if data_vars is None:
-            data_vars = list(self.data_var_names)
-        else:
-            for name in data_vars:
-                if name not in self.data_var_names:
-                    raise KeyError(f'{name} is not a data variable.')
-
-        if not data_vars:
+            target_chunk_shape = tuple(
+                chunk_shape.get(cn, self[cn].shape[0])
+                for cn in common_coord_names
+            )
+            starts = tuple(0 for _ in common_coord_names)
+            stops = tuple(self[cn].shape[0] for cn in common_coord_names)
+            for position in rechunkit.chunk_range(starts, stops, target_chunk_shape):
+                yield {cn: sl for cn, sl in zip(common_coord_names, position)}
             return
 
-        # Determine common coord_names
-        first_dv = self[data_vars[0]]
-        common_coord_names = first_dv.coord_names
-
-        target_chunk_shape = tuple(
-            chunk_shape.get(cn, self[cn].shape[0])
-            for cn in common_coord_names
-        )
-        starts = tuple(0 for _ in common_coord_names)
-        stops = tuple(self[cn].shape[0] for cn in common_coord_names)
-        for position in rechunkit.chunk_range(starts, stops, target_chunk_shape):
-            yield {cn: sl for cn, sl in zip(common_coord_names, position)}
+        yield from self.rechunker(data_vars).rechunk(chunk_shape, max_mem=max_mem)
 
 
     def groupby(self, coord_names, data_vars=None, max_mem=2**29):
@@ -411,7 +401,7 @@ class DatasetBase:
             var_data = {}
             for dv_name in data_vars:
                 dv = self[dv_name]
-                view = dv.get(sel)
+                view = dv[sel]
                 var_data[dv_name] = view.data
 
             yield target_chunk, var_data
@@ -536,27 +526,30 @@ class DatasetBase:
             new_data_var.attrs.update(data_var.attrs.data)
 
             ## Write data
-            data_var.load()
-            coord_origins = data_var.get_coord_origins()
-            slices = indexers.index_combo_all(data_var._sel, coord_origins, data_var.shape)
+            if data_var._sel is not None:
+                # View — iter_chunks handles slicing correctly
+                for write_chunk, data in data_var.iter_chunks():
+                    new_data_var.set(write_chunk, data)
+            else:
+                # Full variable — raw chunk copy for speed
+                data_var.load()
+                coord_origins = data_var.get_coord_origins()
+                slices = indexers.index_combo_all(data_var._sel, coord_origins, data_var.shape)
 
-            for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, data_var.name, data_var.chunk_shape):
-                ts, b1 = self._blt.get_timestamp(blt_key, True, False)
-                if b1 is not None:
-                    target_shape = tuple(tc.stop - tc.start for tc in target_chunk)
-                    source_shape = tuple(sc.stop - sc.start for sc in source_chunk)
+                for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, data_var.name, data_var.chunk_shape):
+                    ts, b1 = self._blt.get_timestamp(blt_key, True, False)
+                    if b1 is not None:
+                        target_shape = tuple(tc.stop - tc.start for tc in target_chunk)
+                        source_shape = tuple(sc.stop - sc.start for sc in source_chunk)
 
-                    new_key = utils.make_var_chunk_key(data_var_name, [tc.start for tc in target_chunk])
+                        new_key = utils.make_var_chunk_key(data_var_name, [tc.start for tc in target_chunk])
 
-                    if math.prod(target_shape) == math.prod(source_shape):
-                        new_data_var._blt.set(new_key, b1, ts, False)
-                    else:
-                        data = data_var.dtype.loads(data_var.compressor.decompress(b1), data_var.chunk_shape)
-                        data_b = data_var.compressor.compress(data_var.dtype.dumps(data[source_chunk]))
-                        new_data_var._blt.set(new_key, data_b, ts, False)
-
-            # for write_chunk, data in data_var.iter_chunks():
-            #     new_data_var.set(write_chunk, data)
+                        if math.prod(target_shape) == math.prod(source_shape):
+                            new_data_var._blt.set(new_key, b1, ts, False)
+                        else:
+                            data = data_var.dtype.loads(data_var.compressor.decompress(b1), data_var.chunk_shape)
+                            data_b = data_var.compressor.compress(data_var.dtype.dumps(data[source_chunk]))
+                            new_data_var._blt.set(new_key, data_b, ts, False)
 
         new_ds.attrs.update(self.attrs.data)
 
@@ -897,18 +890,59 @@ class DatasetView(DatasetBase):
         """
         return tuple(k for k, v in self._sys_meta.variables.items() if isinstance(v, data_models.DataVariable) if k in self._sel)
 
-    # @property
-    # def coords(self):
-    #     return tuple(self[coord_name][self._sel[coord_name]] for coord_name in self.coord_names if coord_name in self._sel)
+    @property
+    def crs(self):
+        if self._dataset._sys_meta.crs is None:
+            return None
+        return self._dataset.crs
 
-    # @property
-    # def data_vars(self):
-    #     return tuple(self[var_name][self._sel[var_name]] for var_name in self.data_var_names if var_name in self._sel)
+    def select(self, sel: dict):
+        """
+        Narrow this view further by coordinate positions.
+        """
+        coord_names = self.coord_names
+        for key in sel:
+            if key not in coord_names:
+                raise KeyError(f'The coordinate {key} does not exist in the dataset.')
 
-    # @property
-    # def variables(self):
-    #     return tuple(self[var_name][self._sel[var_name]] for var_name in self.var_names if var_name in self._sel)
+        full_sel = {}
+        for coord_name in coord_names:
+            existing = self._sel[coord_name][0]
+            if coord_name in sel:
+                view_shape = (existing.stop - existing.start,)
+                normalized = indexers.index_combo_all(sel[coord_name], (0,), view_shape)
+                full_sel[coord_name] = slice(
+                    existing.start + normalized[0].start,
+                    existing.start + normalized[0].stop
+                )
+            else:
+                full_sel[coord_name] = existing
+        return self._dataset.select(full_sel)
 
+    def select_loc(self, sel: dict):
+        """
+        Narrow this view further by coordinate values.
+        """
+        coord_names = self.coord_names
+        for key in sel:
+            if key not in coord_names:
+                raise KeyError(f'The coordinate {key} does not exist in the dataset.')
+
+        full_sel = {}
+        for coord_name in coord_names:
+            existing = self._sel[coord_name][0]
+            if coord_name in sel:
+                coord_view = self[coord_name]
+                idx = indexers.loc_index_combo_all(sel[coord_name], (coord_view,))
+                view_shape = (existing.stop - existing.start,)
+                normalized = indexers.index_combo_all(idx, (0,), view_shape)
+                full_sel[coord_name] = slice(
+                    existing.start + normalized[0].start,
+                    existing.start + normalized[0].stop
+                )
+            else:
+                full_sel[coord_name] = existing
+        return self._dataset.select(full_sel)
 
 
 class Grid(Dataset):
