@@ -119,3 +119,4 @@ data/*
 /cfdb/tests/*.yml
 /cfdb/tests/*.blt
 /cfdb/tests/*.nc
+/logs/*
