@@ -18,7 +18,7 @@ jobs:
       fail-fast: false 
       matrix:
         # Define the versions you want to test here
-        python-version: ["3.10", "3.11", "3.12.9"]
+        python-version: ["3.10", "3.11", "3.12.11"]
 
     steps:
       - uses: actions/checkout@v4
