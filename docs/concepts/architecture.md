@@ -373,6 +373,17 @@ When an error occurs, cfdb attempts to:
 
 Changes that were not synced are lost. The `weakref.finalize` mechanism ensures cleanup runs even on unexpected exits.
 
+## Reference Cycles and `weakref.finalize`
+
+`Dataset` uses `weakref.finalize` to flush metadata on close/GC. Any class that holds a **strong** reference back to the `Dataset` creates a reference cycle that can prevent the finalizer from running. Python 3.12+ is strict about this — on earlier versions the GC would break the cycle, but on 3.12+ the finalizer may never fire, causing file locks to persist and tests to hang silently.
+
+**Rule**: Classes that receive a `Dataset` (or `Variable`) reference and are stored as attributes on that same object must use `weakref.proxy(dataset)` instead of a direct reference. This currently applies to:
+
+- `Creator`, `Coord`, `DataVar`, `CRS` (in `creation.py`) — stored on `Dataset.create`
+- `LocationIndexer` (in `indexers.py`) — stored on `Variable.loc`
+
+If you add a new class that is both (a) stored as an attribute on a `Dataset`/`Variable` and (b) holds a reference back to it, use `weakref.proxy`.
+
 ## Dependencies
 
 | Package | Role |

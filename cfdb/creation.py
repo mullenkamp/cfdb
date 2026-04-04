@@ -169,7 +169,7 @@ class Coord:
         """
 
         """
-        self._dataset = dataset
+        self._dataset = weakref.proxy(dataset)
 
 
     def generic(self, name: str, data: np.ndarray | list | None = None, dtype: str | np.dtype | dtypes.DataType | None = None, chunk_shape: Tuple[int] | None = None, step: int | float | bool=False, axis: str=None):
