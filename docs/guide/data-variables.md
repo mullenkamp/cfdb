@@ -77,7 +77,7 @@ For large datasets, iterate over chunk positions to control memory usage:
 ```python
 with cfdb.open_dataset(file_path, flag='w') as ds:
     temp = ds['temperature']
-    for chunk_slices in temp.iter_chunk_slices():
+    for chunk_slices in temp.iter_chunks(include_data=False):
         temp[chunk_slices] = data[chunk_slices]
 ```
 
@@ -116,12 +116,12 @@ with cfdb.open_dataset(file_path) as ds:
         print(chunk_slices, chunk_data.shape)
 ```
 
-For position-only iteration (no data loading), use `iter_chunk_slices()`:
+For position-only iteration (no data loading), pass `include_data=False`:
 
 ```python
 with cfdb.open_dataset(file_path) as ds:
     temp = ds['temperature']
-    for chunk_slices in temp.iter_chunk_slices():
+    for chunk_slices in temp.iter_chunks(include_data=False):
         print(chunk_slices)
 ```
 
@@ -240,7 +240,7 @@ with cfdb.open_dataset(file_path) as ds:
 
 ## Dataset-Level Iteration
 
-The methods above operate on a single data variable. The dataset also provides `iter_chunks`, `iter_chunk_slices`, `groupby`, and `map` that iterate over **multiple data variables in lockstep**. All data variables must share the same coordinates.
+The methods above operate on a single data variable. The dataset also provides `iter_chunks`, `groupby`, and `map` that iterate over **multiple data variables in lockstep**. All data variables must share the same coordinates.
 
 ### iter_chunks
 
@@ -261,13 +261,11 @@ for target_chunk, var_data in ds.iter_chunks({'latitude': 50}, data_vars=['tempe
     print(var_data.keys())  # {'temperature'}
 ```
 
-### iter_chunk_slices
-
-Position-only companion — no data loading:
+Pass `include_data=False` for position-only iteration (no data loading):
 
 ```python
 with cfdb.open_dataset(file_path) as ds:
-    for chunk in ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}):
+    for chunk in ds.iter_chunks({'latitude': 25, 'longitude': 25}, include_data=False):
         print(chunk)  # {'latitude': slice(0, 25), 'longitude': slice(0, 25)}
 ```
 

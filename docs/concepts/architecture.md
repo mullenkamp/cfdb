@@ -74,7 +74,7 @@ classDiagram
         +select(sel) DatasetView
         +select_loc(sel) DatasetView
         +iter_chunks(chunk_shape, data_vars, max_mem) Generator
-        +iter_chunk_slices(chunk_shape, data_vars) Generator
+        +iter_chunks(chunk_shape, data_vars, max_mem, include_data) Generator
         +groupby(coord_names, data_vars, max_mem) Generator
         +map(func, chunk_shape, data_vars, n_workers) Generator
         +rechunker(data_vars) DatasetRechunker
@@ -145,7 +145,7 @@ classDiagram
         +coords : tuple~Coordinate~
         +set(sel, data, decoded)
         +iter_chunks(chunk_shape, max_mem, decoded) Generator
-        +iter_chunk_slices(chunk_shape) Generator
+        +iter_chunks(chunk_shape, max_mem, decoded, include_data) Generator
         +items(decoded) Generator
         +get_chunk(sel, missing_none) ndarray
         +groupby(coord_names, max_mem) Generator

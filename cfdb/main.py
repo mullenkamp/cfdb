@@ -230,9 +230,9 @@ class DatasetBase:
         """
         return sc.DatasetRechunker(self, data_vars=data_vars)
 
-    def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**29):
+    def iter_chunks(self, chunk_shape, data_vars=None, max_mem=2**29, include_data=True):
         """
-        Iterate over aligned chunks of multiple data variables. Always yields (target_chunk, var_data).
+        Iterate over aligned chunks of multiple data variables.
 
         Parameters
         ----------
@@ -243,6 +243,9 @@ class DatasetBase:
             Which data variables to include. Default: all.
         max_mem : int
             Total max memory budget in bytes for the entire batch. Default 512 MB.
+        include_data : bool
+            If True (default), yields (target_chunk, var_data).
+            If False, yields only target_chunk dicts (no data loaded).
 
         Yields
         ------
@@ -250,48 +253,33 @@ class DatasetBase:
             {coord_name: slice} — chunk positions in the iteration space.
         var_data : dict
             {var_name: ndarray} — decoded data for each variable at this position.
+            Only yielded when include_data=True.
         """
-        return self.rechunker(data_vars).rechunk(chunk_shape, max_mem=max_mem)
+        if not include_data:
+            if data_vars is None:
+                data_vars = list(self.data_var_names)
+            else:
+                for name in data_vars:
+                    if name not in self.data_var_names:
+                        raise KeyError(f'{name} is not a data variable.')
 
+            if not data_vars:
+                return
 
-    def iter_chunk_slices(self, chunk_shape, data_vars=None):
-        """
-        Iterate chunk position dicts without loading data.
+            first_dv = self[data_vars[0]]
+            common_coord_names = first_dv.coord_names
 
-        Parameters
-        ----------
-        chunk_shape : dict
-            {coord_name: int} — iteration chunk size per coordinate.
-        data_vars : list of str, optional
-            Which data variables to include. Default: all.
-
-        Yields
-        ------
-        dict of {coord_name: slice}
-        """
-        # Validate data vars
-        if data_vars is None:
-            data_vars = list(self.data_var_names)
-        else:
-            for name in data_vars:
-                if name not in self.data_var_names:
-                    raise KeyError(f'{name} is not a data variable.')
-
-        if not data_vars:
+            target_chunk_shape = tuple(
+                chunk_shape.get(cn, self[cn].shape[0])
+                for cn in common_coord_names
+            )
+            starts = tuple(0 for _ in common_coord_names)
+            stops = tuple(self[cn].shape[0] for cn in common_coord_names)
+            for position in rechunkit.chunk_range(starts, stops, target_chunk_shape):
+                yield {cn: sl for cn, sl in zip(common_coord_names, position)}
             return
 
-        # Determine common coord_names
-        first_dv = self[data_vars[0]]
-        common_coord_names = first_dv.coord_names
-
-        target_chunk_shape = tuple(
-            chunk_shape.get(cn, self[cn].shape[0])
-            for cn in common_coord_names
-        )
-        starts = tuple(0 for _ in common_coord_names)
-        stops = tuple(self[cn].shape[0] for cn in common_coord_names)
-        for position in rechunkit.chunk_range(starts, stops, target_chunk_shape):
-            yield {cn: sl for cn, sl in zip(common_coord_names, position)}
+        yield from self.rechunker(data_vars).rechunk(chunk_shape, max_mem=max_mem)
 
 
     def groupby(self, coord_names, data_vars=None, max_mem=2**29):

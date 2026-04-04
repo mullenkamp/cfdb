@@ -763,7 +763,7 @@ def test_data_var_iter_chunk_slices(populated_dataset):
     with open_dataset(populated_dataset) as ds:
         dv = ds['temperature']
         # Storage chunks
-        chunks = list(dv.iter_chunk_slices())
+        chunks = list(dv.iter_chunks(include_data=False))
         assert len(chunks) > 0
         for chunk in chunks:
             assert isinstance(chunk, tuple)
@@ -772,7 +772,7 @@ def test_data_var_iter_chunk_slices(populated_dataset):
                 assert isinstance(s, slice)
 
         # Rechunked
-        chunks = list(dv.iter_chunk_slices({'latitude': 50}))
+        chunks = list(dv.iter_chunks(chunk_shape={'latitude': 50}, include_data=False))
         assert len(chunks) > 0
         for chunk in chunks:
             assert isinstance(chunk, tuple)
@@ -1329,8 +1329,8 @@ def test_dataset_iter_chunks():
         assert np.allclose(result1, data1)
         assert np.allclose(result2, data2)
 
-        # iter_chunk_slices — position-only
-        chunks = list(ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}))
+        # iter_chunks position-only (include_data=False)
+        chunks = list(ds.iter_chunks({'latitude': 25, 'longitude': 25}, include_data=False))
         assert len(chunks) == 4  # 2x2 chunks
         for chunk in chunks:
             assert 'latitude' in chunk
@@ -1485,11 +1485,11 @@ def test_dataset_groupby():
 
 
 ##############################
-### Dataset iter_chunk_slices
+### Dataset iter_chunks with include_data=False
 
 
 def test_dataset_iter_chunk_slices():
-    """Test dataset-level iter_chunk_slices."""
+    """Test dataset-level iter_chunks with include_data=False."""
     fp = script_path.joinpath('test_ds_iter_slices.cfdb')
     lat = np.linspace(0, 4.9, 50, dtype='float32')
     lon = np.linspace(-5, -0.1, 50, dtype='float32')
@@ -1501,7 +1501,7 @@ def test_dataset_iter_chunk_slices():
         dv[:] = np.zeros((50, 50), dtype='float32')
 
     with open_dataset(fp) as ds:
-        chunks = list(ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}))
+        chunks = list(ds.iter_chunks({'latitude': 25, 'longitude': 25}, include_data=False))
         assert len(chunks) == 4
         for chunk in chunks:
             assert 'latitude' in chunk

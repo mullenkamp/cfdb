@@ -26,7 +26,7 @@ with cfdb.open_dataset(file_path) as ds:
         print(slices, data.shape)
 
     # Position-only (no data loading)
-    for slices in temp.iter_chunk_slices({'latitude': 50}):
+    for slices in temp.iter_chunks(chunk_shape={'latitude': 50}, include_data=False):
         print(slices)
 ```
 

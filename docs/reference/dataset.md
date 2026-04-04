@@ -87,15 +87,7 @@ Parameters:
 - `chunk_shape` (dict): `{coord_name: int}` for target chunk sizes.
 - `data_vars` (list of str, optional): Variables to include.
 - `max_mem` (int): Total memory budget in bytes for the entire batch. Default 512 MB.
-
-### iter_chunk_slices(chunk_shape, data_vars=None)
-
-Iterate chunk position dicts without loading data. Yields `{coord_name: slice}` dicts.
-
-```python
-for chunk in ds.iter_chunk_slices({'latitude': 25, 'longitude': 25}):
-    print(chunk)
-```
+- `include_data` (bool): If False, yields only `{coord_name: slice}` dicts without loading data. Default True.
 
 ### groupby(coord_names, data_vars=None, max_mem=2\*\*27)
 
