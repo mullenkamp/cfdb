@@ -255,36 +255,31 @@ class DatasetBase:
             {var_name: ndarray} — decoded data for each variable at this position.
             Only yielded when include_data=True.
         """
-        if include_data:
-            return self.rechunker(data_vars).rechunk(chunk_shape, max_mem=max_mem)
-        else:
-            return self._iter_chunk_positions(chunk_shape, data_vars)
+        if not include_data:
+            if data_vars is None:
+                data_vars = list(self.data_var_names)
+            else:
+                for name in data_vars:
+                    if name not in self.data_var_names:
+                        raise KeyError(f'{name} is not a data variable.')
 
-    def _iter_chunk_positions(self, chunk_shape, data_vars=None):
-        """
-        Yield chunk position dicts without loading data.
-        """
-        if data_vars is None:
-            data_vars = list(self.data_var_names)
-        else:
-            for name in data_vars:
-                if name not in self.data_var_names:
-                    raise KeyError(f'{name} is not a data variable.')
+            if not data_vars:
+                return
 
-        if not data_vars:
+            first_dv = self[data_vars[0]]
+            common_coord_names = first_dv.coord_names
+
+            target_chunk_shape = tuple(
+                chunk_shape.get(cn, self[cn].shape[0])
+                for cn in common_coord_names
+            )
+            starts = tuple(0 for _ in common_coord_names)
+            stops = tuple(self[cn].shape[0] for cn in common_coord_names)
+            for position in rechunkit.chunk_range(starts, stops, target_chunk_shape):
+                yield {cn: sl for cn, sl in zip(common_coord_names, position)}
             return
 
-        first_dv = self[data_vars[0]]
-        common_coord_names = first_dv.coord_names
-
-        target_chunk_shape = tuple(
-            chunk_shape.get(cn, self[cn].shape[0])
-            for cn in common_coord_names
-        )
-        starts = tuple(0 for _ in common_coord_names)
-        stops = tuple(self[cn].shape[0] for cn in common_coord_names)
-        for position in rechunkit.chunk_range(starts, stops, target_chunk_shape):
-            yield {cn: sl for cn, sl in zip(common_coord_names, position)}
+        yield from self.rechunker(data_vars).rechunk(chunk_shape, max_mem=max_mem)
 
 
     def groupby(self, coord_names, data_vars=None, max_mem=2**29):
