@@ -165,14 +165,15 @@ class DatasetBase:
             if key not in coord_names:
                 raise KeyError(f'The coordinate {key} does not exist in the dataset.')
 
-        ## Create selections per coord
+        ## Create selections per coord (origin-free: origins applied once at data access)
         _sel = {}
         for coord_name in coord_names:
             coord = self[coord_name]
+            zero_origins = tuple(0 for _ in range(coord.ndims))
             if coord_name in sel:
-                slices = indexers.index_combo_all(sel[coord_name], coord.get_coord_origins(), coord.shape)
+                slices = indexers.index_combo_all(sel[coord_name], zero_origins, coord.shape)
             else:
-                slices = indexers.index_combo_all(None, coord.get_coord_origins(), coord.shape)
+                slices = indexers.index_combo_all(None, zero_origins, coord.shape)
             _sel[coord_name] = slices
 
         ## Create selections for data vars
@@ -196,14 +197,15 @@ class DatasetBase:
             if key not in coord_names:
                 raise KeyError(f'The coordinate {key} does not exist in the dataset.')
 
-        ## Create selections per coord
+        ## Create selections per coord (origin-free: origins applied once at data access)
         _sel = {}
         for coord_name in coord_names:
             coord = self[coord_name]
+            zero_origins = tuple(0 for _ in range(coord.ndims))
             if coord_name in sel:
-                slices = indexers.index_combo_all(indexers.loc_index_combo_all(sel[coord_name], (coord,)), coord.get_coord_origins(), coord.shape)
+                slices = indexers.index_combo_all(indexers.loc_index_combo_all(sel[coord_name], (coord,)), zero_origins, coord.shape)
             else:
-                slices = indexers.index_combo_all(None, coord.get_coord_origins(), coord.shape)
+                slices = indexers.index_combo_all(None, zero_origins, coord.shape)
             _sel[coord_name] = slices
 
         ## Create selections for data vars
@@ -897,18 +899,59 @@ class DatasetView(DatasetBase):
         """
         return tuple(k for k, v in self._sys_meta.variables.items() if isinstance(v, data_models.DataVariable) if k in self._sel)
 
-    # @property
-    # def coords(self):
-    #     return tuple(self[coord_name][self._sel[coord_name]] for coord_name in self.coord_names if coord_name in self._sel)
+    @property
+    def crs(self):
+        if self._dataset._sys_meta.crs is None:
+            return None
+        return self._dataset.crs
 
-    # @property
-    # def data_vars(self):
-    #     return tuple(self[var_name][self._sel[var_name]] for var_name in self.data_var_names if var_name in self._sel)
+    def select(self, sel: dict):
+        """
+        Narrow this view further by coordinate positions.
+        """
+        coord_names = self.coord_names
+        for key in sel:
+            if key not in coord_names:
+                raise KeyError(f'The coordinate {key} does not exist in the dataset.')
 
-    # @property
-    # def variables(self):
-    #     return tuple(self[var_name][self._sel[var_name]] for var_name in self.var_names if var_name in self._sel)
+        full_sel = {}
+        for coord_name in coord_names:
+            existing = self._sel[coord_name][0]
+            if coord_name in sel:
+                view_shape = (existing.stop - existing.start,)
+                normalized = indexers.index_combo_all(sel[coord_name], (0,), view_shape)
+                full_sel[coord_name] = slice(
+                    existing.start + normalized[0].start,
+                    existing.start + normalized[0].stop
+                )
+            else:
+                full_sel[coord_name] = existing
+        return self._dataset.select(full_sel)
 
+    def select_loc(self, sel: dict):
+        """
+        Narrow this view further by coordinate values.
+        """
+        coord_names = self.coord_names
+        for key in sel:
+            if key not in coord_names:
+                raise KeyError(f'The coordinate {key} does not exist in the dataset.')
+
+        full_sel = {}
+        for coord_name in coord_names:
+            existing = self._sel[coord_name][0]
+            if coord_name in sel:
+                coord_view = self[coord_name]
+                idx = indexers.loc_index_combo_all(sel[coord_name], (coord_view,))
+                view_shape = (existing.stop - existing.start,)
+                normalized = indexers.index_combo_all(idx, (0,), view_shape)
+                full_sel[coord_name] = slice(
+                    existing.start + normalized[0].start,
+                    existing.start + normalized[0].stop
+                )
+            else:
+                full_sel[coord_name] = existing
+        return self._dataset.select(full_sel)
 
 
 class Grid(Dataset):

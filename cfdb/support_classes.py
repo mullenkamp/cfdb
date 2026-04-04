@@ -878,7 +878,9 @@ class CoordinateView(Variable):
         -------
         cfdb.CoordinateView
         """
-        coord_origins = self.get_coord_origins()
+        # Use zero origins so _sel stays in origin-free coordinates.
+        # Coordinate origins are applied once at the point of data access.
+        coord_origins = tuple(0 for _ in range(self.ndims))
 
         slices = indexers.index_combo_all(sel, coord_origins, self.shape)
 
