@@ -1467,7 +1467,7 @@ class DataVariableView(Variable):
         self.set(sel, data)
 
 
-    def groupby(self, coord_names: Union[str, Iterable, dict], max_mem: int=2**27):
+    def groupby(self, coord_names: Union[str, Iterable, dict], max_mem: int=2**29):
         """
         Group by one or more coordinates.
 
@@ -1582,7 +1582,7 @@ class DataVariableView(Variable):
             yield sel, data
 
 
-    def map(self, func, chunk_shape=None, n_workers=None, max_mem=2**29):
+    def map(self, func, chunk_shape=None, max_mem=2**29, n_workers=None):
         """
         Apply func to each chunk in parallel using multiprocessing.
 

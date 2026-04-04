@@ -97,7 +97,7 @@ Set data at index positions. The `decoded` parameter controls whether input data
 
 ## GroupBy
 
-### groupby(coord_names, max_mem=2**27)
+### groupby(coord_names, max_mem=2**29)
 
 Group by one or more coordinates. Returns a generator of `(slices, data)` tuples.
 
