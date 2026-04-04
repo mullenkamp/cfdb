@@ -114,6 +114,8 @@ def create_data_var_methods(var_names):
     return decorator
 
 
+import weakref
+
 class CRS:
     """
 
@@ -122,7 +124,7 @@ class CRS:
         """
 
         """
-        self._dataset = dataset
+        self._dataset = weakref.proxy(dataset)
 
 
     def from_user_input(self, crs: str | int | pyproj.CRS, x_coord: str=None, y_coord: str=None, xy_coord: str=None):
@@ -303,7 +305,7 @@ class DataVar:
         """
 
         """
-        self._dataset = dataset
+        self._dataset = weakref.proxy(dataset)
 
 
     def generic(self, name: str, coords: Tuple[str], dtype: str | np.dtype | dtypes.DataType, chunk_shape: Tuple[int] | None = None):

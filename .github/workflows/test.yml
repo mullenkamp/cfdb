@@ -18,7 +18,7 @@ jobs:
       fail-fast: false 
       matrix:
         # Define the versions you want to test here
-        python-version: ["3.10", "3.11", "3.12.11"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +45,6 @@ jobs:
           access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         timeout-minutes: 5
-        run: uv run pytest -v
+        run: uv run pytest -v --faulthandler-timeout=60
 
 
