@@ -28,11 +28,12 @@ open_dataset() / open_edataset()
 
 ## Public API
 
+### Datasets
+
 ```mermaid
 classDiagram
     direction TB
 
-    %% ── Entry Points ──────────────────────────────────
     class cfdb {
         <<module>>
         open_dataset(file_path, flag, dataset_type, compression, compression_level) Dataset
@@ -55,7 +56,6 @@ classDiagram
         cfdb_to_netcdf4(cfdb_path, nc_path, compression, sel, sel_loc, ...)
     }
 
-    %% ── Dataset Layer ─────────────────────────────────
     class Dataset {
         +file_path : Path
         +compression : str
@@ -73,10 +73,9 @@ classDiagram
         +get(var_name) Coordinate | DataVariable
         +select(sel) DatasetView
         +select_loc(sel) DatasetView
-        +iter_chunks(chunk_shape, data_vars, max_mem) Generator
         +iter_chunks(chunk_shape, data_vars, max_mem, include_data) Generator
         +groupby(coord_names, data_vars, max_mem) Generator
-        +map(func, chunk_shape, data_vars, n_workers) Generator
+        +map(func, chunk_shape, data_vars, max_mem, n_workers) Generator
         +rechunker(data_vars) DatasetRechunker
         +copy(file_path, include_data_vars, exclude_data_vars) Dataset
         +to_netcdf4(file_path, compression, include_data_vars, exclude_data_vars)
@@ -103,7 +102,54 @@ classDiagram
         +select_loc(sel) DatasetView
     }
 
-    %% ── Variable Hierarchy ────────────────────────────
+    class Creator {
+        +coord : Coord
+        +data_var : DataVar
+        +crs : CRS
+    }
+
+    class Coord {
+        +generic(name, data, dtype, chunk_shape, step, axis) Coordinate
+        +like(name, coord, copy_data) Coordinate
+        +lat(data, step, ...) Coordinate
+        +lon(data, step, ...) Coordinate
+        +time(data, step, ...) Coordinate
+        +height(...) Coordinate
+        +altitude(...) Coordinate
+        +depth(...) Coordinate
+        +point(...) Coordinate
+        +x(data, step, ...) Coordinate
+        +y(data, step, ...) Coordinate
+        +z(data, step, ...) Coordinate
+    }
+
+    class DataVar {
+        +generic(name, coords, dtype, chunk_shape) DataVariable
+        +like(name, data_var) DataVariable
+        +air_temperature(coords) DataVariable
+        +precipitation(coords) DataVariable
+    }
+
+    class CRS {
+        +from_user_input(crs, x_coord, y_coord, xy_coord) pyproj.CRS
+    }
+
+    cfdb --> Dataset : open_dataset()
+    cfdb --> EDataset : open_edataset()
+    EDataset --|> Dataset
+    Dataset --> DatasetView : select() / select_loc()
+    Dataset *-- Creator : create
+    Creator *-- Coord : coord
+    Creator *-- DataVar : data_var
+    Creator *-- CRS : crs
+```
+
+### Variables
+
+```mermaid
+classDiagram
+    direction TB
+
     class Variable {
         <<abstract>>
         +name : str
@@ -144,12 +190,11 @@ classDiagram
     class DataVariableView {
         +coords : tuple~Coordinate~
         +set(sel, data, decoded)
-        +iter_chunks(chunk_shape, max_mem, decoded) Generator
         +iter_chunks(chunk_shape, max_mem, decoded, include_data) Generator
         +items(decoded) Generator
         +get_chunk(sel, missing_none) ndarray
         +groupby(coord_names, max_mem) Generator
-        +map(func, chunk_shape, n_workers, max_mem) Generator
+        +map(func, chunk_shape, max_mem, n_workers) Generator
         +interp(x, y, z, xy) GridInterp | PointInterp
     }
 
@@ -158,40 +203,6 @@ classDiagram
         +load()
     }
 
-    %% ── Creator ───────────────────────────────────────
-    class Creator {
-        +coord : Coord
-        +data_var : DataVar
-        +crs : CRS
-    }
-
-    class Coord {
-        +generic(name, data, dtype, chunk_shape, step, axis) Coordinate
-        +like(name, coord, copy_data) Coordinate
-        +lat(data, step, ...) Coordinate
-        +lon(data, step, ...) Coordinate
-        +time(data, step, ...) Coordinate
-        +height(...) Coordinate
-        +altitude(...) Coordinate
-        +depth(...) Coordinate
-        +point(...) Coordinate
-        +x(data, step, ...) Coordinate
-        +y(data, step, ...) Coordinate
-        +z(data, step, ...) Coordinate
-    }
-
-    class DataVar {
-        +generic(name, coords, dtype, chunk_shape) DataVariable
-        +like(name, data_var) DataVariable
-        +air_temperature(coords) DataVariable
-        +precipitation(coords) DataVariable
-    }
-
-    class CRS {
-        +from_user_input(crs, x_coord, y_coord, xy_coord) pyproj.CRS
-    }
-
-    %% ── Supporting Classes ────────────────────────────
     class Attributes {
         +data : dict
         +writable : bool
@@ -224,7 +235,21 @@ classDiagram
         +__getitem__(sel) View
     }
 
-    %% ── DataType Hierarchy ────────────────────────────
+    Variable <|-- CoordinateView
+    CoordinateView <|-- Coordinate
+    Variable <|-- DataVariableView
+    DataVariableView <|-- DataVariable
+    Variable *-- LocationIndexer : loc
+    Variable *-- Attributes : attrs
+    DataVariable --> Rechunker : rechunker()
+```
+
+### Data Types
+
+```mermaid
+classDiagram
+    direction TB
+
     class DataType {
         <<abstract>>
         +name : str
@@ -275,40 +300,6 @@ classDiagram
     class LineString
     class Polygon
 
-    %% ── Relationships ─────────────────────────────────
-
-    %% Entry points
-    cfdb --> Dataset : open_dataset()
-    cfdb --> EDataset : open_edataset()
-    dtypes --> DataType : dtype()
-
-    %% Dataset layer
-    EDataset --|> Dataset
-    Dataset --> DatasetView : select() / select_loc()
-    Dataset *-- Creator : create
-    Dataset *-- Attributes : attrs
-    Dataset --> DatasetRechunker : rechunker()
-
-    %% Variable hierarchy (inheritance)
-    Variable <|-- CoordinateView
-    CoordinateView <|-- Coordinate
-    Variable <|-- DataVariableView
-    DataVariableView <|-- DataVariable
-
-    %% Variable composition
-    Variable *-- LocationIndexer : loc
-    Variable *-- Attributes : attrs
-    Variable o-- DataType : dtype
-    DataVariable --> Rechunker : rechunker()
-
-    %% Creator composition
-    Creator *-- Coord : coord
-    Creator *-- DataVar : data_var
-    Creator *-- CRS : crs
-    Coord --> Coordinate : creates
-    DataVar --> DataVariable : creates
-
-    %% DataType hierarchy
     DataType <|-- Float
     DataType <|-- Integer
     DataType <|-- DateTime
