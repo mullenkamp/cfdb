@@ -10,7 +10,7 @@ Coordinates in cfdb follow rules closer to the [COARDS conventions](https://ferr
 - Values must be sorted in **ascending order** (except strings)
 - Values **cannot contain null/NaN**
 - Coordinates are always **1-D**
-- Once written, values **cannot be changed** — only appended or prepended
+- Once written, values **cannot be changed in-place** — use append, prepend, or truncate
 
 ## Template Methods
 
@@ -81,9 +81,15 @@ with cfdb.open_dataset(file_path, flag='w') as ds:
 
     # Add values to the beginning
     coord.prepend(np.array([-0.2, -0.1], dtype='float32'))
+
+    # Remove values from start/end (keeps [start, stop] inclusive)
+    coord.truncate(start=0.0, stop=19.0)
+
+    # For datetime coordinates, strings are accepted
+    ds['time'].truncate(start='2023-02-01', stop='2023-02-28')
 ```
 
-New values must maintain uniqueness and ascending order. When a coordinate grows, the associated data variables expand automatically (filled with NaN/fillvalue).
+New values from append/prepend must maintain uniqueness and ascending order. When a coordinate grows, the associated data variables expand automatically (filled with NaN/fillvalue). When a coordinate is truncated, orphaned data variable chunks are deleted.
 
 ## DateTime Coordinates
 

@@ -1,12 +1,17 @@
-# Combining Datasets
+# Combining and Merging Datasets
 
-cfdb can merge multiple datasets into a single output file using the `combine` function. This is useful for joining datasets that cover different time periods, spatial regions, or that were split across files.
+cfdb provides two distinct functions for combining multiple datasets together:
+- `combine`: An **out-of-place** merge that creates a brand new dataset from the union of all inputs.
+- `merge_into`: An **in-place** merge that destructively modifies an existing target dataset.
 
-## Basic Usage
+## `combine` (Out-of-Place)
+
+The `combine` function takes multiple input datasets, computes the union of their coordinates, and writes all data into a new output file. This is useful for joining datasets that cover different spatial regions or creating a clean dataset from many smaller files.
 
 ```python
 import cfdb
 
+# Creates a new 'combined.cfdb' file
 result = cfdb.combine(
     ['region_north.cfdb', 'region_south.cfdb'],
     'combined.cfdb',
@@ -15,55 +20,11 @@ print(result)
 result.close()
 ```
 
-The function accepts file paths or open `Dataset` objects, computes the union of all coordinates, validates compatibility, and writes all data into a new file.
+The function accepts file paths or open `Dataset` objects.
 
-## Combining Time Periods
+### Subsetting with `sel`
 
-Merge datasets covering different date ranges:
-
-```python
-result = cfdb.combine(
-    ['data_2020.cfdb', 'data_2021.cfdb', 'data_2022.cfdb'],
-    'data_2020_2022.cfdb',
-)
-result.close()
-```
-
-Coordinates are merged as a sorted union — non-overlapping ranges are concatenated, overlapping values are deduplicated.
-
-## Combining Spatial Regions
-
-```python
-result = cfdb.combine(
-    ['tile_a.cfdb', 'tile_b.cfdb'],
-    'merged_tiles.cfdb',
-)
-result.close()
-```
-
-This works for any coordinate type, including latitude/longitude and geometry coordinates.
-
-## Handling Overlaps
-
-When datasets share coordinate values, the `overlap` parameter controls what happens to the data variables in the overlapping region:
-
-```python
-# Last dataset wins (default, most performant — no reads needed)
-cfdb.combine(datasets, 'out.cfdb', overlap='last')
-
-# First dataset wins (skips writing if data already exists)
-cfdb.combine(datasets, 'out.cfdb', overlap='first')
-
-# Raise an error if any overlap is detected
-cfdb.combine(datasets, 'out.cfdb', overlap='error')
-```
-
-!!! note
-    Overlap handling applies to **data variables**, not coordinates. Coordinate values are always merged as a sorted union regardless of the overlap setting.
-
-## Subsetting with `sel`
-
-Apply a location-based selection to each input dataset before combining. This filters the data so only the selected region ends up in the output:
+You can apply a location-based selection to each input dataset before combining. This filters the data so only the selected region ends up in the output:
 
 ```python
 result = cfdb.combine(
@@ -77,55 +38,74 @@ result = cfdb.combine(
 result.close()
 ```
 
-The `sel` parameter works like `Dataset.select_loc()` — keys are coordinate names, values are slices or arrays for location-based indexing.
+### Compression and Variables
 
-## Filtering Data Variables
-
-Include or exclude specific data variables:
-
-```python
-# Only include temperature
-result = cfdb.combine(
-    datasets, 'out.cfdb',
-    include_data_vars=['temperature'],
-)
-
-# Include everything except humidity
-result = cfdb.combine(
-    datasets, 'out.cfdb',
-    exclude_data_vars=['humidity'],
-)
-```
-
-## Compression
-
-By default, compression settings are inherited from the first input dataset. Override them explicitly:
+By default, compression settings are inherited from the first input dataset, but they can be overridden. You can also explicitly filter which data variables to include:
 
 ```python
 result = cfdb.combine(
     datasets, 'out.cfdb',
     compression='zstd',
     compression_level=1,
+    include_data_vars=['temperature'],
+    # exclude_data_vars=['humidity'],
 )
 ```
 
-## Using Open Datasets
+---
 
-You can pass already-open `Dataset` objects instead of file paths:
+## `merge_into` (In-Place)
+
+For large, continuously updated databases (e.g., adding yesterday's weather data to a 100GB climate cache), recreating the entire file with `combine` is prohibitively slow and requires double the disk space.
+
+The `merge_into` function solves this by destructively writing new data directly into an existing dataset file. Because of the way `cfdb` stores coordinate metadata, **appending or prepending data along a coordinate (like `time`) is extremely fast (O(new_data))**, completely avoiding the need to rewrite the existing chunks.
 
 ```python
-with cfdb.open_dataset('a.cfdb') as ds_a:
-    with cfdb.open_dataset('b.cfdb') as ds_b:
-        result = cfdb.combine([ds_a, ds_b], 'combined.cfdb')
-        result.close()
+import cfdb
+
+# Destructively modifies 'existing_target.cfdb' in-place
+result = cfdb.merge_into(
+    ['new_weather_data.cfdb'],
+    'existing_target.cfdb',
+    allow_expansion=['time']
+)
+result.close()
 ```
 
-Datasets passed as file paths are opened and closed automatically.
+### Expansion Constraints
+
+To protect against accidental database corruption and massive performance penalties, `merge_into` enforces strict rules about coordinate expansion:
+
+1. **Insertions are blocked**: You cannot insert new coordinate values *into the middle* of an existing dataset's coordinate range. You can only strictly append (after the max value) or prepend (before the min value).
+2. **Expansion guardrails**: The `allow_expansion` parameter controls which coordinates are allowed to grow. 
+    - `allow_expansion=True`: Any coordinate can grow via append/prepend.
+    - `allow_expansion=['time']`: **Recommended.** Only the `time` coordinate is allowed to grow. If the incoming dataset has a slightly different spatial bounding box (e.g., an extra latitude row), `merge_into` will raise an error and abort instead of silently attempting an expensive in-place spatial expansion.
+    - `allow_expansion=False`: No coordinates can grow; incoming data must perfectly match or be a subset of the target's existing coordinates.
+
+---
+
+## Handling Overlaps
+
+Both `combine` and `merge_into` support an `overlap` parameter that controls what happens when multiple datasets contain data for the exact same coordinate values:
+
+```python
+# Last dataset wins (default, most performant — overwrites existing data)
+cfdb.combine(datasets, 'out.cfdb', overlap='last')
+cfdb.merge_into(datasets, 'target.cfdb', overlap='last')
+
+# First dataset wins (skips writing if data already exists in the target)
+cfdb.combine(datasets, 'out.cfdb', overlap='first')
+
+# Raise an error if any overlap is detected
+cfdb.combine(datasets, 'out.cfdb', overlap='error')
+```
+
+!!! note
+    Overlap handling applies to **data variables**, not coordinates. Coordinate values are always merged as a sorted union regardless of the overlap setting.
 
 ## Requirements
 
-All input datasets must:
-
+For both functions, all input datasets must:
 - Have the **same `dataset_type`** (e.g., all `grid` or all `ts_ortho`)
 - Have **compatible coordinate dtypes** for any shared coordinate names
 - Have **compatible data variable dtypes and dimensions** for any shared variable names

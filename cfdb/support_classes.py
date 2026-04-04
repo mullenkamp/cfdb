@@ -1096,6 +1096,132 @@ class Coordinate(CoordinateView):
         self._var_meta.shape = shape
 
 
+    def truncate(self, start=None, stop=None):
+        """
+        Truncate the coordinate to keep only values in [start, stop] (inclusive).
+
+        Deletes orphaned chunks for both the coordinate and all associated
+        data variables. Partial boundary chunks in data variables retain
+        dead data that is invisible to reads; call ``ds.prune()`` to
+        reclaim that space.
+
+        Parameters
+        ----------
+        start : scalar or None
+            Keep values >= start. None means keep from the beginning.
+        stop : scalar or None
+            Keep values <= stop. None means keep to the end.
+        """
+        if not self.writable:
+            raise ValueError('Dataset is not writable.')
+
+        current_data = self.data
+        n = len(current_data)
+        if n == 0:
+            return
+
+        # Convert coordinate values to indices.
+        # Cast strings to the coordinate dtype so np.searchsorted works
+        # with datetime coordinates (e.g., truncate(start='2023-01-01')).
+        dtype_decoded = current_data.dtype
+        if start is not None:
+            start = np.dtype(dtype_decoded).type(start)
+            start_idx = int(np.searchsorted(current_data, start, side='left'))
+        else:
+            start_idx = 0
+
+        if stop is not None:
+            stop = np.dtype(dtype_decoded).type(stop)
+            stop_idx = int(np.searchsorted(current_data, stop, side='right'))
+        else:
+            stop_idx = n
+
+        # Clamp to valid range
+        start_idx = max(0, min(start_idx, n))
+        stop_idx = max(start_idx, min(stop_idx, n))
+
+        if stop_idx <= start_idx:
+            raise ValueError('Truncation would remove all data. At least one value must remain.')
+
+        # No-op
+        if start_idx == 0 and stop_idx == n:
+            return
+
+        # Compute physical ranges
+        old_origin = self.origin
+        old_shape_0 = self.shape[0]
+        old_end_phys = old_origin + old_shape_0
+
+        new_origin = old_origin + start_idx
+        new_shape_0 = stop_idx - start_idx
+        new_end_phys = new_origin + new_shape_0
+
+        # Read truncated data before modifying anything
+        truncated_data = current_data[start_idx:stop_idx]
+
+        # --- Delete orphaned coordinate chunks ---
+        old_coord_keys = set(indexers.slices_to_keys(
+            (slice(old_origin, old_end_phys),), self.name, self.chunk_shape
+        ))
+        retained_coord_keys = set(indexers.slices_to_keys(
+            (slice(new_origin, new_end_phys),), self.name, self.chunk_shape
+        ))
+        for blt_key in (old_coord_keys - retained_coord_keys):
+            try:
+                del self._blt[blt_key]
+            except KeyError:
+                pass
+
+        # --- Delete orphaned data variable chunks ---
+        coord_name = self.name
+        for var_name, var_meta in self._sys_meta.variables.items():
+            if not isinstance(var_meta, data_models.DataVariable):
+                continue
+            if coord_name not in var_meta.coords:
+                continue
+
+            coord_pos = var_meta.coords.index(coord_name)
+
+            dv_origins = tuple(
+                self._sys_meta.variables[cn].origin for cn in var_meta.coords
+            )
+            dv_shapes = tuple(
+                self._sys_meta.variables[cn].shape[0] for cn in var_meta.coords
+            )
+
+            all_dv_slices = tuple(
+                slice(o, o + s) for o, s in zip(dv_origins, dv_shapes)
+            )
+            all_dv_keys = set(indexers.slices_to_keys(
+                all_dv_slices, var_name, var_meta.chunk_shape
+            ))
+
+            ret_dv_slices = list(all_dv_slices)
+            ret_dv_slices[coord_pos] = slice(new_origin, new_end_phys)
+            ret_dv_keys = set(indexers.slices_to_keys(
+                tuple(ret_dv_slices), var_name, var_meta.chunk_shape
+            ))
+
+            for blt_key in (all_dv_keys - ret_dv_keys):
+                try:
+                    del self._blt[blt_key]
+                except KeyError:
+                    pass
+
+            # Evict cached DataVariable
+            try:
+                del self._dataset._var_cache[var_name]
+            except (KeyError, AttributeError):
+                pass
+
+        # --- Rewrite coordinate data ---
+        self._add_updated_data((new_origin,), (new_end_phys,), new_origin, truncated_data)
+
+        # --- Update metadata ---
+        self._var_meta.origin = new_origin
+        self._var_meta.shape = (new_shape_0,)
+
+
 class _ChunkMapWrapper:
     def __init__(self, user_func, starts, stops, dtype, compressor, chunk_shape):
         self.user_func = user_func

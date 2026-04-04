@@ -11,7 +11,7 @@ This file provides context for the Gemini AI agent to understand and work with t
 *   **Concurrency:** Thread-safe and multiprocessing-safe using file/object locks.
 *   **Data Structure:**
     *   **Datasets:** Collections of variables. Two types: `grid` (default) and `orthogonal_multidimensional_array_representation_of_time_series`.
-    *   **Coordinates:** 1D, unique, sorted, non-null arrays defining dimensions (e.g., lat, lon, time). Immutable values (append/prepend only).
+    *   **Coordinates:** 1D, unique, sorted, non-null arrays defining dimensions (e.g., lat, lon, time). Values cannot be changed in-place; supports `append()`, `prepend()`, and `truncate(start, stop)` to grow or shrink.
     *   **Data Variables:** N-dimensional arrays linked to coordinates. Data never held fully in memory; accessed via chunks.
 *   **Rechunking:** Native multivariable rechunking for synchronized, high-performance block iteration.
 *   **Compression:** Supports `zstd` and `lz4`.
@@ -24,7 +24,7 @@ This file provides context for the Gemini AI agent to understand and work with t
 *   **Data Types** (`cfdb/dtypes.py`): Custom type system (`Float`, `Integer`, `DateTime`, `Geometry` w/ WKT).
 *   **Creation** (`cfdb/creation.py`): Factory patterns for creating coords and variables.
 *   **Indexing** (`cfdb/indexers.py`): Handling selection logic (`.loc[]`, integer indexing).
-*   **Legacy code** (`core.py`): Old h5py-based implementation, not part of the current API. `combine.py` is also legacy (uses h5py/xarray directly).
+*   **Legacy code** (`core.py`): Old h5py-based implementation, not part of the current API.
 
 ## Build & Development
 

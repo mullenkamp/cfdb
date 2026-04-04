@@ -26,6 +26,299 @@ open_dataset() / open_edataset()
               └── Rechunker (single-variable rechunkit wrapper)
 ```
 
+## Public API
+
+```mermaid
+classDiagram
+    direction TB
+
+    %% ── Entry Points ──────────────────────────────────
+    class cfdb {
+        <<module>>
+        open_dataset(file_path, flag, dataset_type, compression, compression_level) Dataset
+        open_edataset(remote_conn, file_path, flag, dataset_type, compression, ...) EDataset
+        cfdb_to_netcdf4(cfdb_path, nc_path, compression, sel, sel_loc, ...)
+        combine(cfdb_paths, output_path, ...)
+        merge_into(source_path, dest_path, ...)
+        guess_chunk_shape(shape, itemsize, target_size) tuple
+        compute_scale_and_offset(min_value, max_value, precision) tuple
+    }
+
+    class dtypes {
+        <<module>>
+        dtype(name, precision, min_value, max_value, ...) DataType
+    }
+
+    class tools {
+        <<module>>
+        netcdf4_to_cfdb(nc_path, cfdb_path, sel, sel_loc, max_mem, ...)
+        cfdb_to_netcdf4(cfdb_path, nc_path, compression, sel, sel_loc, ...)
+    }
+
+    %% ── Dataset Layer ─────────────────────────────────
+    class Dataset {
+        +file_path : Path
+        +compression : str
+        +compression_level : int
+        +writable : bool
+        +is_open : bool
+        +var_names : tuple
+        +coord_names : tuple
+        +data_var_names : tuple
+        +coords : tuple~Coordinate~
+        +data_vars : tuple~DataVariable~
+        +attrs : Attributes
+        +crs : pyproj.CRS
+        +create : Creator
+        +get(var_name) Coordinate | DataVariable
+        +select(sel) DatasetView
+        +select_loc(sel) DatasetView
+        +iter_chunks(chunk_shape, data_vars, max_mem) Generator
+        +iter_chunk_slices(chunk_shape, data_vars) Generator
+        +groupby(coord_names, data_vars, max_mem) Generator
+        +map(func, chunk_shape, data_vars, n_workers) Generator
+        +rechunker(data_vars) DatasetRechunker
+        +copy(file_path, include_data_vars, exclude_data_vars) Dataset
+        +to_netcdf4(file_path, compression, include_data_vars, exclude_data_vars)
+        +prune(timestamp) int
+        +close()
+    }
+
+    class EDataset {
+        +changes() Change
+        +delete_remote()
+        +copy_remote(remote_conn)
+    }
+
+    class DatasetView {
+        +var_names : tuple
+        +coord_names : tuple
+        +data_var_names : tuple
+        +coords : tuple
+        +data_vars : tuple
+        +attrs : Attributes
+        +get(var_name) CoordinateView | DataVariableView
+    }
+
+    %% ── Variable Hierarchy ────────────────────────────
+    class Variable {
+        <<abstract>>
+        +name : str
+        +shape : tuple
+        +chunk_shape : tuple
+        +dtype : DataType
+        +ndims : int
+        +coord_names : tuple
+        +attrs : Attributes
+        +writable : bool
+        +is_open : bool
+        +units : str
+        +loc : LocationIndexer
+        +data : ndarray
+        +values : ndarray
+    }
+
+    class CoordinateView {
+        +get(sel) CoordinateView
+        +iter_chunks(include_data, decoded) Generator
+        +items(decoded) Generator
+        +get_chunk(sel, missing_none) ndarray
+    }
+
+    class Coordinate {
+        +step : number
+        +origin : int
+        +axis : str
+        +auto_increment : bool
+        +append(data)
+        +prepend(data)
+        +truncate(start, stop)
+        +update_step(step)
+        +update_axis(axis)
+        +get_coord_origins() tuple
+        +load()
+    }
+
+    class DataVariableView {
+        +coords : tuple~Coordinate~
+        +get(sel) DataVariableView
+        +set(sel, data, decoded)
+        +iter_chunks(chunk_shape, max_mem, decoded) Generator
+        +iter_chunk_slices(chunk_shape) Generator
+        +items(decoded) Generator
+        +get_chunk(sel, missing_none) ndarray
+        +groupby(coord_names, max_mem) Generator
+        +map(func, chunk_shape, n_workers, max_mem) Generator
+        +interp(x, y, z, xy) GridInterp | PointInterp
+    }
+
+    class DataVariable {
+        +rechunker() Rechunker
+        +load()
+    }
+
+    %% ── Creator ───────────────────────────────────────
+    class Creator {
+        +coord : Coord
+        +data_var : DataVar
+        +crs : CRS
+    }
+
+    class Coord {
+        +generic(name, data, dtype, chunk_shape, step, axis) Coordinate
+        +like(name, coord, copy_data) Coordinate
+        +lat(data, step, ...) Coordinate
+        +lon(data, step, ...) Coordinate
+        +time(data, step, ...) Coordinate
+        +height(...) Coordinate
+        +altitude(...) Coordinate
+        +depth(...) Coordinate
+        +point(...) Coordinate
+        +x(data, step, ...) Coordinate
+        +y(data, step, ...) Coordinate
+        +z(data, step, ...) Coordinate
+    }
+
+    class DataVar {
+        +generic(name, coords, dtype, chunk_shape) DataVariable
+        +like(name, data_var) DataVariable
+        +air_temperature(coords) DataVariable
+        +precipitation(coords) DataVariable
+    }
+
+    class CRS {
+        +from_user_input(crs, x_coord, y_coord, xy_coord) pyproj.CRS
+    }
+
+    %% ── Supporting Classes ────────────────────────────
+    class Attributes {
+        +data : dict
+        +writable : bool
+        +get(key) value
+        +set(key, value)
+        +keys() Iterator
+        +values() Iterator
+        +items() Iterator
+        +pop(key, default) value
+        +update(other)
+        +clear()
+    }
+
+    class Rechunker {
+        +guess_chunk_shape(target_size) tuple
+        +calc_ideal_read_chunk_shape(target_shape) tuple
+        +calc_source_read_chunk_shape(target_shape, max_mem) tuple
+        +calc_n_chunks() int
+        +calc_n_reads_rechunker(target_shape, max_mem) tuple
+        +rechunk(target_shape, max_mem) Generator
+    }
+
+    class DatasetRechunker {
+        +calc_ideal_read_chunk_mem(chunk_shape) int
+        +calc_n_reads_rechunker(chunk_shape, max_mem) tuple
+        +rechunk(chunk_shape, max_mem) Generator
+    }
+
+    class LocationIndexer {
+        +__getitem__(sel) View
+    }
+
+    %% ── DataType Hierarchy ────────────────────────────
+    class DataType {
+        <<abstract>>
+        +name : str
+        +kind : str
+        +itemsize : int
+        +dtype_decoded : numpy.dtype
+        +dtype_encoded : numpy.dtype
+        +precision : int
+        +fillvalue : int
+        +offset : number
+        +to_dict() dict
+    }
+
+    class Float {
+        +encode(data) ndarray
+        +decode(data) ndarray
+        +dumps(data) bytes
+        +loads(data_bytes, chunk_shape) ndarray
+    }
+    class Integer {
+        +encode(data) ndarray
+        +decode(data) ndarray
+        +dumps(data) bytes
+        +loads(data_bytes, chunk_shape) ndarray
+    }
+    class DateTime {
+        +encode(data) ndarray
+        +decode(data) ndarray
+        +dumps(data) bytes
+        +loads(data_bytes, chunk_shape) ndarray
+    }
+    class Bool {
+        +dumps(data) bytes
+        +loads(data_bytes, chunk_shape) ndarray
+    }
+    class String {
+        +dumps(data) bytes
+        +loads(data_bytes) ndarray
+    }
+    class Geometry {
+        <<abstract>>
+        +encode(data) list
+        +decode(data) ndarray
+        +dumps(data) bytes
+        +loads(data_bytes) ndarray
+    }
+    class Point
+    class LineString
+    class Polygon
+
+    %% ── Relationships ─────────────────────────────────
+
+    %% Entry points
+    cfdb --> Dataset : open_dataset()
+    cfdb --> EDataset : open_edataset()
+    dtypes --> DataType : dtype()
+
+    %% Dataset layer
+    EDataset --|> Dataset
+    Dataset --> DatasetView : select() / select_loc()
+    Dataset *-- Creator : create
+    Dataset *-- Attributes : attrs
+    Dataset --> DatasetRechunker : rechunker()
+
+    %% Variable hierarchy (inheritance)
+    Variable <|-- CoordinateView
+    CoordinateView <|-- Coordinate
+    Variable <|-- DataVariableView
+    DataVariableView <|-- DataVariable
+
+    %% Variable composition
+    Variable *-- LocationIndexer : loc
+    Variable *-- Attributes : attrs
+    Variable o-- DataType : dtype
+    DataVariable --> Rechunker : rechunker()
+
+    %% Creator composition
+    Creator *-- Coord : coord
+    Creator *-- DataVar : data_var
+    Creator *-- CRS : crs
+    Coord --> Coordinate : creates
+    DataVar --> DataVariable : creates
+
+    %% DataType hierarchy
+    DataType <|-- Float
+    DataType <|-- Integer
+    DataType <|-- DateTime
+    DataType <|-- Bool
+    DataType <|-- String
+    DataType <|-- Geometry
+    Geometry <|-- Point
+    Geometry <|-- LineString
+    Geometry <|-- Polygon
+```
+
 ## Booklet Storage
 
 cfdb uses [Booklet](https://github.com/mullenkamp/booklet) as a key-value store. Booklet is a persistent dict-like database stored in a single file, with support for thread locks and file locks.
