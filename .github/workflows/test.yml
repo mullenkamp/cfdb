@@ -45,6 +45,6 @@ jobs:
           access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         timeout-minutes: 5
-        run: uv run pytest -v --faulthandler-timeout=60
+        run: uv run pytest -v
 
 
