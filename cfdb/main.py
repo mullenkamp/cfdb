@@ -413,7 +413,7 @@ class DatasetBase:
             var_data = {}
             for dv_name in data_vars:
                 dv = self[dv_name]
-                view = dv.get(sel)
+                view = dv[sel]
                 var_data[dv_name] = view.data
 
             yield target_chunk, var_data
@@ -538,27 +538,30 @@ class DatasetBase:
             new_data_var.attrs.update(data_var.attrs.data)
 
             ## Write data
-            data_var.load()
-            coord_origins = data_var.get_coord_origins()
-            slices = indexers.index_combo_all(data_var._sel, coord_origins, data_var.shape)
+            if data_var._sel is not None:
+                # View — iter_chunks handles slicing correctly
+                for write_chunk, data in data_var.iter_chunks():
+                    new_data_var.set(write_chunk, data)
+            else:
+                # Full variable — raw chunk copy for speed
+                data_var.load()
+                coord_origins = data_var.get_coord_origins()
+                slices = indexers.index_combo_all(data_var._sel, coord_origins, data_var.shape)
 
-            for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, data_var.name, data_var.chunk_shape):
-                ts, b1 = self._blt.get_timestamp(blt_key, True, False)
-                if b1 is not None:
-                    target_shape = tuple(tc.stop - tc.start for tc in target_chunk)
-                    source_shape = tuple(sc.stop - sc.start for sc in source_chunk)
+                for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, data_var.name, data_var.chunk_shape):
+                    ts, b1 = self._blt.get_timestamp(blt_key, True, False)
+                    if b1 is not None:
+                        target_shape = tuple(tc.stop - tc.start for tc in target_chunk)
+                        source_shape = tuple(sc.stop - sc.start for sc in source_chunk)
 
-                    new_key = utils.make_var_chunk_key(data_var_name, [tc.start for tc in target_chunk])
+                        new_key = utils.make_var_chunk_key(data_var_name, [tc.start for tc in target_chunk])
 
-                    if math.prod(target_shape) == math.prod(source_shape):
-                        new_data_var._blt.set(new_key, b1, ts, False)
-                    else:
-                        data = data_var.dtype.loads(data_var.compressor.decompress(b1), data_var.chunk_shape)
-                        data_b = data_var.compressor.compress(data_var.dtype.dumps(data[source_chunk]))
-                        new_data_var._blt.set(new_key, data_b, ts, False)
-
-            # for write_chunk, data in data_var.iter_chunks():
-            #     new_data_var.set(write_chunk, data)
+                        if math.prod(target_shape) == math.prod(source_shape):
+                            new_data_var._blt.set(new_key, b1, ts, False)
+                        else:
+                            data = data_var.dtype.loads(data_var.compressor.decompress(b1), data_var.chunk_shape)
+                            data_b = data_var.compressor.compress(data_var.dtype.dumps(data[source_chunk]))
+                            new_data_var._blt.set(new_key, data_b, ts, False)
 
         new_ds.attrs.update(self.attrs.data)
 

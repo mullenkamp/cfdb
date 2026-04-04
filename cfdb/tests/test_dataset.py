@@ -1933,31 +1933,20 @@ def test_view_iter_chunks_with_nonzero_origin():
 
 
 def test_view_copy_with_nonzero_origin():
-    """copy() from a DatasetView after prepend — verify via iter_chunks.
-
-    NOTE: Dataset.copy() uses a raw-chunk fast path that has a known issue
-    when a view's selection does not align to chunk boundaries. The data
-    comparison here uses iter_chunks (which is correct) to verify that
-    the view itself returns the right data.
-    """
+    """copy() from a DatasetView after prepend."""
     fp = script_path.joinpath('test_view_copy_origin.cfdb')
+    fp2 = script_path.joinpath('test_view_copy_origin_dst.cfdb')
     combined_lat, x_data, full_data = _make_prepend_dataset(fp)
 
     with open_dataset(fp) as ds:
         view = ds.select({'latitude': slice(20, 40)})
-        expected = full_data[20:40]
-
-        # Verify the view returns correct data via iter_chunks
-        result = np.full((20, 10), np.nan, dtype='float32')
-        for target_chunk, var_data in view.iter_chunks({'latitude': 20}):
-            slices = (target_chunk['latitude'], target_chunk['x'])
-            result[slices] = var_data['val']
-        assert np.allclose(result, expected)
-
-        # Verify coordinate data from view
-        assert np.allclose(view['latitude'].data, combined_lat[20:40])
+        new_ds = view.copy(fp2)
+        assert np.allclose(new_ds['latitude'].data, combined_lat[20:40])
+        assert np.allclose(new_ds['val'].data, full_data[20:40])
+        new_ds.close()
 
     fp.unlink()
+    fp2.unlink()
 
 
 def test_view_to_netcdf4_with_nonzero_origin():

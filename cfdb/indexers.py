@@ -336,7 +336,7 @@ class LocationIndexer:
         """
         idx = loc_index_combo_all(key, self.variable.coords)
 
-        return self.variable.get(idx)
+        return self.variable._get(idx)
 
 
     def __setitem__(self, key, data):

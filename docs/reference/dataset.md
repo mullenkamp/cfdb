@@ -125,7 +125,7 @@ Prune deleted data from the file. Returns the number of removed items.
 
 ## DatasetView
 
-Returned by `select()` and `select_loc()`. Provides the same read interface as Dataset but is read-only and scoped to the selection.
+Returned by `select()` and `select_loc()`. Provides the same read interface as Dataset but is read-only and scoped to the selection. Selections can be chained via `select()` and `select_loc()` on the view.
 
 ::: cfdb.main.DatasetView
     options:
@@ -133,6 +133,9 @@ Returned by `select()` and `select_loc()`. Provides the same read interface as D
       show_source: false
       members:
         - get
+        - select
+        - select_loc
         - var_names
         - coord_names
         - data_var_names
+        - crs

@@ -658,7 +658,7 @@ class Variable:
         if len(self) == 0:
             return None
         else:
-            return self.get(sel)
+            return self._get(sel)
 
 
     # def __delitem__(self, sel):
@@ -864,7 +864,7 @@ class CoordinateView(Variable):
         return self._var_meta.axis
 
 
-    def get(self, sel):
+    def _get(self, sel):
         """
         Get a CoordinateView based on the index position(s).
         The parameter sel can be an int, slice, or some combo within a tuple. For example, a tuple of slices (of the index positions).
@@ -1382,7 +1382,7 @@ class DataVariableView(Variable):
         return target
 
 
-    def get(self, sel):
+    def _get(self, sel):
         """
         Get a DataVariableView based on the index position(s).
         The parameter sel can be an int, slice, or some combo within a tuple. For example, a tuple of slices (of the index positions).
@@ -1584,7 +1584,7 @@ class DataVariableView(Variable):
                 for i, s in enumerate(self.shape)
             )
 
-            view = self.get(sel)
+            view = self._get(sel)
             data = view.data
 
             yield sel, data

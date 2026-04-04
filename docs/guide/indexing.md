@@ -90,6 +90,24 @@ with cfdb.open_dataset(file_path) as ds:
     print(view.coord_names)
     print(view.data_var_names)
     temp = view['temperature']
+
+    # CRS is accessible on views
+    print(view.crs)
+```
+
+### Chaining selections
+
+Selections can be chained — call `select()` or `select_loc()` on a `DatasetView` to narrow it further:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    # Position-based chaining: second selection is relative to the first
+    view = ds.select({'latitude': slice(20, 60)})
+    narrower = view.select({'latitude': slice(5, 15)})  # positions 25-35 in the full dataset
+
+    # Location-based chaining: narrows by coordinate values within the view
+    view = ds.select({'latitude': slice(0, 50)})
+    narrower = view.select_loc({'latitude': slice(40.0, 45.0)})
 ```
 
 !!! warning

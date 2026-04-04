@@ -97,7 +97,10 @@ classDiagram
         +coords : tuple
         +data_vars : tuple
         +attrs : Attributes
+        +crs : pyproj.CRS
         +get(var_name) CoordinateView | DataVariableView
+        +select(sel) DatasetView
+        +select_loc(sel) DatasetView
     }
 
     %% ── Variable Hierarchy ────────────────────────────
@@ -119,7 +122,6 @@ classDiagram
     }
 
     class CoordinateView {
-        +get(sel) CoordinateView
         +iter_chunks(include_data, decoded) Generator
         +items(decoded) Generator
         +get_chunk(sel, missing_none) ndarray
@@ -141,7 +143,6 @@ classDiagram
 
     class DataVariableView {
         +coords : tuple~Coordinate~
-        +get(sel) DataVariableView
         +set(sel, data, decoded)
         +iter_chunks(chunk_shape, max_mem, decoded) Generator
         +iter_chunk_slices(chunk_shape) Generator
