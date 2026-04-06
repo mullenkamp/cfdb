@@ -505,7 +505,9 @@ class DatasetBase:
         """
         Copy a dataset to a new cfdb file.
         """
-        kwargs = dict(n_buckets=self._blt._n_buckets, buffer_size=self._blt._write_buffer_size)
+        blt = self._blt
+        local_file = getattr(blt, '_local_file', blt)
+        kwargs = dict(n_buckets=blt._n_buckets, buffer_size=local_file._write_buffer_size)
 
         new_ds = open_dataset(file_path, 'n', dataset_type=self._sys_meta.dataset_type.value, compression=self.compression, compression_level=self.compression_level, **kwargs)
 

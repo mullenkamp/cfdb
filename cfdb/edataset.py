@@ -30,6 +30,15 @@ class EDataset(Dataset):
         """
         self._blt.delete_remote()
 
+    def push(self, force_push=False):
+        """
+        Push local changes to the remote.
+
+        Returns True if updated, False if no changes, or a dict of failed keys on partial failure.
+        Use force_push=True to retry after a partial failure.
+        """
+        return self._blt.changes().push(force_push=force_push)
+
     def copy_remote(self, remote_conn: ebooklet.S3Connection):
         """
         Copy the entire remote dataset to another remote location. The new location must be empty.
@@ -55,6 +64,8 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
                   compression: str='zstd',
                   compression_level: int=1,
                   num_groups: int = None,
+                  lock_timeout: int = 300,
+                  force_lock: bool = False,
                   **kwargs):
     """
     Open a cfdb that is linked with a remote S3 database.
@@ -85,6 +96,11 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
         The compression level used by the compression algorithm. Setting this to None will use the defaults, which is 1 for both compression options.
     num_groups : int or None
         The number of groups for grouped S3 object storage. Required when creating a new database (flag='n'). For existing databases, this value is read from S3 metadata and the user-provided value is ignored.
+        Guidance: aim for groups of 10-100MB each. A reasonable starting point is max(10, total_expected_keys // 50). Too few groups means large S3 objects and slow partial updates; too many means more API calls per push. Each group's data is limited to 4GB due to offset encoding.
+    lock_timeout : int
+        Maximum time in seconds to wait for the write lock when opening for write. Default is 300 (5 minutes). Only applies when flag is not ``'r'``. Raises ``TimeoutError`` if the lock cannot be acquired within the timeout.
+    force_lock : bool
+        If True, break any existing write locks before acquiring. Use this to recover from stale locks left by crashed processes. Default is False.
     **kwargs
         Any kwargs that can be passed to ``ebooklet.open_ebooklet``.
 
@@ -97,7 +113,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
 
     fp = pathlib.Path(file_path)
     fp_exists = fp.exists()
-    open_blt = ebooklet.open_ebooklet(remote_conn, file_path, flag, num_groups=num_groups, **kwargs)
+    open_blt = ebooklet.open_ebooklet(remote_conn, file_path, flag, num_groups=num_groups, lock_timeout=lock_timeout, force_lock=force_lock, **kwargs)
 
     if (not fp_exists or flag == 'n') and open_blt.writable:
         create = True
