@@ -169,7 +169,7 @@ requires-dist = [
     { name = "cfdb-models", specifier = ">=0.1.0" },
     { name = "cfdb-vars", specifier = ">=0.2.2" },
     { name = "cftime", marker = "extra == 'netcdf4'" },
-    { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.8.0" },
+    { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.8.1" },
     { name = "geointerp", specifier = ">=0.1.1" },
     { name = "h5netcdf", marker = "extra == 'netcdf4'" },
     { name = "lz4" },
@@ -571,16 +571,16 @@ wheels = [
 
 [[package]]
 name = "ebooklet"
-version = "0.8.0"
+version = "0.8.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "booklet" },
     { name = "s3func" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/34/37/ffc62ca5cdac04aceb53aff20eb52f324738b1b6d55c84d2280d85aa7a3b/ebooklet-0.8.0.tar.gz", hash = "sha256:041b650e4d4ed17079d35ea9eba11e23388166fd594376673cfdd61e66973eef", size = 19303, upload-time = "2026-03-18T19:43:38.524Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/7c/11e2cc0ea79fd11f99747b020104e6739a94c16e32f0d8515870647f500c/ebooklet-0.8.1.tar.gz", hash = "sha256:dff485ee167a05a1941bbb62eef6411e76e8d431720f36590f7a5e548f3f91c8", size = 20126, upload-time = "2026-04-06T00:27:05.249Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/d7/f469fc284cd372450e1a31d1b344ae8918f75d304942911b76189717fabf/ebooklet-0.8.0-py3-none-any.whl", hash = "sha256:aede3610a9445b93d3e134388f7614b442a276302cc0682452c6f2835fe26acf", size = 20070, upload-time = "2026-03-18T19:43:37.015Z" },
+    { url = "https://files.pythonhosted.org/packages/21/03/f361aab426c215dded0dcf2bf5b3bdf5a9b7147803a74f468ac7c784fc7b/ebooklet-0.8.1-py3-none-any.whl", hash = "sha256:3852ff9899cc1499f945f25834c699dd2bf3c2499e8de053c5eb0f6d5eecc543", size = 20776, upload-time = "2026-04-06T00:27:03.921Z" },
 ]
 
 [[package]]

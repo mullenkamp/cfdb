@@ -155,6 +155,16 @@ class DatasetBase:
         return tuple(self[var_name] for var_name in self.var_names)
 
 
+    def load(self):
+        """
+        Load data from the remote into the local file. Only applies to EDatasets.
+        For a DatasetView, loads only the chunks within the selection.
+        """
+        if self._has_load_items:
+            for var_name in self.data_var_names:
+                self[var_name].load()
+
+
     def select(self, sel: dict):
         """
         Filter the dataset variables by a selection of the coordinate positions.
