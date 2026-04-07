@@ -12,6 +12,7 @@ from typing import Union, List
 import pathlib
 import msgspec
 import weakref
+import warnings
 from copy import deepcopy
 import pyproj
 import math
@@ -976,6 +977,7 @@ def open_dataset(file_path: Union[str, pathlib.Path],
                  dataset_type: str='grid',
                  compression: str='zstd',
                  compression_level: int=None,
+                 allow_partial: bool=False,
                  **kwargs):
     """
     Open a cfdb dataset. This uses the python package booklet for managing data in a single file.
@@ -1020,11 +1022,23 @@ def open_dataset(file_path: Union[str, pathlib.Path],
         create = False
 
     if dataset_type.lower() == 'grid':
-        return Grid(fp, open_blt, create, compression, compression_level, 'grid')
+        ds = Grid(fp, open_blt, create, compression, compression_level, 'grid')
     elif dataset_type.lower() == 'ts_ortho':
-        return TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
+        ds = TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
     else:
         raise TypeError('The only option for the dataset type is "grid".')
+
+    if not allow_partial and not create and ds._sys_meta.remote:
+        warnings.warn(
+            f"The dataset '{file_path}' was created as a remote (S3-backed) dataset. "
+            "Opening it with open_dataset means only previously-fetched chunks are available locally. "
+            "Reads of missing data will silently return fill values (NaN or 0). "
+            "Use open_edataset to fetch data from the remote, or pass allow_partial=True to suppress this warning.",
+            data_models.PartialDataWarning,
+            stacklevel=2,
+        )
+
+    return ds
 
 
 

@@ -18,6 +18,11 @@ class EDataset(Dataset):
     """
 
     """
+    def __init__(self, file_path, open_blt, create, compression, compression_level, dataset_type):
+        super().__init__(file_path, open_blt, create, compression, compression_level, dataset_type)
+        if self.writable:
+            self._sys_meta.remote = True
+
     def changes(self):
         """
         Return a Change object of the changes that have occurred during this session.

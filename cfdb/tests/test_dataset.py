@@ -2053,6 +2053,71 @@ def test_view_crs():
     fp2.unlink()
 
 
+def test_partial_data_warning():
+    """open_dataset warns when opening a file with remote=True in metadata."""
+    import warnings
+    from cfdb import PartialDataWarning
+
+    fp = script_path.joinpath('test_partial_warn.cfdb')
+
+    # Create a dataset and manually set remote=True to simulate an edataset
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        ds._sys_meta.remote = True
+
+    # Reopen with open_dataset — should warn
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        with open_dataset(fp) as ds:
+            pass
+        assert len(w) == 1
+        assert issubclass(w[0].category, PartialDataWarning)
+        assert 'remote' in str(w[0].message).lower()
+
+    fp.unlink()
+
+
+def test_partial_data_warning_suppressed():
+    """allow_partial=True suppresses the warning."""
+    import warnings
+    from cfdb import PartialDataWarning
+
+    fp = script_path.joinpath('test_partial_suppress.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        ds._sys_meta.remote = True
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        with open_dataset(fp, allow_partial=True) as ds:
+            pass
+        partial_warnings = [x for x in w if issubclass(x.category, PartialDataWarning)]
+        assert len(partial_warnings) == 0
+
+    fp.unlink()
+
+
+def test_no_partial_data_warning_for_local():
+    """Normal local datasets should not trigger the warning."""
+    import warnings
+    from cfdb import PartialDataWarning
+
+    fp = script_path.joinpath('test_no_partial_warn.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        with open_dataset(fp) as ds:
+            pass
+        partial_warnings = [x for x in w if issubclass(x.category, PartialDataWarning)]
+        assert len(partial_warnings) == 0
+
+    fp.unlink()
+
+
 
 
 
