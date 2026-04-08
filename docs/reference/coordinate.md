@@ -48,7 +48,7 @@ with cfdb.open_dataset(file_path) as ds:
 
 ### append(data)
 
-Append data to the end of the coordinate. Data must maintain uniqueness and ascending order.
+Append data to the end of the coordinate. Data must maintain uniqueness and ascending order. If the coordinate has an enforced `step` and the new data is not adjacent (there is a gap), intermediate values are auto-filled provided the gap is a valid multiple of the step. Data variables at auto-filled positions are empty (NaN/fillvalue) until written.
 
 ```python
 lat.append(np.array([20.0, 20.1], dtype='float32'))
@@ -56,7 +56,7 @@ lat.append(np.array([20.0, 20.1], dtype='float32'))
 
 ### prepend(data)
 
-Prepend data to the beginning of the coordinate.
+Prepend data to the beginning of the coordinate. Same auto-fill behavior as `append()` when a step is enforced.
 
 ```python
 lat.prepend(np.array([-0.2, -0.1], dtype='float32'))
