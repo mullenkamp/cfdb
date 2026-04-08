@@ -1,5 +1,6 @@
 import io
 import os
+import warnings
 import pytest
 try:
     import tomllib as toml
@@ -10,6 +11,7 @@ import numpy as np
 import pathlib
 import ebooklet
 from cfdb import open_dataset, open_edataset, dtypes
+from cfdb.data_models import PartialDataWarning
 
 ###################################################
 ### Parameters
@@ -225,5 +227,45 @@ def test_edataset_write_and_push(pushed_dataset):
         dv = ds[name]
         view = dv[modified_slice]
         assert np.allclose(view.data, new_data, atol=0.1)
+
+    _clean_local()
+
+
+def test_edataset_load_includes_coordinates(pushed_dataset):
+    """load() must fetch coordinate chunks so open_dataset can read them."""
+    _clean_local()
+
+    with open_edataset(pushed_dataset, file_path) as ds:
+        ds.load()
+
+    with open_dataset(file_path, allow_partial=True) as ds:
+        lat = ds['latitude'].data
+        assert not np.any(np.isnan(lat)), "Latitude data is NaN after load()"
+        assert np.allclose(lat, lat_data)
+
+        lon = ds['longitude'].data
+        assert not np.any(np.isnan(lon)), "Longitude data is NaN after load()"
+        assert np.allclose(lon, lon_data)
+
+        time = ds['time'].data
+        assert not np.any(np.isnat(time)), "Time data is NaT after load()"
+        assert np.array_equal(time, time_data)
+
+    _clean_local()
+
+
+def test_edataset_remote_flag_persisted(pushed_dataset):
+    """open_dataset on a pulled edataset file should emit PartialDataWarning."""
+    _clean_local()
+
+    with open_edataset(pushed_dataset, file_path) as ds:
+        pass
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        with open_dataset(file_path) as ds:
+            pass
+        partial_warnings = [x for x in w if issubclass(x.category, PartialDataWarning)]
+        assert len(partial_warnings) == 1, f"Expected 1 PartialDataWarning, got {len(partial_warnings)}"
 
     _clean_local()

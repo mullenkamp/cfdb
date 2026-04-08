@@ -7,6 +7,7 @@ This module is only imported when ebooklet is installed.
 from __future__ import annotations
 
 import ebooklet
+import msgspec
 from typing import Union
 import pathlib
 
@@ -22,6 +23,7 @@ class EDataset(Dataset):
         super().__init__(file_path, open_blt, create, compression, compression_level, dataset_type)
         if self.writable:
             self._sys_meta.remote = True
+            self._blt.set_metadata(msgspec.to_builtins(self._sys_meta))
 
     def changes(self):
         """

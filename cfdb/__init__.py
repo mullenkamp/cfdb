@@ -13,4 +13,4 @@ try:
 except (ImportError, AttributeError):
     pass
 
-__version__ = '0.8.4'
+__version__ = '0.8.5'

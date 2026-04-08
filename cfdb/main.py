@@ -162,7 +162,7 @@ class DatasetBase:
         For a DatasetView, loads only the chunks within the selection.
         """
         if self._has_load_items:
-            for var_name in self.data_var_names:
+            for var_name in self.var_names:
                 self[var_name].load()
 
 
