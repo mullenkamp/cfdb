@@ -495,6 +495,117 @@ def test_coordinate_prepend_then_append():
     fp.unlink()
 
 
+def test_step_append_adjacent():
+    """Multi-element append with correct adjacent step succeeds."""
+    fp = script_path.joinpath('test_step_append_adjacent.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([1.0, 2.0, 3.0], dtype='float32'), dtype='float32', step=True)
+        coord.append(np.array([4.0, 5.0, 6.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+
+    fp.unlink()
+
+
+def test_step_append_fill_bridge():
+    """Multi-element append with gap auto-fills intermediate values."""
+    fp = script_path.joinpath('test_step_append_fill.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([1.0, 2.0, 3.0], dtype='float32'), dtype='float32', step=True)
+        coord.append(np.array([5.0, 6.0, 7.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+
+    fp.unlink()
+
+
+def test_step_append_fill_single():
+    """Single-element append with gap auto-fills intermediate values."""
+    fp = script_path.joinpath('test_step_append_fill_single.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([1.0, 2.0, 3.0], dtype='float32'), dtype='float32', step=True)
+        coord.append(np.array([5.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0])
+
+    fp.unlink()
+
+
+def test_step_append_non_multiple_raises():
+    """Append where gap is not a multiple of step raises ValueError."""
+    fp = script_path.joinpath('test_step_append_non_mult.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([1.0, 2.0, 3.0], dtype='float32'), dtype='float32', step=True)
+        with pytest.raises(ValueError):
+            coord.append(np.array([4.5, 5.5], dtype='float32'))
+
+    fp.unlink()
+
+
+def test_step_prepend_adjacent():
+    """Multi-element prepend with correct adjacent step succeeds."""
+    fp = script_path.joinpath('test_step_prepend_adjacent.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([4.0, 5.0, 6.0], dtype='float32'), dtype='float32', step=True)
+        coord.prepend(np.array([1.0, 2.0, 3.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+
+    fp.unlink()
+
+
+def test_step_prepend_fill_bridge():
+    """Multi-element prepend with gap auto-fills intermediate values."""
+    fp = script_path.joinpath('test_step_prepend_fill.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([4.0, 5.0, 6.0], dtype='float32'), dtype='float32', step=True)
+        coord.prepend(np.array([1.0, 2.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+
+    fp.unlink()
+
+
+def test_step_prepend_fill_single():
+    """Single-element prepend with gap auto-fills intermediate values."""
+    fp = script_path.joinpath('test_step_prepend_fill_single.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([4.0, 5.0, 6.0], dtype='float32'), dtype='float32', step=True)
+        coord.prepend(np.array([2.0], dtype='float32'))
+        assert np.allclose(coord.data, [2.0, 3.0, 4.0, 5.0, 6.0])
+
+    fp.unlink()
+
+
+def test_step_prepend_non_multiple_raises():
+    """Prepend where gap is not a multiple of step raises ValueError."""
+    fp = script_path.joinpath('test_step_prepend_non_mult.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([4.0, 5.0, 6.0], dtype='float32'), dtype='float32', step=True)
+        with pytest.raises(ValueError):
+            coord.prepend(np.array([1.5, 2.5], dtype='float32'))
+
+    fp.unlink()
+
+
+def test_step_append_fill_datetime():
+    """Datetime append with gap auto-fills intermediate dates."""
+    fp = script_path.joinpath('test_step_append_fill_dt.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.time(
+            data=np.array(['2023-01-01', '2023-01-02', '2023-01-03'], dtype='datetime64[D]'),
+        )
+        coord.append(np.array(['2023-01-06', '2023-01-07'], dtype='datetime64[D]'))
+        expected = np.arange('2023-01-01', '2023-01-08', dtype='datetime64[D]')
+        assert np.array_equal(coord.data, expected)
+
+    fp.unlink()
+
+
 def test_data_var_read_write_after_prepend():
     """Test that data variable reads/writes work correctly after coordinate prepend."""
     fp = script_path.joinpath('test_prepend_data_var.cfdb')
