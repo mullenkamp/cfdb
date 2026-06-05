@@ -2229,6 +2229,75 @@ def test_no_partial_data_warning_for_local():
     fp.unlink()
 
 
+def test_to_netcdf4_crs(tmp_path):
+    """to_netcdf4 writes the CRS as a CF grid_mapping variable."""
+    import pyproj
+
+    cfdb_fp = tmp_path / "crs_grid.cfdb"
+    nc_fp = tmp_path / "crs_grid.nc"
+
+    lat = np.linspace(0, 9.9, 20, dtype='float32')
+    lon = np.linspace(-5, 4.9, 30, dtype='float32')
+    times = np.linspace(0, 9, 10, dtype='datetime64[D]')
+    data = np.random.default_rng(0).standard_normal((20, 30, 10)).astype('float32')
+
+    with open_dataset(cfdb_fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(10,))
+        ds.create.coord.lon(data=lon, chunk_shape=(15,))
+        ds.create.coord.time(data=times, dtype=times.dtype)
+
+        ds.create.crs.from_user_input(4326, 'longitude', 'latitude')
+
+        data_dtype = dtypes.dtype('float32')
+        dv = ds.create.data_var.generic(
+            'temperature', ('latitude', 'longitude', 'time'),
+            data_dtype, chunk_shape=(10, 15, 5))
+        dv[:] = data
+
+        expected_crs = ds.crs
+        ds.to_netcdf4(nc_fp)
+
+    with h5netcdf.File(nc_fp) as f:
+        # grid-mapping variable exists with CF attrs
+        assert 'spatial_ref' in f.variables
+        gm_attrs = dict(f['spatial_ref'].attrs)
+        assert 'crs_wkt' in gm_attrs
+        assert gm_attrs['grid_mapping_name'] == 'latitude_longitude'
+
+        # data var references the grid mapping
+        assert f['temperature'].attrs['grid_mapping'] == 'spatial_ref'
+
+        # spatial coords carry axis attrs
+        assert f['latitude'].attrs['axis'] == 'Y'
+        assert f['longitude'].attrs['axis'] == 'X'
+
+        # round-trip the CRS
+        assert pyproj.CRS.from_cf(gm_attrs) == expected_crs
+
+
+def test_to_netcdf4_no_crs(tmp_path):
+    """to_netcdf4 with no CRS set writes no grid_mapping variable or attrs."""
+    cfdb_fp = tmp_path / "no_crs_grid.cfdb"
+    nc_fp = tmp_path / "no_crs_grid.nc"
+
+    lat = np.linspace(0, 9.9, 20, dtype='float32')
+    lon = np.linspace(-5, 4.9, 30, dtype='float32')
+    data = np.random.default_rng(0).standard_normal((20, 30)).astype('float32')
+
+    with open_dataset(cfdb_fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(10,))
+        ds.create.coord.lon(data=lon, chunk_shape=(15,))
+        dv = ds.create.data_var.generic(
+            'temperature', ('latitude', 'longitude'),
+            dtypes.dtype('float32'), chunk_shape=(10, 15))
+        dv[:] = data
+        ds.to_netcdf4(nc_fp)
+
+    with h5netcdf.File(nc_fp) as f:
+        assert 'spatial_ref' not in f.variables
+        assert 'grid_mapping' not in dict(f['temperature'].attrs)
+
+
 
 
 

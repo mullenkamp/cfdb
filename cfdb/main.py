@@ -579,6 +579,20 @@ class DatasetBase:
         data_var_names, coord_names = utils.filter_var_names(self, include_data_vars, exclude_data_vars)
 
         with h5netcdf.File(file_path, 'w', **file_kwargs) as h5:
+            # Grid mapping (CRS) setup
+            grid_mapping_name = None
+            grid_mapping_cf = None
+            if self.crs is not None:
+                grid_mapping_cf = self.crs.to_cf()
+                existing_names = set(coord_names) | set(data_var_names)
+                grid_mapping_name = 'spatial_ref'
+                if grid_mapping_name in existing_names:
+                    grid_mapping_name = 'crs'
+                    i = 1
+                    while grid_mapping_name in existing_names:
+                        grid_mapping_name = f'spatial_ref_{i}'
+                        i += 1
+
             # dims/coords
             for coord_name in coord_names:
                 coord = self[coord_name]
@@ -626,6 +640,9 @@ class DatasetBase:
 
                 attrs.update({'dtype': dtype_encoded.name})
 
+                if coord.axis is not None:
+                    attrs['axis'] = coord.axis.value.upper()
+
                 h5_coord = h5.create_variable(coord_name, (coord_name,), dtype_encoded, compression=compression, chunks=chunk_shape, fillvalue=fillvalue)
 
                 try:
@@ -636,6 +653,11 @@ class DatasetBase:
 
                 for write_chunk, data in coord.iter_chunks(True, decoded=False):
                     h5_coord[write_chunk] = data.astype(dtype_encoded)
+
+            # Grid mapping variable (CRS)
+            if grid_mapping_name is not None:
+                h5_crs = h5.create_variable(grid_mapping_name, (), dtype='int32')
+                h5_crs.attrs.update(grid_mapping_cf)
 
             # Data vars
             for data_var_name in data_var_names:
@@ -666,7 +688,7 @@ class DatasetBase:
                         # attrs['standard_name'] = 'time'
                         dtype_encoded = np.dtypes.Int64DType()
                     else:
-                        dtype_encoded = coord.dtype.dtype_decoded
+                        dtype_encoded = data_var.dtype.dtype_decoded
                 else:
                     if data_var.dtype.kind == 'M':
                         units = utils.parse_cf_time_units(data_var.dtype.dtype_decoded)
@@ -683,6 +705,14 @@ class DatasetBase:
                     attrs['_FillValue'] = fillvalue
 
                 attrs.update({'dtype': dtype_encoded.name})
+
+                if grid_mapping_name is not None:
+                    has_spatial = any(
+                        self[cn].axis is not None and self[cn].axis.value in ('x', 'y', 'xy')
+                        for cn in data_var.coord_names
+                    )
+                    if has_spatial:
+                        attrs['grid_mapping'] = grid_mapping_name
 
                 h5_data_var = h5.create_variable(data_var_name, data_var.coord_names, dtype_encoded, compression=compression, chunks=tuple(chunk_shape), fillvalue=fillvalue)
 

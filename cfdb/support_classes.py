@@ -1352,16 +1352,6 @@ class DataVariableView(Variable):
     def __iter__(self):
         return self.iter_chunks(include_data=False)
 
-    def items(self, decoded=True):
-        """
-        Iterate through all indexes.
-        """
-        for target_chunk, data in self.iter_chunks(decoded=decoded):
-            data_starts = tuple(s.start for s in target_chunk)
-            for index in itertools.product(*(range(s.start, s.stop) for s in target_chunk)):
-                data_index = tuple(i - ds for i, ds in zip(index, data_starts))
-                yield index, data[data_index]
-
     @property
     def data(self):
         coord_origins = self.get_coord_origins()
