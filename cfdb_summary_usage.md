@@ -377,12 +377,12 @@ with open_dataset('source.cfdb') as ds:
     # Export to netCDF4 (requires h5netcdf):
     ds.to_netcdf4('output.nc')
 
-# Standalone conversion functions:
+# Standalone export function:
 from cfdb import cfdb_to_netcdf4
 cfdb_to_netcdf4('source.cfdb', 'output.nc', sel_loc={'time': slice('2020-01-01', '2020-12-31')})
 
-from cfdb.tools import netcdf4_to_cfdb
-netcdf4_to_cfdb('input.nc', 'output.cfdb')
+# Importing netCDF4 (and other formats) into cfdb lives in the separate cfdb-ingest package:
+# https://github.com/mullenkamp/cfdb-ingest
 ```
 
 ### Deleting Variables

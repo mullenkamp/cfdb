@@ -56,7 +56,7 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 
 **Indexing** (`indexers.py`): Handles index-based and location-based selection. Converts user selections to chunk keys for Booklet lookups. `LocationIndexer` supports `.loc[]` syntax.
 
-**Conversion tools** (`tools.py`): `netcdf4_to_cfdb()` and `cfdb_to_netcdf4()` for format conversion. Requires h5netcdf.
+**Conversion tools** (`tools.py`): `cfdb_to_netcdf4()` exports a cfdb to netCDF4 (requires h5netcdf). Importing netCDF4/other formats *into* cfdb lives in the separate [cfdb-ingest](https://github.com/mullenkamp/cfdb-ingest) package, not here.
 
 **Legacy code** (`core.py`): Old h5py-based implementation, not part of the current API.
 
@@ -75,4 +75,4 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 ### Dependencies
 
 Core: booklet, cfdb-models, rechunkit, numpy, zstandard, msgspec, lz4, shapely, pyproj
-Optional: h5netcdf + cftime (netcdf4 support), ebooklet (S3 support)
+Optional: h5netcdf (netcdf4 export support), ebooklet (S3 support)

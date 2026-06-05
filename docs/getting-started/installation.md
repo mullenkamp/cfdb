@@ -24,7 +24,7 @@ cfdb has optional dependency groups for additional functionality:
 
 | Extra | Packages | Purpose |
 |-------|----------|---------|
-| `netcdf4` | h5netcdf, cftime | NetCDF4 import/export |
+| `netcdf4` | h5netcdf | NetCDF4 export |
 | `ebooklet` | ebooklet | S3 remote sync (EDataset) |
 | `xarray` | xarray | Xarray backend engine |
 

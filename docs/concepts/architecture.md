@@ -52,7 +52,6 @@ classDiagram
 
     class tools {
         <<module>>
-        netcdf4_to_cfdb(nc_path, cfdb_path, sel, sel_loc, max_mem, ...)
         cfdb_to_netcdf4(cfdb_path, nc_path, compression, sel, sel_loc, ...)
     }
 

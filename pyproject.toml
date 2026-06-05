@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-netcdf4 = ['h5netcdf', 'cftime']
+netcdf4 = ['h5netcdf']
 ebooklet = ['ebooklet>=0.8.3']
 xarray = ['xarray']
 

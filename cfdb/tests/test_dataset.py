@@ -209,9 +209,6 @@ def test_prune():
 def test_cfdb_to_netcdf4():
     cfdb_to_netcdf4(file_path, nc_file_path, sel_loc=ds_loc_sel)
 
-# def test_netcdf4_to_cfdb():
-#     netcdf4_to_cfdb(nc_file_path, new_file_path)
-
 
 ##############################################
 ### Independent tests (use their own files)
