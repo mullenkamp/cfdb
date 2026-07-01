@@ -2,15 +2,26 @@
 
 cfdb is a pure Python database for labeled multi-dimensional arrays following CF conventions. It is installed as a pip/uv package. Use this reference when writing code that imports or interacts with cfdb.
 
+### cfdb is an operational database, not an archive format
+
+This is the key mental model (people routinely conflate the two): **netCDF4 is primarily an archive/storage
+format** — write-once, read-mostly-whole, optimised for portability and long-term storage. **cfdb (the file
+format *plus* its API) is an operational database** — designed for fast, repeated, partial reads and writes
+against live data: index/`loc` selection, appends/prepends/truncation, chunk-aligned iteration, groupby,
+rechunk-on-read for arbitrary query shapes, and S3-backed remotes. Design decisions therefore optimise for
+**query speed and RAM**, not just on-disk size — which is why chunk shape (see "Chunk sizing") is a
+first-class, correctness-adjacent concern here in a way it isn't for a netCDF archive. cfdb interoperates
+with netCDF4 (`to_netcdf4` / `cfdb_to_netcdf4` to export an archive copy), but treat netCDF as the
+interchange/archive format and cfdb as the working store.
+
 ### Installation
 
 ```bash
-pip install cfdb
-# or
 uv add cfdb
 ```
 
 ### Imports
+Import should go at the top of the python script (not within functions).
 
 ```python
 from cfdb import open_dataset, cfdb_to_netcdf4, dtypes
@@ -83,7 +94,7 @@ with open_dataset('data.cfdb', flag='n') as ds:
     ds.create.coord.like('new_name', existing_coord, copy_data=True)
 ```
 
-**step parameter**: If coordinate values are regularly spaced (e.g. hourly), set `step=True` (auto-detect from data) or pass the explicit step value. This enforces regularity on future appends.
+**step parameter**: If coordinate values are regularly spaced (e.g. hourly), set `step=True` (auto-detect from data) or pass the explicit step value. This enforces regularity on future appends. When appending or prepending data that is not adjacent to the existing data (i.e. there is a gap), cfdb will automatically fill in the missing intermediate coordinate values as long as the gap is a valid multiple of the step. The associated data variable positions will be empty (NaN/fillvalue) until written. If the gap is not a valid multiple of the step, a `ValueError` is raised.
 
 ### Creating Data Variables
 
@@ -312,6 +323,60 @@ with open_dataset('data.cfdb') as ds:
         monthly_temp = var_data['temperature']
 ```
 
+### Chunk sizing (choosing `chunk_shape`)
+
+cfdb is an **operational** database: read/write speed depends heavily on the chunk shape, because any query
+whose access pattern differs from the stored layout is served by **rechunking on read**, and rechunkit
+materialises intermediate chunks in RAM to do it. `chunk_shape` is set at creation and baked into the file
+(changing it later needs a rebuild or a `rechunk`), so it's worth getting right for large data.
+
+**When to hand-pick vs. let cfdb decide:**
+- **Flexible source (small, or no fixed native chunking): don't pass `chunk_shape`.** cfdb calls
+  `rechunkit.guess_chunk_shape` for you and picks a balanced, ~2 MB, composite-dim shape. Don't over-think it.
+- **Large source with a specific native chunking** (e.g. SST: one netCDF per timestep, full spatial grid):
+  **hand-pick a smart shape** — at scale it is vital for both storage and query RAM.
+
+**A good hand-picked shape balances four things:**
+1. **Pre-compressed size ~2 MB (and always > 1 MB).** Size = `prod(chunk_shape) * itemsize`, where `itemsize`
+   is the **encoded/stored** width — int-packed dtypes use their integer width (int8=1, int16=2), not the
+   decoded float32 (e.g. `dtypes.dtype('float32', precision=2, min_value=270, max_value=320)` → int16, 2 B).
+   Below ~1 MB zstd compresses noticeably worse; ~2 MB is `guess_chunk_shape`'s default (`2**21`, up to ×1.5).
+2. **Balanced across dimensions — do NOT make one dim huge and the others tiny.** The two end-member reads sit
+   at opposite corners: a **time series at one point** `(all_time, 1, 1)` vs a **map at one timestep**
+   `(1, all_y, all_x)`. A balanced chunk serves *both* with modest RAM; a chunk that's large in one dimension
+   forces reading that whole dimension to satisfy the query that cuts the other way (read amplification + RAM).
+   Only skew toward one dim if you genuinely have a single dominant access pattern.
+3. **Not too big — RAM is the limit, not disk.** The RAM rechunkit needs to serve a cross-cutting read grows
+   with the chunk's cell count and *multiplicatively* with the number of dimensions, so more dims + bigger
+   per-dim sizes blow up RAM fast. Once you clear the ~1–2 MB zstd threshold, prefer **smaller and balanced**
+   over larger; that lets rechunkit satisfy either end-member read with less RAM. (This is why you don't just
+   maximise chunk size.)
+4. **Composite-number dims** (1, 2, 4, 6, 12, 24, 36, 48, 60, 120, 180, 240, 360, 720, …). `guess_chunk_shape`
+   snaps to these because the LCM of two composite numbers tends to be small → a later rechunk between source
+   and target shapes needs far fewer reads/writes.
+
+Let rechunkit pick (returns balanced, composite-number dims at the target size):
+```python
+from rechunkit import guess_chunk_shape
+shape = guess_chunk_shape(var.shape, itemsize=2, target_chunk_size=2**21)  # ~2 MB int16 chunks
+# e.g. (16650, 1000, 1600) int16 -> (360, 48, 60)  == 2.07 MB pre-compressed, balanced, all composite
+```
+
+**Compression interacts with layout, not just chunk size.** Chunks are stored C-order with the first
+(outermost) dimension slowest-varying — by convention time (CF orders dims `T, Z, Y, X`). When the *most
+compressible* structure runs along that outer axis (e.g. day-to-day-correlated geophysical fields), a cell's
+temporally-adjacent samples sit `prod(inner_dims) * itemsize` bytes apart in the byte stream, so **smaller
+inner (spatial) tiles compress better** — the redundancy is closer together for zstd to find — while **the
+outer (time) chunk depth barely changes the ratio**. Measured on 45 yr of daily SST `(16650, 1000, 1600)`
+int16: `(120, 60, 60)` compressed ~4.5% smaller than `(120, 100, 100)` for identical data, and `guess`'s
+`(360, 48, 60)` a further ~2.5%; shrinking the spatial dims kept helping while deepening time did almost
+nothing. This can outweigh the "> 1 MB" guidance in point 1 above — but don't over-shrink: tiny spatial tiles
+hurt whole-map reads and multiply per-chunk + S3-group overhead, so keep them modest rather than minimal. And
+note `guess_chunk_shape` is size/balance-only and semantics-blind — it lands near this compression optimum
+*only* when the compressible axis also happens to be the longest (so it receives the large chunk while the
+short spatial axes get small ones); for very large time-series-of-maps builds, reason the shape out rather
+than trust the aspect ratio.
+
 ### Rechunking
 
 Change the chunk layout of a variable:
@@ -321,8 +386,9 @@ with open_dataset('data.cfdb', flag='w') as ds:
     temp = ds['temperature']
     rechunker = temp.rechunker()
 
-    # Estimate optimal chunk shape for a target size in bytes:
-    new_shape = rechunker.guess_chunk_shape(target_chunk_size=2**20)
+    # Estimate optimal chunk shape for a target PRE-COMPRESSED size in bytes.
+    # Default is 2**21 (2 MB); keep it > 1 MB for good zstd ratios (see "Chunk sizing" above).
+    new_shape = rechunker.guess_chunk_shape(target_chunk_size=2**21)
 
     # Rechunk and write to a new variable:
     new_var = ds.create.data_var.generic('temp_rechunked', temp.coord_names, dtype=temp.dtype, chunk_shape=new_shape)
@@ -381,8 +447,8 @@ with open_dataset('source.cfdb') as ds:
 from cfdb import cfdb_to_netcdf4
 cfdb_to_netcdf4('source.cfdb', 'output.nc', sel_loc={'time': slice('2020-01-01', '2020-12-31')})
 
-# Importing netCDF4 (and other formats) into cfdb lives in the separate cfdb-ingest package:
-# https://github.com/mullenkamp/cfdb-ingest
+# NOTE: Importing netCDF4 (and other formats) INTO cfdb is NOT part of cfdb.
+# Use the separate cfdb-ingest package (https://github.com/mullenkamp/cfdb-ingest).
 ```
 
 ### Deleting Variables
@@ -412,6 +478,100 @@ with open_dataset('data.cfdb') as ds:
     interp_obj = temp.interp()  # auto-detects x/y from CRS axis metadata
     # For grid: returns GridInterp
     # For ts_ortho: returns PointInterp
+```
+
+### EDataset (S3-backed remote datasets)
+
+A cfdb file created with `open_dataset` or `open_edataset` uses the same local file format. `open_edataset` links a local cfdb file to an S3 remote via `ebooklet`. Reads are seamless (pulls from remote transparently). Writes require explicitly pushing changes.
+
+```python
+from cfdb import open_edataset
+from ebooklet import S3Connection
+
+remote_conn = S3Connection(
+    access_key_id='...',
+    access_key='...',
+    bucket='my-bucket',
+    db_key='my_data.cfdb',
+    endpoint_url='https://s3.example.com',
+    db_url='https://s3.example.com/my-bucket/my_data.cfdb',  # optional, for read-only http access
+)
+
+# Create new remote-linked cfdb (num_groups required for new databases):
+with open_edataset(remote_conn, 'data.cfdb', flag='n', num_groups=100) as ds:
+    ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+    # ... create coords, data vars, write data as normal ...
+
+# Open existing local cfdb linked to remote (read/write):
+with open_edataset(remote_conn, 'data.cfdb', flag='w', num_groups=100) as ds:
+    # ... read/write data as normal ...
+    pass
+
+# Read-only (pulls from remote if local file missing or stale):
+with open_edataset(remote_conn, 'data.cfdb') as ds:
+    data = ds['temperature'].data
+```
+
+**Choosing `num_groups`:** chunks are hashed into `num_groups` remote objects, so each object bundles many
+chunks — an S3-remote concern, independent of `chunk_shape`. Bundling avoids thousands of tiny objects (a
+compressed chunk may be ~100 KB) whose per-object request latency would dominate. Trade-off: fewer/larger
+groups cut read latency but make each *update* re-upload a bigger object; more/smaller groups make updates
+cheap but add object overhead. So rarely-changing / append-mostly data (e.g. SST appended a year at a time)
+→ **fewer groups** (larger objects); frequently-updated data → **more groups**. Set once at creation (stored
+in the remote metadata); changing it needs a re-push to a fresh `db_key`.
+
+**IMPORTANT flag behavior:**
+- `flag='n'` destroys both the local file and the remote database, then creates new empty ones. Never use on an existing file you want to keep.
+- `flag='w'` preserves the existing local file and links it to the remote. Use this when pushing an existing local cfdb to a remote for the first time.
+
+**Pushing changes to remote:**
+
+Changes are NOT automatically synced on close. Use the `changes()` method to get a `Change` object, then call `push()`:
+
+```python
+# Typical workflow: create locally with open_dataset or open_edataset, then push
+with open_dataset('data.cfdb', flag='n') as ds:
+    ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+    # ... create coords, data vars, write data ...
+
+# Open with flag='w' to preserve existing local data and push to remote
+with open_edataset(remote_conn, 'data.cfdb', flag='w', num_groups=100) as ds:
+    result = ds.push()
+    # Returns: True (success), False (no changes), or dict (partial failure with failed keys)
+    # Use ds.push(force_push=True) to retry after partial failure
+```
+
+**Change object methods (for advanced use):**
+
+```python
+with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
+    # For most cases, just use ds.push() directly.
+    # The Change object is for inspection and selective operations:
+    changes = ds.changes()
+
+    # Pull latest remote index (check for remote updates):
+    changes.pull()
+
+    # Inspect what changed locally:
+    changes.update()
+    for change in changes.iter_changes():
+        # change = {'key': str, 'remote_timestamp': datetime|None, 'local_timestamp': datetime}
+        print(change)
+
+    # Discard local changes (revert to remote state):
+    changes.discard()              # discard all changes
+    changes.discard(keys=['key1']) # discard specific keys
+```
+
+**Remote management:**
+
+```python
+with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
+    # Copy entire remote to another S3 location:
+    ds.copy_remote(other_s3_conn)
+
+    # Delete entire remote (keeps local file):
+    ds.delete_remote()
 ```
 
 ### Key Rules
