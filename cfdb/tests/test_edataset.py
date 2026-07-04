@@ -269,3 +269,166 @@ def test_edataset_remote_flag_persisted(pushed_dataset):
         assert len(partial_warnings) == 1, f"Expected 1 PartialDataWarning, got {len(partial_warnings)}"
 
     _clean_local()
+
+
+###################################################
+### Publish-workflow footgun regressions (0.9.0)
+# Separate remotes/local files so these don't disturb the shared pushed_dataset state above.
+
+fg1_file_path = script_path.joinpath('test_remote_fg1.cfdb')
+fg1_reader_path = script_path.joinpath('test_remote_fg1_reader.cfdb')
+fg2_file_path = script_path.joinpath('test_remote_fg2.cfdb')
+fg1_db_key = uuid.uuid8().hex[-13:]
+fg2_db_key = uuid.uuid8().hex[-13:]
+
+fg_lat_append = np.linspace(10.0, 10.9, 10, dtype='float32')
+
+
+def _clean_fg_local():
+    for base in [fg1_file_path, fg1_reader_path, fg2_file_path]:
+        for suffix in ['', '.remote_index', '.changelog']:
+            p = base.parent / (base.name + suffix)
+            if p.exists():
+                p.unlink()
+
+
+def _make_fg_conn(key):
+    if not access_key_id or not access_key:
+        pytest.skip("S3 credentials not available")
+    return ebooklet.S3Connection(access_key_id, access_key, key, bucket, endpoint_url=endpoint_url, db_url=base_url + key)
+
+
+@pytest.fixture(scope="module")
+def fg1_conn():
+    return _make_fg_conn(fg1_db_key)
+
+
+@pytest.fixture(scope="module")
+def fg2_conn():
+    return _make_fg_conn(fg2_db_key)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def fg_cleanup(request):
+    def remove_fg_data():
+        for key in [fg1_db_key, fg2_db_key]:
+            if not access_key_id or not access_key:
+                continue
+            try:
+                conn = _make_fg_conn(key)
+                with conn.open('w') as s3open:
+                    s3open.break_other_locks()
+                    s3open.delete_remote()
+            except Exception:
+                pass
+        _clean_fg_local()
+
+    request.addfinalizer(remove_fg_data)
+
+
+def test_edataset_midsession_push(fg1_conn):
+    """
+    Footgun 1 regression: push() during the creation session must publish the
+    complete structure metadata AND attrs (previously the remote got the empty
+    SysMeta written at open, and no attrs at all).
+    """
+    _clean_fg_local()
+
+    with open_edataset(fg1_conn, fg1_file_path, flag='n', num_groups=num_groups) as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        ds.attrs['project'] = 'footgun-test'
+        ds['latitude'].attrs['note'] = 'mid-session'
+        dv = ds.create.data_var.generic('temp', ('latitude',), dtypes.dtype('float32'), chunk_shape=(20,))
+        dv[:] = lat_data
+
+        assert ds.push() is True  # mid-session: the dataset is still open
+
+        # Verify from an INDEPENDENT reader while the writer session is still open
+        with open_edataset(fg1_conn, fg1_reader_path, flag='r') as ds2:
+            assert 'latitude' in ds2.coord_names
+            assert 'temp' in ds2.data_var_names
+            assert ds2.attrs['project'] == 'footgun-test'
+            assert ds2['latitude'].attrs['note'] == 'mid-session'
+            assert np.allclose(ds2['temp'].data, lat_data)
+
+        # The direct changes().push() path must be just as safe
+        ds['latitude'].attrs['note2'] = 'via-changes'
+        assert ds.changes().push() is True
+
+    _clean_fg_local()
+
+    with open_edataset(fg1_conn, fg1_file_path, flag='r') as ds:
+        assert ds['latitude'].attrs['note2'] == 'via-changes'
+
+    _clean_fg_local()
+
+
+@pytest.fixture(scope="module")
+def fg2_pushed(fg2_conn):
+    """Create + push + close a small dataset for the attach regressions."""
+    _clean_fg_local()
+
+    with open_edataset(fg2_conn, fg2_file_path, flag='n', num_groups=num_groups) as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        dv = ds.create.data_var.generic('temp', ('latitude',), dtypes.dtype('float32'), chunk_shape=(20,))
+        dv[:] = lat_data
+        ds.attrs['origin'] = 'fg2'
+
+    # num_groups must be re-passed here: the remote doesn't exist yet, so it can't be read from S3 metadata (same pattern as pushed_dataset above)
+    with open_edataset(fg2_conn, fg2_file_path, flag='w', num_groups=num_groups) as ds:
+        assert ds.push() is True
+
+    _clean_fg_local()
+
+    return fg2_conn
+
+
+def test_edataset_fresh_local_w_attaches(fg2_pushed):
+    """
+    Footgun 2 regression: flag='w' with a fresh local file must ATTACH to the
+    existing remote dataset (previously it silently created a new empty one,
+    whose SysMeta would destroy the remote's structure metadata on push).
+    """
+    with open_edataset(fg2_pushed, fg2_file_path, flag='w') as ds:
+        # structure must be loaded from the remote, not created empty
+        assert 'latitude' in ds.coord_names
+        assert 'temp' in ds.data_var_names
+        assert ds.attrs['origin'] == 'fg2'
+
+        # a real modification via the attached session must round-trip
+        ds['latitude'].append(fg_lat_append)
+        ds['temp'][100:110] = fg_lat_append
+        assert ds.push() is True
+
+    _clean_fg_local()
+
+    with open_edataset(fg2_pushed, fg2_file_path, flag='r') as ds:
+        assert ds['latitude'].shape == (110,)
+        assert np.allclose(ds['latitude'].data[100:], fg_lat_append)
+        assert np.allclose(ds['temp'].data[:100], lat_data)
+        assert np.allclose(ds['temp'].data[100:], fg_lat_append)
+        assert ds.attrs['origin'] == 'fg2'
+
+    _clean_fg_local()
+
+
+def test_edataset_fresh_local_c_attaches(fg2_pushed):
+    """flag='c' with a fresh local file must attach to the existing remote too."""
+    with open_edataset(fg2_pushed, fg2_file_path, flag='c') as ds:
+        assert 'latitude' in ds.coord_names
+        assert 'temp' in ds.data_var_names
+        assert ds['latitude'].shape == (110,)
+
+    _clean_fg_local()
+
+
+def test_edataset_noop_session_pushes_nothing(fg2_pushed):
+    """
+    A write session that changes nothing must have nothing to push
+    (previously every open rewrote the metadata slot, so every session
+    pushed 'changes' even when idle).
+    """
+    with open_edataset(fg2_pushed, fg2_file_path, flag='w') as ds:
+        assert ds.push() is False
+
+    _clean_fg_local()

@@ -175,9 +175,9 @@ def min_max_dates_per_bit_len(n_bits):
     return res_dict
 
 
-def dataset_finalizer(blt_file, sys_meta):
+def sync_sys_meta(blt_file, sys_meta):
     """
-
+    Write sys_meta to the file's metadata slot if it differs from what is stored.
     """
     old_meta_data = blt_file.get_metadata()
     if old_meta_data is not None:
@@ -187,6 +187,22 @@ def dataset_finalizer(blt_file, sys_meta):
     else:
         blt_file.set_metadata(msgspec.to_builtins(sys_meta))
 
+
+def sync_dataset(blt_file, sys_meta, attrs_cache, writable):
+    """
+    Flush all in-memory dataset state (attributes and sys_meta) to the file. Does not close and never touches a remote.
+    """
+    if writable:
+        for var_name, attrs in attrs_cache.items():
+            attrs_finalizer(blt_file, attrs, var_name, writable)
+        sync_sys_meta(blt_file, sys_meta)
+
+
+def dataset_finalizer(blt_file, sys_meta, attrs_cache, writable):
+    """
+
+    """
+    sync_dataset(blt_file, sys_meta, attrs_cache, writable)
     blt_file.close()
 
 
@@ -194,15 +210,16 @@ def attrs_finalizer(blt_file, attrs, var_name, writeable):
     """
 
     """
-    if attrs and writeable:
-        key = attrs_key_str.format(var_name=var_name)
-        old_attrs = blt_file.get(key)
-        if old_attrs is not None:
-            old_attrs = msgspec.json.decode(old_attrs)
-            if old_attrs != attrs:
-                blt_file.set(key, msgspec.json.encode(attrs))
-        else:
+    if not writeable:
+        return
+    key = attrs_key_str.format(var_name=var_name)
+    old_attrs = blt_file.get(key)
+    if old_attrs is not None:
+        old_attrs = msgspec.json.decode(old_attrs)
+        if old_attrs != attrs:
             blt_file.set(key, msgspec.json.encode(attrs))
+    elif attrs:
+        blt_file.set(key, msgspec.json.encode(attrs))
 
 
 def compute_scale_and_offset(min_value: Union[int, float, np.number], max_value: Union[int, float, np.number], dtype: Union[np.dtype, str]):

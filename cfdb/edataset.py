@@ -21,14 +21,18 @@ class EDataset(Dataset):
     """
     def __init__(self, file_path, open_blt, create, compression, compression_level, dataset_type):
         super().__init__(file_path, open_blt, create, compression, compression_level, dataset_type)
-        if self.writable:
+        # Only write metadata when the remote flag actually flips (dataset creation, or linking a locally-created dataset to a remote). An unconditional write would bump the timestamp and push unchanged metadata every session.
+        if self.writable and not self._sys_meta.remote:
             self._sys_meta.remote = True
             self._blt.set_metadata(msgspec.to_builtins(self._sys_meta))
 
     def changes(self):
         """
         Return a Change object of the changes that have occurred during this session.
+
+        Flushes in-memory state (variable definitions and attributes) to the local file first, so the changelog reflects exactly what a push would publish.
         """
+        self.sync()
         return self._blt.changes()
 
     def delete_remote(self):
@@ -39,12 +43,12 @@ class EDataset(Dataset):
 
     def push(self, force_push=False):
         """
-        Push local changes to the remote.
+        Push local changes to the remote. Safe to call mid-session: the current variable definitions and attributes are flushed to the local file before pushing.
 
         Returns True if updated, False if no changes, or a dict of failed keys on partial failure.
         Use force_push=True to retry after a partial failure.
         """
-        return self._blt.changes().push(force_push=force_push)
+        return self.changes().push(force_push=force_push)
 
     def copy_remote(self, remote_conn: ebooklet.S3Connection):
         """
@@ -92,6 +96,8 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
         - ``'w'`` -- Open existing database for reading and writing.
         - ``'c'`` -- Open database for reading and writing, creating it if it doesn't exist.
         - ``'n'`` -- Always create a new, empty database, open for reading and writing.
+
+        A dataset "exists" if it exists locally OR remotely: with ``'w'``/``'c'``, a fresh local file path attaches to an existing remote dataset (its structure is pulled on demand) rather than creating a new one. A new dataset is only created when neither exists (or with ``'n'``, which always creates new).
     dataset_type : str
         The dataset type to be opened. Default is ``'grid'``.
 
@@ -119,15 +125,19 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
         kwargs['n_buckets'] = utils.default_n_buckets
 
     fp = pathlib.Path(file_path)
-    fp_exists = fp.exists()
     open_blt = ebooklet.open_ebooklet(remote_conn, file_path, flag, num_groups=num_groups, lock_timeout=lock_timeout, force_lock=force_lock, **kwargs)
 
-    if (not fp_exists or flag == 'n') and open_blt.writable:
-        create = True
-    else:
-        create = False
+    try:
+        # Create only when no dataset exists anywhere: get_metadata() transparently checks the remote as well as the local file, so a fresh local file attaches to an existing remote dataset instead of silently creating a new (empty) one over it. flag 'n' always creates new.
+        if flag == 'n':
+            create = open_blt.writable
+        else:
+            create = open_blt.writable and open_blt.get_metadata() is None
 
-    if dataset_type.lower() == 'grid':
-        return EGrid(fp, open_blt, create, compression, compression_level, 'grid')
-    else:
-        raise TypeError('The only option for the dataset type is "grid".')
+        if dataset_type.lower() == 'grid':
+            return EGrid(fp, open_blt, create, compression, compression_level, 'grid')
+        else:
+            raise TypeError('The only option for the dataset type is "grid".')
+    except BaseException:
+        open_blt.close()
+        raise

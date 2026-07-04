@@ -91,16 +91,16 @@ wheels = [
 
 [[package]]
 name = "booklet"
-version = "0.12.2"
+version = "0.12.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "portalocker" },
     { name = "uuid6" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/4b/4a79d1a6293130f28f4b690a1bd7cec95d318e4bc29c6d8269cb3344baea/booklet-0.12.2.tar.gz", hash = "sha256:4ad4c3b7458171e8ba2e5dbffae0b47d30efa31e2889144be4faece728885f13", size = 29685, upload-time = "2026-04-06T22:05:49.159Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/31/c4/04e636821fd038c0fce5a55475fdee11a808412574325c36c5878b6c2b8e/booklet-0.12.4.tar.gz", hash = "sha256:7a44607e5fc42adeb124cb8154a6a581f9134a9ea93f31380f93e46fbe915986", size = 31595, upload-time = "2026-07-02T09:42:32.526Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/fb/e54530ebd24ef0c77108283fd4d3ccbd893d7d096fb05045a525a454eb97/booklet-0.12.2-py3-none-any.whl", hash = "sha256:50cf053eb722698893231814419c1253ce3bb91679add3b8454279914f128174", size = 31609, upload-time = "2026-04-06T22:05:46.998Z" },
+    { url = "https://files.pythonhosted.org/packages/73/02/fcfeb1aa4643013f1d81457b6b3c242b197ac8f5641e202b67996ae32da9/booklet-0.12.4-py3-none-any.whl", hash = "sha256:44e67e9b3f556e2404be4e8d8fba8d14e8bc2db290c3fb39906291a214bd474e", size = 33517, upload-time = "2026-07-02T09:42:31.149Z" },
 ]
 
 [[package]]
@@ -164,10 +164,10 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "booklet", specifier = ">=0.12.2" },
+    { name = "booklet", specifier = ">=0.12.4" },
     { name = "cfdb-models", specifier = ">=0.1.0" },
     { name = "cfdb-vars", specifier = ">=0.2.2" },
-    { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.8.3" },
+    { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.9.0" },
     { name = "geointerp", specifier = ">=0.1.1" },
     { name = "h5netcdf", marker = "extra == 'netcdf4'" },
     { name = "lz4" },
@@ -184,7 +184,7 @@ provides-extras = ["ebooklet", "netcdf4", "xarray"]
 [package.metadata.requires-dev]
 dev = [
     { name = "black" },
-    { name = "ebooklet", specifier = ">=0.8.0" },
+    { name = "ebooklet", specifier = ">=0.9.0" },
     { name = "h5netcdf" },
     { name = "h5py", specifier = ">=3.6.0" },
     { name = "mypy" },
@@ -195,7 +195,7 @@ dev = [
     { name = "xarray" },
 ]
 docs = [
-    { name = "ebooklet", specifier = ">=0.8.0" },
+    { name = "ebooklet", specifier = ">=0.9.0" },
     { name = "mkdocs-material", specifier = ">=9.0" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.24" },
 ]
@@ -533,16 +533,16 @@ wheels = [
 
 [[package]]
 name = "ebooklet"
-version = "0.8.3"
+version = "0.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "booklet" },
     { name = "s3func" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/98/f8fe66058434049596400adecc522cd72640d659990a150384332f4ed06c/ebooklet-0.8.3.tar.gz", hash = "sha256:d3ab4e0499542c0f1ad6b5f402dab16be5fea74c61c391fe97047f5ad1f228af", size = 20420, upload-time = "2026-04-08T20:15:29.129Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/47/c5f94090b9b15c20f4196c78c8269791372f9c2ba506850b5d9a18358562/ebooklet-0.9.1.tar.gz", hash = "sha256:c95c9526833acfbcb991df8df418aad30e04a9a8d223db895822706dcea3dbd6", size = 25662, upload-time = "2026-07-04T20:54:16.635Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/0e/610cda7a2625b3d7a716b34e86db8624246317c778dc977621341994a98e/ebooklet-0.8.3-py3-none-any.whl", hash = "sha256:e8b7b2beb8594f88892a14487977da775a04697ec4e4ba150f2d8affe378bddf", size = 21018, upload-time = "2026-04-08T20:15:27.332Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/11/d73f1b168f29698b997e27d15dd2f6a140b1900ee06552197f0b12169560/ebooklet-0.9.1-py3-none-any.whl", hash = "sha256:0111da1ed64b485b97b6a0d349eb57454178cdeccefbb89d1d1316ad37a01521", size = 26417, upload-time = "2026-07-04T20:54:15.209Z" },
 ]
 
 [[package]]
@@ -1986,15 +1986,15 @@ wheels = [
 
 [[package]]
 name = "s3func"
-version = "0.8.5"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d5/2b/5402465327815220ffef305fd3f800d36ad974e2fb1fcae1959dcb8d7a99/s3func-0.8.5.tar.gz", hash = "sha256:275b44cea302e02d3510c20063a39d8c63f47eb9464785bf1bee7cb1075e7838", size = 28243, upload-time = "2026-04-07T07:31:39.561Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/42/6234132fb9ce970d6f871ad9c58709b77345cc896791d0375ef784dfe47a/s3func-0.9.0.tar.gz", hash = "sha256:928ae947ba1a8b5ec7e6b0bd9f30d07dcf0147f103e6652070c8cc9ce89cf352", size = 37186, upload-time = "2026-07-03T01:08:54.612Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bb/c0/d5780c2e45a26141de14bf934356e0ac859115a7f8fd3fa9beb2df1c42b2/s3func-0.8.5-py3-none-any.whl", hash = "sha256:5bec8f74bd76e1ea16991cf87bd70577249862b0be9dd6a84281e7367f646148", size = 34230, upload-time = "2026-04-07T07:31:38.262Z" },
+    { url = "https://files.pythonhosted.org/packages/42/19/2782e6d51dfc8b2a637a8849c47db07d6a4839e91fb08a2d5cbed0d07d1e/s3func-0.9.0-py3-none-any.whl", hash = "sha256:4a3eacfb383a95fb05dd55a15d9c7ea27909ce921198c03101c363d73bef2792", size = 43365, upload-time = "2026-07-03T01:08:53.065Z" },
 ]
 
 [[package]]

@@ -98,24 +98,17 @@ class DatasetBase:
         except KeyError:
             pass
 
-        # Delete in cache
+        # Delete in caches
         try:
             del self._var_cache[key]
         except KeyError:
             pass
 
+        self._attrs_cache.pop(key, None)
+
         # Delete the instance in the sys meta
         del self._sys_meta.variables[key]
 
-
-    # def sync(self):
-    #     """
-
-    #     """
-    #     old_meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
-    #     if old_meta != self._meta:
-    #         self._blt.set_metadata(msgspec.to_builtins(self._meta))
-    #     self._blt.sync()
 
     def __bool__(self):
         return len(self) > 0
@@ -779,9 +772,11 @@ class Dataset(DatasetBase):
         self.compression_level = self._sys_meta.compression_level
         self._compressor = sc.Compressor(self.compression, self.compression_level)
 
-        self._finalizers = [weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta)]
+        ## Single source of truth for all attributes: var_name -> attrs dict. Every Attributes instance aliases a dict in here; sync()/close() flush it exactly once.
+        self._attrs_cache = {}
+        self._finalizers = [weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta, self._attrs_cache, self.writable)]
 
-        self.attrs = sc.Attributes(self._blt, '_', self.writable, self._finalizers)
+        self.attrs = sc.Attributes(self._blt, '_', self.writable, self._attrs_cache)
         if create and dataset_type == 'ts_ortho':
             self.attrs['featureType'] = 'timeSeries'
 
@@ -826,11 +821,17 @@ class Dataset(DatasetBase):
     def __exit__(self, *args):
         self.close()
 
+    def sync(self):
+        """
+        Flush all in-memory state (variable definitions/shapes and attributes) to the local file without closing it. This never touches a remote - pushing is always an explicit, separate action.
+        """
+        utils.sync_dataset(self._blt, self._sys_meta, self._attrs_cache, self.writable)
+        self._blt.sync()
+
     def close(self):
         """
         Close the database.
         """
-        # self.sync()
         for finalizer in reversed(self._finalizers):
             finalizer()
         self.is_open = False
@@ -895,6 +896,7 @@ class DatasetView(DatasetBase):
         self.compression_level = dataset.compression_level
         self.attrs = dataset.attrs
         self._var_cache = dataset._var_cache
+        self._attrs_cache = dataset._attrs_cache
 
 
     def get(self, var_name):

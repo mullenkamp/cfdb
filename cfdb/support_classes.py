@@ -6,7 +6,6 @@ Created on Wed Feb 19 14:05:23 2025
 @author: mike
 """
 import numpy as np
-import weakref
 import msgspec
 import lz4.frame
 import zstandard as zstd
@@ -361,22 +360,24 @@ class DatasetRechunker:
 
 class Attributes:
     """
-
+    A dict-like view over a variable's attributes. All instances for the same variable alias ONE dict held in the dataset-level attrs_cache (the single source of truth), so edits through any instance are visible to all and are flushed exactly once by Dataset.sync()/close().
     """
-    def __init__(self, blt_file, var_name, writable, finalizers):
+    def __init__(self, blt_file, var_name, writable, attrs_cache):
         """
 
         """
-        key = attrs_key.format(var_name=var_name)
-        data = blt_file.get(key)
+        data = attrs_cache.get(var_name)
         if data is None:
-            self._data = {}
-        else:
-            self._data = msgspec.json.decode(data)
+            key = attrs_key.format(var_name=var_name)
+            raw = blt_file.get(key)
+            if raw is None:
+                data = {}
+            else:
+                data = msgspec.json.decode(raw)
+            attrs_cache[var_name] = data
 
+        self._data = data
         self._blt = blt_file
-        # self._var_name = var_name
-        finalizers.append(weakref.finalize(self, utils.attrs_finalizer, self._blt, self._data, var_name, writable))
         self.writable = writable
 
     @property
@@ -551,7 +552,7 @@ class Variable:
         self._blt = dataset._blt
         self._has_load_items = dataset._has_load_items
         self.name = var_name
-        self.attrs = Attributes(self._blt, var_name, dataset.writable, dataset._finalizers)
+        self.attrs = Attributes(self._blt, var_name, dataset.writable, dataset._attrs_cache)
         # self.encoding = msgspec.to_builtins(self._sys_meta.variables[self.name].encoding)
         self.chunk_shape = self._var_meta.chunk_shape
         # self.origin = self._var_meta.origin
@@ -578,7 +579,6 @@ class Variable:
         self.compressor = dataset._compressor
         self.dtype = dtypes.dtype(**msgspec.to_builtins(self._var_meta.dtype))
         self.loc = indexers.LocationIndexer(self)
-        self._finalizers = dataset._finalizers
         self.writable = dataset.writable
 
         ## Assign all the encodings - should I do this?

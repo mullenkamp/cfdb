@@ -67,14 +67,21 @@ with cfdb.open_edataset(remote_conn, 'local.cfdb') as ds:
     subset.load()  # loads only the chunks needed
 ```
 
-## Writing and Syncing
+## Writing and Pushing
 
-Write data locally, then changes are synced on close:
+Writes only modify the local file. Nothing is ever uploaded automatically —
+publishing to the remote is always an explicit `push()`:
 
 ```python
 with cfdb.open_edataset(remote_conn, 'local.cfdb', flag='w') as ds:
     ds['temperature'][0:10, :] = new_data
+    ds.push()
 ```
+
+`push()` can be called at any point in the session — including in the same
+session that creates the dataset — and publishes the current state of the
+dataset (variables, data, and attributes). Closing without pushing simply
+leaves the changes local; a later session can push them.
 
 ### Tracking Changes
 
@@ -86,6 +93,13 @@ with cfdb.open_edataset(remote_conn, 'local.cfdb', flag='w') as ds:
     changes = ds.changes()
     print(changes)
 ```
+
+### Attaching to an Existing Remote
+
+The local file is just a cache/working copy: opening with `'w'` or `'c'` and a
+fresh local file path attaches to the existing remote dataset (its structure
+is pulled on demand). A new dataset is only created when one exists neither
+locally nor remotely (or with `flag='n'`, which always creates new).
 
 ## Remote Management
 

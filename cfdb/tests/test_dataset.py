@@ -1,5 +1,7 @@
 import os
+import gc
 import pytest
+import msgspec
 import numpy as np
 from time import time
 import pathlib
@@ -7,6 +9,7 @@ import h5netcdf
 import shapely
 
 from cfdb import open_dataset, cfdb_to_netcdf4, dtypes
+from cfdb.support_classes import attrs_key
 
 ###################################################
 ### Parameters
@@ -2313,3 +2316,89 @@ def test_to_netcdf4_no_crs(tmp_path):
 
 
 
+
+
+def test_attrs_single_source_of_truth(tmp_path):
+    """
+    All Attributes instances for one variable must share one dict, and the
+    latest edits must survive close.
+
+    Regression: _var_cache is weak, so re-accessing a variable used to create a
+    second, independent Attributes dict; close() flushed the STALE instance
+    last, silently clobbering newer edits.
+    """
+    fp = tmp_path.joinpath('attrs_split_brain.cfdb')
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        a = ds['latitude'].attrs  # the Variable is dropped after this line; only attrs held
+        gc.collect()  # ensure the Variable is evicted from the weak _var_cache
+        b = ds['latitude'].attrs
+        b['edited'] = 'after'
+        assert a['edited'] == 'after'
+        a['edited_via_a'] = 'also'
+        assert b['edited_via_a'] == 'also'
+
+    with open_dataset(fp) as ds:
+        attrs = ds['latitude'].attrs
+        assert attrs['edited'] == 'after'
+        assert attrs['edited_via_a'] == 'also'
+
+
+def test_deleted_variable_attrs_removed(tmp_path):
+    """
+    Regression: deleting a variable removed its attrs key from the file, but a
+    live Attributes finalizer for that variable resurrected it at close.
+    """
+    fp = tmp_path.joinpath('attrs_delete.cfdb')
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        ds['latitude'].attrs['foo'] = 'bar'
+        del ds['latitude']
+
+    with open_dataset(fp) as ds:
+        assert ds._blt.get(attrs_key.format(var_name='latitude')) is None
+
+
+def test_attrs_clear_persists(tmp_path):
+    """
+    Regression: attrs.clear() never persisted (the flush skipped empty dicts
+    even when the file held a non-empty version).
+    """
+    fp = tmp_path.joinpath('attrs_clear.cfdb')
+    with open_dataset(fp, flag='n') as ds:
+        ds.attrs['a'] = 1
+
+    with open_dataset(fp, flag='w') as ds:
+        assert ds.attrs['a'] == 1
+        ds.attrs.clear()
+
+    with open_dataset(fp) as ds:
+        assert 'a' not in ds.attrs
+
+
+def test_sync_flushes_without_close(tmp_path):
+    """
+    Dataset.sync() must flush variable definitions and attrs to the file
+    mid-session (the file stays open and writable afterwards).
+    """
+    fp = tmp_path.joinpath('sync_local.cfdb')
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        ds.attrs['project'] = 'envlib'
+        ds['latitude'].attrs['note'] = 'synced'
+
+        ds.sync()
+
+        meta = ds._blt.get_metadata()
+        assert meta is not None
+        assert 'latitude' in meta['variables']
+        raw_ds_attrs = ds._blt.get(attrs_key.format(var_name='_'))
+        assert msgspec.json.decode(raw_ds_attrs)['project'] == 'envlib'
+        raw_lat_attrs = ds._blt.get(attrs_key.format(var_name='latitude'))
+        assert msgspec.json.decode(raw_lat_attrs)['note'] == 'synced'
+
+        # still open and usable after sync
+        ds['latitude'].attrs['post_sync'] = True
+
+    with open_dataset(fp) as ds:
+        assert ds['latitude'].attrs['post_sync'] is True
