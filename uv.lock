@@ -91,16 +91,16 @@ wheels = [
 
 [[package]]
 name = "booklet"
-version = "0.12.5"
+version = "0.12.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "portalocker" },
     { name = "uuid6" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/94/8d/09f5a6134a6a2f327330da5f1643089dc6d0d8fb26f8b4bce1db2d475b6d/booklet-0.12.5.tar.gz", hash = "sha256:9ecdd404044c423ca7bd9db29c2ddfff939d38843619ec1bd06c8b2183abc653", size = 31827, upload-time = "2026-07-04T21:57:25.871Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/a3/71aa355be75f7b2d0ca5928c2e291374550ea3767297df8a54725e60bcb2/booklet-0.12.6.tar.gz", hash = "sha256:0b369678ec7ae5e4ff170599de9a13b09c58c0ad601c96820b2a1a9f955caaea", size = 34355, upload-time = "2026-07-08T23:05:54.515Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/d3/4f05bc13cf8f4f98306daf63a5aa000d23a8bceacd7b94b3df10ed7e4d18/booklet-0.12.5-py3-none-any.whl", hash = "sha256:3b278cd4fb869704c1c33a0812fe655d20851dfde7af406f9c358691d11b813b", size = 33743, upload-time = "2026-07-04T21:57:24.369Z" },
+    { url = "https://files.pythonhosted.org/packages/39/5a/890d010d53f0a5c3cd86f4c515f50d447205fa90252d26ddc0c9221b4988/booklet-0.12.6-py3-none-any.whl", hash = "sha256:34d0e61706845997126320ddc62bef1c813d2d1e158df69142617ff944d4c355", size = 36321, upload-time = "2026-07-08T23:05:52.947Z" },
 ]
 
 [[package]]
@@ -164,7 +164,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "booklet", specifier = ">=0.12.5" },
+    { name = "booklet", specifier = ">=0.12.6" },
     { name = "cfdb-models", specifier = ">=0.1.0" },
     { name = "cfdb-vars", specifier = ">=0.2.2" },
     { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.9.1" },

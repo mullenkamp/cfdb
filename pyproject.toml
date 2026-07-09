@@ -19,7 +19,7 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-  'booklet>=0.12.5',
+  'booklet>=0.12.6',
   'cfdb-models>=0.1.0',
   'cfdb-vars>=0.2.2',
   'rechunkit>=0.5.1',
