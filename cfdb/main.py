@@ -51,6 +51,13 @@ class DatasetBase:
     #     """
     #     return self._file.__bool__()
 
+    @property
+    def dataset_type(self) -> str:
+        """
+        The dataset type: 'grid' or 'ts_ortho'.
+        """
+        return self._sys_meta.dataset_type.value
+
     def __iter__(self):
         for key in self.var_names:
             yield key
@@ -513,7 +520,7 @@ class DatasetBase:
         local_file = getattr(blt, '_local_file', blt)
         kwargs = dict(n_buckets=blt._n_buckets, buffer_size=local_file._write_buffer_size)
 
-        new_ds = open_dataset(file_path, 'n', dataset_type=self._sys_meta.dataset_type.value, compression=self.compression, compression_level=self.compression_level, **kwargs)
+        new_ds = open_dataset(file_path, 'n', dataset_type=self.dataset_type, compression=self.compression, compression_level=self.compression_level, **kwargs)
 
         data_var_names, coord_names = utils.filter_var_names(self, include_data_vars, exclude_data_vars)
 
@@ -762,7 +769,12 @@ class Dataset(DatasetBase):
             elif not isinstance(compression_level, int):
                 raise ValueError('compression_level must be either None or an int.')
 
-            self._sys_meta = data_models.SysMeta(dataset_type=dataset_type, compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
+            ## Normalize to the enum explicitly: msgspec.Struct does NOT coerce on
+            ## __init__ (only convert() does), so a raw string here would make
+            ## _sys_meta.dataset_type a str on fresh datasets but a Type enum on
+            ## reopened ones - and .value readers (the dataset_type property)
+            ## would crash on fresh ones. Serialized form is identical either way.
+            self._sys_meta = data_models.SysMeta(dataset_type=data_models.Type(dataset_type.lower()), compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
             self._blt.set_metadata(msgspec.to_builtins(self._sys_meta))
 
         else:
@@ -1026,7 +1038,7 @@ def open_dataset(file_path: Union[str, pathlib.Path],
         - ``'c'`` -- Open database for reading and writing, creating it if it doesn't exist.
         - ``'n'`` -- Always create a new, empty database, open for reading and writing.
     dataset_type : str
-        The dataset type to be opened. Default is ``'grid'``.
+        The dataset type when CREATING a new dataset. Default is ``'grid'``. Existing datasets always open with their stored type (and the matching class); this parameter is then ignored.
 
         - ``'grid'`` -- The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
         - ``'ts_ortho'`` -- A special time series coordinate structure representing the orthogonal multidimensional array representation of time series. Designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The z axis is currently optional.
@@ -1053,12 +1065,22 @@ def open_dataset(file_path: Union[str, pathlib.Path],
     else:
         create = False
 
-    if dataset_type.lower() == 'grid':
+    ## The class follows the STORED dataset_type for existing files; the
+    ## dataset_type parameter only applies at creation. (meta is None on a
+    ## corrupt/empty file - fall through to the param so Dataset.__init__
+    ## raises its clear msgspec ValidationError instead of a NoneType error.)
+    if create:
+        dt = dataset_type.lower()
+    else:
+        meta = open_blt.get_metadata()
+        dt = dataset_type.lower() if meta is None else meta['dataset_type']
+
+    if dt == 'grid':
         ds = Grid(fp, open_blt, create, compression, compression_level, 'grid')
-    elif dataset_type.lower() == 'ts_ortho':
+    elif dt == 'ts_ortho':
         ds = TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
     else:
-        raise TypeError('The only option for the dataset type is "grid".')
+        raise TypeError('dataset_type must be either "grid" or "ts_ortho".')
 
     if not allow_partial and not create and ds._sys_meta.remote:
         warnings.warn(

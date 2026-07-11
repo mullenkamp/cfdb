@@ -79,6 +79,47 @@ def test_coord_creation_ts_ortho():
         ds.attrs['history'] = 'Created some coords yo'
 
 
+def test_dataset_type_property_and_reopen_class():
+    """0.9.1 regressions: the public dataset_type property works on FRESHLY
+    created datasets (the in-memory sysmeta slot used to be a plain string on
+    create vs an enum on reopen - msgspec does not coerce on construction),
+    and reopening WITHOUT the dataset_type parameter yields the class matching
+    the STORED type (the factories used to trust the parameter)."""
+    from cfdb.main import Grid, TimeSeriesOrtho
+    from cfdb_models import data_models
+
+    ## fresh ts_ortho: property + class + enum-typed sysmeta
+    with open_dataset(file_path, flag='n', dataset_type='ts_ortho') as ds:
+        assert isinstance(ds, TimeSeriesOrtho)
+        assert ds.dataset_type == 'ts_ortho'
+        assert isinstance(ds._sys_meta.dataset_type, data_models.Type)
+        geo_coord = ds.create.coord.point()
+        geo_coord.append(geo_data)
+
+    ## reopen without the param: stored type wins
+    with open_dataset(file_path, flag='w') as ds:
+        assert isinstance(ds, TimeSeriesOrtho)
+        assert ds.dataset_type == 'ts_ortho'
+        assert isinstance(ds._sys_meta.dataset_type, data_models.Type)
+
+        ## creating a coord on a REOPENED dataset crashed on 0.9.0
+        ## (TypeError: argument of type 'Type' is not iterable)
+        time_coord = ds.create.coord.time(data=time_data, dtype=time_data.dtype)
+        assert np.all(time_coord.data == time_data)
+
+        ## DatasetView inherits the property
+        view = ds.select({'time': slice(0, 5)})
+        assert view.dataset_type == 'ts_ortho'
+
+    ## fresh + reopened grid
+    with open_dataset(file_path, flag='n') as ds:
+        assert isinstance(ds, Grid)
+        assert ds.dataset_type == 'grid'
+    with open_dataset(file_path, flag='r') as ds:
+        assert isinstance(ds, Grid)
+        assert ds.dataset_type == 'grid'
+
+
 def test_coord_creation_grid():
     with open_dataset(file_path, flag='n') as ds:
         _ = ds.create.coord.height()

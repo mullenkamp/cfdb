@@ -212,7 +212,9 @@ class Coord:
 
         # print(params)
 
-        name, var = utils.parse_coord_inputs(self._dataset._sys_meta.dataset_type, name, data, chunk_shape, dtype, step=step, axis=axis)
+        ## parse_coord_inputs needs the STRING form ('ts_' in dataset_type) -
+        ## the raw _sys_meta slot is the Type enum, which is not iterable.
+        name, var = utils.parse_coord_inputs(self._dataset.dataset_type, name, data, chunk_shape, dtype, step=step, axis=axis)
 
         ## Var init process
         self._dataset._sys_meta.variables[name] = var

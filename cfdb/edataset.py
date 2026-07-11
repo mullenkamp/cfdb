@@ -99,7 +99,7 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
 
         A dataset "exists" if it exists locally OR remotely: with ``'w'``/``'c'``, a fresh local file path attaches to an existing remote dataset (its structure is pulled on demand) rather than creating a new one. A new dataset is only created when neither exists (or with ``'n'``, which always creates new).
     dataset_type : str
-        The dataset type to be opened. Default is ``'grid'``.
+        The dataset type when CREATING a new dataset. Default is ``'grid'``. Existing datasets (local or remote) always open with their stored type (and the matching class); this parameter is then ignored.
 
         - ``'grid'`` -- The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
         - ``'ts_ortho'`` -- A special time series coordinate structure representing the orthogonal multidimensional array representation of time series. Designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The z axis is currently optional.
@@ -129,15 +129,27 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
 
     try:
         # Create only when no dataset exists anywhere: get_metadata() transparently checks the remote as well as the local file, so a fresh local file attaches to an existing remote dataset instead of silently creating a new (empty) one over it. flag 'n' always creates new.
+        meta = None if flag == 'n' else open_blt.get_metadata()
         if flag == 'n':
             create = open_blt.writable
         else:
-            create = open_blt.writable and open_blt.get_metadata() is None
+            create = open_blt.writable and meta is None
 
-        if dataset_type.lower() == 'grid':
-            return EGrid(fp, open_blt, create, compression, compression_level, 'grid')
+        ## The class follows the STORED dataset_type for existing datasets; the
+        ## dataset_type parameter only applies at creation. (meta can be None on
+        ## a read-only open of a corrupt/empty dataset - fall through to the
+        ## param so Dataset.__init__ raises its clear msgspec ValidationError.)
+        if create or meta is None:
+            dt = dataset_type.lower()
         else:
-            raise TypeError('The only option for the dataset type is "grid".')
+            dt = meta['dataset_type']
+
+        if dt == 'grid':
+            return EGrid(fp, open_blt, create, compression, compression_level, 'grid')
+        elif dt == 'ts_ortho':
+            return ETimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
+        else:
+            raise TypeError('dataset_type must be either "grid" or "ts_ortho".')
     except BaseException:
         open_blt.close()
         raise

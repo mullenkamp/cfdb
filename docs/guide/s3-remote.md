@@ -101,6 +101,18 @@ fresh local file path attaches to the existing remote dataset (its structure
 is pulled on demand). A new dataset is only created when one exists neither
 locally nor remotely (or with `flag='n'`, which always creates new).
 
+### Dataset Types
+
+Both dataset types work as remotes: pass `dataset_type='ts_ortho'` when
+*creating* a station-time-series remote (as of 0.9.1 — earlier versions raised).
+Existing remotes always open with their stored type and the matching class;
+check it via the `dataset_type` property:
+
+```python
+with cfdb.open_edataset(remote, 'stations.cfdb') as ds:
+    print(ds.dataset_type)   # 'grid' or 'ts_ortho'
+```
+
 ## Remote Management
 
 ### Delete Remote

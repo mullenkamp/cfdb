@@ -432,3 +432,85 @@ def test_edataset_noop_session_pushes_nothing(fg2_pushed):
         assert ds.push() is False
 
     _clean_fg_local()
+
+
+###################################################
+### ts_ortho remotes (0.9.1)
+
+ts1_file_path = script_path.joinpath('test_remote_ts1.cfdb')
+ts1_reader_path = script_path.joinpath('test_remote_ts1_reader.cfdb')
+ts1_db_key = uuid.uuid8().hex[-13:]
+
+
+def _clean_ts1_local():
+    for base in [ts1_file_path, ts1_reader_path]:
+        for suffix in ['', '.remote_index', '.changelog']:
+            p = base.parent / (base.name + suffix)
+            if p.exists():
+                p.unlink()
+
+
+@pytest.fixture(scope="module")
+def ts1_conn():
+    return _make_fg_conn(ts1_db_key)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def ts1_cleanup(request):
+    def remove_ts1_data():
+        if access_key_id and access_key:
+            try:
+                conn = _make_fg_conn(ts1_db_key)
+                with conn.open('w') as s3open:
+                    s3open.break_other_locks()
+                    s3open.delete_remote()
+            except Exception:
+                pass
+        _clean_ts1_local()
+
+    request.addfinalizer(remove_ts1_data)
+
+
+def test_edataset_ts_ortho_e2e(ts1_conn, fg2_pushed):
+    """
+    0.9.1 regression: open_edataset supports dataset_type='ts_ortho' at create
+    (0.9.0 raised TypeError) and existing remotes come back with the class
+    matching their STORED type (0.9.0 always returned EGrid).
+    """
+    import shapely
+
+    _clean_ts1_local()
+
+    geo_data = [shapely.Point(x, y) for x, y in zip(np.linspace(-5, 4.9, 20), np.linspace(0, 9.9, 20))]
+    ts_values = np.linspace(0, 199.9, 200, dtype='float32').reshape(20, 10)
+
+    with open_edataset(ts1_conn, ts1_file_path, flag='n', dataset_type='ts_ortho', num_groups=num_groups) as ds:
+        assert type(ds).__name__ == 'ETimeSeriesOrtho'
+        assert ds.dataset_type == 'ts_ortho'
+        geo_coord = ds.create.coord.point()
+        geo_coord.append(geo_data)
+        ds.create.coord.time(data=time_data, dtype=time_data.dtype)
+        dv = ds.create.data_var.generic('temp', ('point', 'time'), dtypes.dtype('float32'), chunk_shape=(10, 10))
+        dv[:] = ts_values
+
+    # num_groups must be re-passed: the remote doesn't exist yet (same pattern as fg2_pushed)
+    with open_edataset(ts1_conn, ts1_file_path, flag='w', num_groups=num_groups) as ds:
+        assert type(ds).__name__ == 'ETimeSeriesOrtho'
+        assert ds.push() is True
+
+    _clean_ts1_local()
+
+    # Fresh-local reader: class + property from the STORED type, no param passed
+    with open_edataset(ts1_conn, ts1_reader_path, flag='r') as ds:
+        assert type(ds).__name__ == 'ETimeSeriesOrtho'
+        assert ds.dataset_type == 'ts_ortho'
+        assert 'point' in ds.coord_names
+        assert np.allclose(ds['temp'].data, ts_values)
+
+    # An existing GRID remote still comes back as EGrid
+    with open_edataset(fg2_pushed, fg2_file_path, flag='r') as ds:
+        assert type(ds).__name__ == 'EGrid'
+        assert ds.dataset_type == 'grid'
+
+    _clean_fg_local()
+    _clean_ts1_local()

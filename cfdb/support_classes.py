@@ -1705,7 +1705,7 @@ class DataVariableView(Variable):
         -------
         GridInterp or PointInterp
         """
-        dataset_type = self._dataset._sys_meta.dataset_type.value
+        dataset_type = self._dataset.dataset_type
 
         if dataset_type == 'ts_ortho':
             return interp.PointInterp(self, xy=xy, z=z, iter_dim=iter_dim)

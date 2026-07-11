@@ -31,6 +31,16 @@ EDataset inherits all properties and methods from [Dataset](dataset.md), includi
 
 ## Additional Methods
 
+### push(force_push=False)
+
+Push local changes to the remote. Safe to call mid-session. Returns `True` if
+updated, `False` if there was nothing to push, or a dict of failed keys on
+partial failure (use `force_push=True` to retry after one).
+
+```python
+result = ds.push()
+```
+
 ### changes()
 
 Return a Change object describing modifications made during this session.
