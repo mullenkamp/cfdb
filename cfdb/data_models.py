@@ -48,6 +48,12 @@ class SysMeta(msgspec.Struct):
     compression_level: int
     variables: Dict[str, Union[DataVariable, CoordinateVariable]] = {}
     crs: Union[str, None] = None
+    remote: bool = False
+
+
+class PartialDataWarning(UserWarning):
+    """Warning issued when open_dataset opens a file that was created as a remote (S3-backed) dataset."""
+    pass
 
     # def __post_init__(self):
 

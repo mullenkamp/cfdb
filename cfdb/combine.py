@@ -35,12 +35,12 @@ def _validate_dataset_types(ds_list):
     """
     Validate all datasets have the same dataset_type.
     """
-    first_type = ds_list[0]._sys_meta.dataset_type
+    first_type = ds_list[0].dataset_type
     for i, ds in enumerate(ds_list[1:], 1):
-        if ds._sys_meta.dataset_type != first_type:
+        if ds.dataset_type != first_type:
             msg = (
                 f"All datasets must have the same dataset_type. "
-                f"Dataset 0 has {first_type.value}, dataset {i} has {ds._sys_meta.dataset_type.value}."
+                f"Dataset 0 has {first_type}, dataset {i} has {ds.dataset_type}."
             )
             raise ValueError(msg)
     return first_type
@@ -458,7 +458,7 @@ def combine(
         ## Phase 4: Create output & write data
         output_ds = open_dataset(
             output_path, "n",
-            dataset_type=dataset_type.value,
+            dataset_type=dataset_type,
             compression=compression,
             compression_level=compression_level,
         )

@@ -175,9 +175,9 @@ def min_max_dates_per_bit_len(n_bits):
     return res_dict
 
 
-def dataset_finalizer(blt_file, sys_meta):
+def sync_sys_meta(blt_file, sys_meta):
     """
-
+    Write sys_meta to the file's metadata slot if it differs from what is stored.
     """
     old_meta_data = blt_file.get_metadata()
     if old_meta_data is not None:
@@ -187,6 +187,22 @@ def dataset_finalizer(blt_file, sys_meta):
     else:
         blt_file.set_metadata(msgspec.to_builtins(sys_meta))
 
+
+def sync_dataset(blt_file, sys_meta, attrs_cache, writable):
+    """
+    Flush all in-memory dataset state (attributes and sys_meta) to the file. Does not close and never touches a remote.
+    """
+    if writable:
+        for var_name, attrs in attrs_cache.items():
+            attrs_finalizer(blt_file, attrs, var_name, writable)
+        sync_sys_meta(blt_file, sys_meta)
+
+
+def dataset_finalizer(blt_file, sys_meta, attrs_cache, writable):
+    """
+
+    """
+    sync_dataset(blt_file, sys_meta, attrs_cache, writable)
     blt_file.close()
 
 
@@ -194,15 +210,16 @@ def attrs_finalizer(blt_file, attrs, var_name, writeable):
     """
 
     """
-    if attrs and writeable:
-        key = attrs_key_str.format(var_name=var_name)
-        old_attrs = blt_file.get(key)
-        if old_attrs is not None:
-            old_attrs = msgspec.json.decode(old_attrs)
-            if old_attrs != attrs:
-                blt_file.set(key, msgspec.json.encode(attrs))
-        else:
+    if not writeable:
+        return
+    key = attrs_key_str.format(var_name=var_name)
+    old_attrs = blt_file.get(key)
+    if old_attrs is not None:
+        old_attrs = msgspec.json.decode(old_attrs)
+        if old_attrs != attrs:
             blt_file.set(key, msgspec.json.encode(attrs))
+    elif attrs:
+        blt_file.set(key, msgspec.json.encode(attrs))
 
 
 def compute_scale_and_offset(min_value: Union[int, float, np.number], max_value: Union[int, float, np.number], dtype: Union[np.dtype, str]):
@@ -366,9 +383,6 @@ def coord_data_checks(new_data: list | np.ndarray, source_data: np.ndarray, sour
             if source_step:
                 if len(new_data) > 1:
                     _ = init_parse_step(source_dtype, source_step, new_data)
-                else:
-                    test_data = np.array([source_data[-1], new_data[0]])
-                    _ = init_parse_step(source_dtype, source_step, test_data)
 
         elif source_dtype.kind == 'G':
             normalized = np.asarray([shapely.normalize(geo) for geo in new_data], dtype=source_dtype.dtype_decoded)
@@ -402,6 +416,42 @@ def coord_data_checks(new_data: list | np.ndarray, source_data: np.ndarray, sour
     return new_data
 
 
+def _generate_step_fill(start_val, end_val, step, dtype):
+    """
+    Generate fill values between start_val (exclusive) and end_val (exclusive)
+    using the given step. Validates that the gap is a multiple of the step.
+    Returns an empty array if the values are already adjacent.
+    """
+    if dtype.kind == 'f':
+        gap = float(end_val - start_val)
+        n_steps = gap / step
+        n_steps_rounded = round(n_steps)
+        if not np.isclose(n_steps, n_steps_rounded):
+            raise ValueError('The gap between existing and new data is not a multiple of the step.')
+        if n_steps_rounded <= 1:
+            return np.array([], dtype=dtype.dtype_decoded)
+        fill = start_val + step * np.arange(1, n_steps_rounded, dtype=dtype.dtype_decoded)
+        return fill
+    elif dtype.kind in ('u', 'i'):
+        gap = int(end_val - start_val)
+        if gap % step != 0:
+            raise ValueError('The gap between existing and new data is not a multiple of the step.')
+        if gap <= step:
+            return np.array([], dtype=dtype.dtype_decoded)
+        return np.arange(start_val + step, end_val, step, dtype=dtype.dtype_decoded)
+    elif dtype.kind == 'M':
+        unit = np.datetime_data(dtype.dtype_decoded)[0]
+        dt_step = np.timedelta64(step, unit)
+        gap = int((end_val - start_val) / dt_step)
+        if not np.isclose(gap, round(gap)):
+            raise ValueError('The gap between existing and new data is not a multiple of the step.')
+        if round(gap) <= 1:
+            return np.array([], dtype=dtype.dtype_decoded)
+        return np.arange(start_val + dt_step, end_val, dt_step)
+    else:
+        return np.array([], dtype=dtype.dtype_decoded)
+
+
 def append_new_data(new_data: list | np.ndarray, source_data: np.ndarray, source_dtype: dtypes.DataType, source_step):
     """
 
@@ -415,9 +465,10 @@ def append_new_data(new_data: list | np.ndarray, source_data: np.ndarray, source
             if not np.all(last < new_data):
                 raise ValueError('Appending requires that all values are greater than the existing values.')
 
-            if len(new_data) == 1:
-                test_data = np.array([source_data[-1], new_data[0]])
-                _ = init_parse_step(source_dtype, source_step, test_data)
+            if source_step:
+                fill = _generate_step_fill(source_data[-1], new_data[0], source_step, source_dtype)
+                if fill.size > 0:
+                    new_data = np.concatenate([fill, new_data])
 
         new_data = np.append(source_data, new_data)
 
@@ -437,9 +488,10 @@ def prepend_new_data(new_data: list | np.ndarray, source_data: np.ndarray, sourc
             if not np.all(first > new_data):
                 raise ValueError('Prepending requires that all values are less than the existing values.')
 
-            if len(new_data) == 1:
-                test_data = np.array([new_data[0], source_data[0]])
-                _ = init_parse_step(source_dtype, source_step, test_data)
+            if source_step:
+                fill = _generate_step_fill(new_data[-1], source_data[0], source_step, source_dtype)
+                if fill.size > 0:
+                    new_data = np.concatenate([new_data, fill])
 
         new_data = np.append(new_data, source_data)
 

@@ -586,9 +586,6 @@ h5_time = h5['time']
 nc_path = era5_path
 cfdb_path = new_path
 
-netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=None)
-netcdf4_to_cfdb(era5_path, new_path, sel=ds_sel, sel_loc=None)
-netcdf4_to_cfdb(era5_path, new_path, sel=None, sel_loc=ds_sel_loc)
 cfdb_to_netcdf4(new_path, '/home/mike/data/cache/cfdb/nc_test.nc')
 
 ds = open_dataset(new_path)
@@ -645,8 +642,6 @@ view0.data
 
 
 new_path2 = pathlib.Path('/home/mike/data/cache/cfdb/wrf_out_test.cfdb')
-
-netcdf4_to_cfdb(wrf_out_path, new_path2, sel=None, sel_loc=None)
 
 
 ds = salem.open_wrf_dataset(wrf_out_path)

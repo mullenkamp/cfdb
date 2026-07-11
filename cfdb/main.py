@@ -12,6 +12,7 @@ from typing import Union, List
 import pathlib
 import msgspec
 import weakref
+import warnings
 from copy import deepcopy
 import pyproj
 import math
@@ -49,6 +50,13 @@ class DatasetBase:
 
     #     """
     #     return self._file.__bool__()
+
+    @property
+    def dataset_type(self) -> str:
+        """
+        The dataset type: 'grid' or 'ts_ortho'.
+        """
+        return self._sys_meta.dataset_type.value
 
     def __iter__(self):
         for key in self.var_names:
@@ -97,24 +105,17 @@ class DatasetBase:
         except KeyError:
             pass
 
-        # Delete in cache
+        # Delete in caches
         try:
             del self._var_cache[key]
         except KeyError:
             pass
 
+        self._attrs_cache.pop(key, None)
+
         # Delete the instance in the sys meta
         del self._sys_meta.variables[key]
 
-
-    # def sync(self):
-    #     """
-
-    #     """
-    #     old_meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
-    #     if old_meta != self._meta:
-    #         self._blt.set_metadata(msgspec.to_builtins(self._meta))
-    #     self._blt.sync()
 
     def __bool__(self):
         return len(self) > 0
@@ -153,6 +154,16 @@ class DatasetBase:
         Return a tuple of variables.
         """
         return tuple(self[var_name] for var_name in self.var_names)
+
+
+    def load(self):
+        """
+        Load data from the remote into the local file. Only applies to EDatasets.
+        For a DatasetView, loads only the chunks within the selection.
+        """
+        if self._has_load_items:
+            for var_name in self.var_names:
+                self[var_name].load()
 
 
     def select(self, sel: dict):
@@ -505,9 +516,11 @@ class DatasetBase:
         """
         Copy a dataset to a new cfdb file.
         """
-        kwargs = dict(n_buckets=self._blt._n_buckets, buffer_size=self._blt._write_buffer_size)
+        blt = self._blt
+        local_file = getattr(blt, '_local_file', blt)
+        kwargs = dict(n_buckets=blt._n_buckets, buffer_size=local_file._write_buffer_size)
 
-        new_ds = open_dataset(file_path, 'n', dataset_type=self._sys_meta.dataset_type.value, compression=self.compression, compression_level=self.compression_level, **kwargs)
+        new_ds = open_dataset(file_path, 'n', dataset_type=self.dataset_type, compression=self.compression, compression_level=self.compression_level, **kwargs)
 
         data_var_names, coord_names = utils.filter_var_names(self, include_data_vars, exclude_data_vars)
 
@@ -566,6 +579,20 @@ class DatasetBase:
         data_var_names, coord_names = utils.filter_var_names(self, include_data_vars, exclude_data_vars)
 
         with h5netcdf.File(file_path, 'w', **file_kwargs) as h5:
+            # Grid mapping (CRS) setup
+            grid_mapping_name = None
+            grid_mapping_cf = None
+            if self.crs is not None:
+                grid_mapping_cf = self.crs.to_cf()
+                existing_names = set(coord_names) | set(data_var_names)
+                grid_mapping_name = 'spatial_ref'
+                if grid_mapping_name in existing_names:
+                    grid_mapping_name = 'crs'
+                    i = 1
+                    while grid_mapping_name in existing_names:
+                        grid_mapping_name = f'spatial_ref_{i}'
+                        i += 1
+
             # dims/coords
             for coord_name in coord_names:
                 coord = self[coord_name]
@@ -613,6 +640,9 @@ class DatasetBase:
 
                 attrs.update({'dtype': dtype_encoded.name})
 
+                if coord.axis is not None:
+                    attrs['axis'] = coord.axis.value.upper()
+
                 h5_coord = h5.create_variable(coord_name, (coord_name,), dtype_encoded, compression=compression, chunks=chunk_shape, fillvalue=fillvalue)
 
                 try:
@@ -623,6 +653,11 @@ class DatasetBase:
 
                 for write_chunk, data in coord.iter_chunks(True, decoded=False):
                     h5_coord[write_chunk] = data.astype(dtype_encoded)
+
+            # Grid mapping variable (CRS)
+            if grid_mapping_name is not None:
+                h5_crs = h5.create_variable(grid_mapping_name, (), dtype='int32')
+                h5_crs.attrs.update(grid_mapping_cf)
 
             # Data vars
             for data_var_name in data_var_names:
@@ -653,7 +688,7 @@ class DatasetBase:
                         # attrs['standard_name'] = 'time'
                         dtype_encoded = np.dtypes.Int64DType()
                     else:
-                        dtype_encoded = coord.dtype.dtype_decoded
+                        dtype_encoded = data_var.dtype.dtype_decoded
                 else:
                     if data_var.dtype.kind == 'M':
                         units = utils.parse_cf_time_units(data_var.dtype.dtype_decoded)
@@ -670,6 +705,14 @@ class DatasetBase:
                     attrs['_FillValue'] = fillvalue
 
                 attrs.update({'dtype': dtype_encoded.name})
+
+                if grid_mapping_name is not None:
+                    has_spatial = any(
+                        self[cn].axis is not None and self[cn].axis.value in ('x', 'y', 'xy')
+                        for cn in data_var.coord_names
+                    )
+                    if has_spatial:
+                        attrs['grid_mapping'] = grid_mapping_name
 
                 h5_data_var = h5.create_variable(data_var_name, data_var.coord_names, dtype_encoded, compression=compression, chunks=tuple(chunk_shape), fillvalue=fillvalue)
 
@@ -726,7 +769,12 @@ class Dataset(DatasetBase):
             elif not isinstance(compression_level, int):
                 raise ValueError('compression_level must be either None or an int.')
 
-            self._sys_meta = data_models.SysMeta(dataset_type=dataset_type, compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
+            ## Normalize to the enum explicitly: msgspec.Struct does NOT coerce on
+            ## __init__ (only convert() does), so a raw string here would make
+            ## _sys_meta.dataset_type a str on fresh datasets but a Type enum on
+            ## reopened ones - and .value readers (the dataset_type property)
+            ## would crash on fresh ones. Serialized form is identical either way.
+            self._sys_meta = data_models.SysMeta(dataset_type=data_models.Type(dataset_type.lower()), compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
             self._blt.set_metadata(msgspec.to_builtins(self._sys_meta))
 
         else:
@@ -736,9 +784,11 @@ class Dataset(DatasetBase):
         self.compression_level = self._sys_meta.compression_level
         self._compressor = sc.Compressor(self.compression, self.compression_level)
 
-        self._finalizers = [weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta)]
+        ## Single source of truth for all attributes: var_name -> attrs dict. Every Attributes instance aliases a dict in here; sync()/close() flush it exactly once.
+        self._attrs_cache = {}
+        self._finalizers = [weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta, self._attrs_cache, self.writable)]
 
-        self.attrs = sc.Attributes(self._blt, '_', self.writable, self._finalizers)
+        self.attrs = sc.Attributes(self._blt, '_', self.writable, self._attrs_cache)
         if create and dataset_type == 'ts_ortho':
             self.attrs['featureType'] = 'timeSeries'
 
@@ -783,11 +833,17 @@ class Dataset(DatasetBase):
     def __exit__(self, *args):
         self.close()
 
+    def sync(self):
+        """
+        Flush all in-memory state (variable definitions/shapes and attributes) to the local file without closing it. This never touches a remote - pushing is always an explicit, separate action.
+        """
+        utils.sync_dataset(self._blt, self._sys_meta, self._attrs_cache, self.writable)
+        self._blt.sync()
+
     def close(self):
         """
         Close the database.
         """
-        # self.sync()
         for finalizer in reversed(self._finalizers):
             finalizer()
         self.is_open = False
@@ -852,6 +908,7 @@ class DatasetView(DatasetBase):
         self.compression_level = dataset.compression_level
         self.attrs = dataset.attrs
         self._var_cache = dataset._var_cache
+        self._attrs_cache = dataset._attrs_cache
 
 
     def get(self, var_name):
@@ -964,6 +1021,7 @@ def open_dataset(file_path: Union[str, pathlib.Path],
                  dataset_type: str='grid',
                  compression: str='zstd',
                  compression_level: int=None,
+                 allow_partial: bool=False,
                  **kwargs):
     """
     Open a cfdb dataset. This uses the python package booklet for managing data in a single file.
@@ -980,7 +1038,7 @@ def open_dataset(file_path: Union[str, pathlib.Path],
         - ``'c'`` -- Open database for reading and writing, creating it if it doesn't exist.
         - ``'n'`` -- Always create a new, empty database, open for reading and writing.
     dataset_type : str
-        The dataset type to be opened. Default is ``'grid'``.
+        The dataset type when CREATING a new dataset. Default is ``'grid'``. Existing datasets always open with their stored type (and the matching class); this parameter is then ignored.
 
         - ``'grid'`` -- The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
         - ``'ts_ortho'`` -- A special time series coordinate structure representing the orthogonal multidimensional array representation of time series. Designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The z axis is currently optional.
@@ -1007,12 +1065,34 @@ def open_dataset(file_path: Union[str, pathlib.Path],
     else:
         create = False
 
-    if dataset_type.lower() == 'grid':
-        return Grid(fp, open_blt, create, compression, compression_level, 'grid')
-    elif dataset_type.lower() == 'ts_ortho':
-        return TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
+    ## The class follows the STORED dataset_type for existing files; the
+    ## dataset_type parameter only applies at creation. (meta is None on a
+    ## corrupt/empty file - fall through to the param so Dataset.__init__
+    ## raises its clear msgspec ValidationError instead of a NoneType error.)
+    if create:
+        dt = dataset_type.lower()
     else:
-        raise TypeError('The only option for the dataset type is "grid".')
+        meta = open_blt.get_metadata()
+        dt = dataset_type.lower() if meta is None else meta['dataset_type']
+
+    if dt == 'grid':
+        ds = Grid(fp, open_blt, create, compression, compression_level, 'grid')
+    elif dt == 'ts_ortho':
+        ds = TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
+    else:
+        raise TypeError('dataset_type must be either "grid" or "ts_ortho".')
+
+    if not allow_partial and not create and ds._sys_meta.remote:
+        warnings.warn(
+            f"The dataset '{file_path}' was created as a remote (S3-backed) dataset. "
+            "Opening it with open_dataset means only previously-fetched chunks are available locally. "
+            "Reads of missing data will silently return fill values (NaN or 0). "
+            "Use open_edataset to fetch data from the remote, or pass allow_partial=True to suppress this warning.",
+            data_models.PartialDataWarning,
+            stacklevel=2,
+        )
+
+    return ds
 
 
 

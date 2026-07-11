@@ -56,7 +56,7 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 
 **Indexing** (`indexers.py`): Handles index-based and location-based selection. Converts user selections to chunk keys for Booklet lookups. `LocationIndexer` supports `.loc[]` syntax.
 
-**Conversion tools** (`tools.py`): `netcdf4_to_cfdb()` and `cfdb_to_netcdf4()` for format conversion. Requires h5netcdf.
+**Conversion tools** (`tools.py`): `cfdb_to_netcdf4()` exports a cfdb to netCDF4 (requires h5netcdf). Importing netCDF4/other formats *into* cfdb lives in the separate [cfdb-ingest](https://github.com/mullenkamp/cfdb-ingest) package, not here.
 
 **Legacy code** (`core.py`): Old h5py-based implementation, not part of the current API.
 
@@ -66,7 +66,8 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 - **Metadata lifecycle**: `SysMeta` is deserialized from Booklet metadata on open and serialized back via `weakref.finalize` on close.
 - **Dataset types**: `grid` (standard N-D) and `ts_ortho` (time series with point geometries). Controlled by `data_models.Type` enum.
 - **Compression**: All data compressed with zstd (default) or lz4, configured at dataset level.
-- **Coordinate mutability** — values cannot be changed in-place. Coordinates support `append()`, `prepend()`, and `truncate(start, stop)` (removes values outside [start, stop] inclusive, along with orphaned data variable chunks). Must be unique and ascending.
+- **Coordinate mutability** — values cannot be changed in-place. Coordinates support `append()`, `prepend()`, and `truncate(start, stop)` (removes values outside [start, stop] inclusive, along with orphaned data variable chunks). Must be unique and ascending. There is no insert operation.
+- **Step auto-fill on append/prepend** — when a coordinate has an enforced `step` and new data is appended/prepended with a gap (not adjacent to existing data), cfdb automatically generates the missing intermediate coordinate values if the gap is a valid multiple of the step. Data variable positions at the filled coordinates are empty (NaN/fillvalue) until written. If the gap is not a valid multiple, a `ValueError` is raised.
 - **Rechunking and coordinate origins**: rechunkit guarantees source-chunk-aligned reads when a selection offset is non-aligned, but coordinate origins (from prepend) create a separate misalignment between 0-based indices and storage chunk keys. The `Rechunker` source function in `support_classes.py` uses `slices_to_chunks_keys()` to assemble reads across storage chunks when needed. Do not simplify this to `get_chunk()` — it will break for non-zero origins. See `docs/concepts/rechunking-internals.md` for details.
 - **GroupBy with time periods**: `groupby()` on both `DataVariableView` and `Dataset` accepts a dict with period strings (e.g. `{'time': 'D'}`, `{'time': 'M'}`). Regular periods (D, h, W, etc.) with uniform groups use the rechunker fast path; irregular periods (M, Y) or non-uniform groups fall back to slice-based iteration. Period parsing and group computation utilities live in `utils.py` (`parse_period_string`, `compute_time_groups`, `period_to_chunk_size`).
 - **Reference cycles and `weakref.finalize`**: `Dataset` uses `weakref.finalize` for cleanup. Any class stored as an attribute on `Dataset`/`Variable` that holds a reference back to it **must** use `weakref.proxy(dataset)` — not a direct reference. A strong back-reference creates a cycle that prevents the finalizer from running on Python 3.12+, causing file locks to persist and hangs. This applies to `Creator`/`Coord`/`DataVar`/`CRS` (in `creation.py`) and `LocationIndexer` (in `indexers.py`).
@@ -74,4 +75,4 @@ S3 credentials for EDataset tests come from either `cfdb/tests/s3_config.toml` o
 ### Dependencies
 
 Core: booklet, cfdb-models, rechunkit, numpy, zstandard, msgspec, lz4, shapely, pyproj
-Optional: h5netcdf + cftime (netcdf4 support), ebooklet (S3 support)
+Optional: h5netcdf (netcdf4 export support), ebooklet (S3 support)

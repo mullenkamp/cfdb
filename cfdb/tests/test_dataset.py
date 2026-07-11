@@ -1,5 +1,7 @@
 import os
+import gc
 import pytest
+import msgspec
 import numpy as np
 from time import time
 import pathlib
@@ -7,6 +9,7 @@ import h5netcdf
 import shapely
 
 from cfdb import open_dataset, cfdb_to_netcdf4, dtypes
+from cfdb.support_classes import attrs_key
 
 ###################################################
 ### Parameters
@@ -74,6 +77,47 @@ def test_coord_creation_ts_ortho():
         assert np.all(time_coord.data == time_data)
 
         ds.attrs['history'] = 'Created some coords yo'
+
+
+def test_dataset_type_property_and_reopen_class():
+    """0.9.1 regressions: the public dataset_type property works on FRESHLY
+    created datasets (the in-memory sysmeta slot used to be a plain string on
+    create vs an enum on reopen - msgspec does not coerce on construction),
+    and reopening WITHOUT the dataset_type parameter yields the class matching
+    the STORED type (the factories used to trust the parameter)."""
+    from cfdb.main import Grid, TimeSeriesOrtho
+    from cfdb_models import data_models
+
+    ## fresh ts_ortho: property + class + enum-typed sysmeta
+    with open_dataset(file_path, flag='n', dataset_type='ts_ortho') as ds:
+        assert isinstance(ds, TimeSeriesOrtho)
+        assert ds.dataset_type == 'ts_ortho'
+        assert isinstance(ds._sys_meta.dataset_type, data_models.Type)
+        geo_coord = ds.create.coord.point()
+        geo_coord.append(geo_data)
+
+    ## reopen without the param: stored type wins
+    with open_dataset(file_path, flag='w') as ds:
+        assert isinstance(ds, TimeSeriesOrtho)
+        assert ds.dataset_type == 'ts_ortho'
+        assert isinstance(ds._sys_meta.dataset_type, data_models.Type)
+
+        ## creating a coord on a REOPENED dataset crashed on 0.9.0
+        ## (TypeError: argument of type 'Type' is not iterable)
+        time_coord = ds.create.coord.time(data=time_data, dtype=time_data.dtype)
+        assert np.all(time_coord.data == time_data)
+
+        ## DatasetView inherits the property
+        view = ds.select({'time': slice(0, 5)})
+        assert view.dataset_type == 'ts_ortho'
+
+    ## fresh + reopened grid
+    with open_dataset(file_path, flag='n') as ds:
+        assert isinstance(ds, Grid)
+        assert ds.dataset_type == 'grid'
+    with open_dataset(file_path, flag='r') as ds:
+        assert isinstance(ds, Grid)
+        assert ds.dataset_type == 'grid'
 
 
 def test_coord_creation_grid():
@@ -208,9 +252,6 @@ def test_prune():
 
 def test_cfdb_to_netcdf4():
     cfdb_to_netcdf4(file_path, nc_file_path, sel_loc=ds_loc_sel)
-
-# def test_netcdf4_to_cfdb():
-#     netcdf4_to_cfdb(nc_file_path, new_file_path)
 
 
 ##############################################
@@ -491,6 +532,117 @@ def test_coordinate_prepend_then_append():
     with open_dataset(fp) as ds:
         assert ds['latitude'].shape == (150,)
         assert np.allclose(ds['latitude'].data, combined)
+
+    fp.unlink()
+
+
+def test_step_append_adjacent():
+    """Multi-element append with correct adjacent step succeeds."""
+    fp = script_path.joinpath('test_step_append_adjacent.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([1.0, 2.0, 3.0], dtype='float32'), dtype='float32', step=True)
+        coord.append(np.array([4.0, 5.0, 6.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+
+    fp.unlink()
+
+
+def test_step_append_fill_bridge():
+    """Multi-element append with gap auto-fills intermediate values."""
+    fp = script_path.joinpath('test_step_append_fill.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([1.0, 2.0, 3.0], dtype='float32'), dtype='float32', step=True)
+        coord.append(np.array([5.0, 6.0, 7.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+
+    fp.unlink()
+
+
+def test_step_append_fill_single():
+    """Single-element append with gap auto-fills intermediate values."""
+    fp = script_path.joinpath('test_step_append_fill_single.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([1.0, 2.0, 3.0], dtype='float32'), dtype='float32', step=True)
+        coord.append(np.array([5.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0])
+
+    fp.unlink()
+
+
+def test_step_append_non_multiple_raises():
+    """Append where gap is not a multiple of step raises ValueError."""
+    fp = script_path.joinpath('test_step_append_non_mult.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([1.0, 2.0, 3.0], dtype='float32'), dtype='float32', step=True)
+        with pytest.raises(ValueError):
+            coord.append(np.array([4.5, 5.5], dtype='float32'))
+
+    fp.unlink()
+
+
+def test_step_prepend_adjacent():
+    """Multi-element prepend with correct adjacent step succeeds."""
+    fp = script_path.joinpath('test_step_prepend_adjacent.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([4.0, 5.0, 6.0], dtype='float32'), dtype='float32', step=True)
+        coord.prepend(np.array([1.0, 2.0, 3.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+
+    fp.unlink()
+
+
+def test_step_prepend_fill_bridge():
+    """Multi-element prepend with gap auto-fills intermediate values."""
+    fp = script_path.joinpath('test_step_prepend_fill.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([4.0, 5.0, 6.0], dtype='float32'), dtype='float32', step=True)
+        coord.prepend(np.array([1.0, 2.0], dtype='float32'))
+        assert np.allclose(coord.data, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+
+    fp.unlink()
+
+
+def test_step_prepend_fill_single():
+    """Single-element prepend with gap auto-fills intermediate values."""
+    fp = script_path.joinpath('test_step_prepend_fill_single.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([4.0, 5.0, 6.0], dtype='float32'), dtype='float32', step=True)
+        coord.prepend(np.array([2.0], dtype='float32'))
+        assert np.allclose(coord.data, [2.0, 3.0, 4.0, 5.0, 6.0])
+
+    fp.unlink()
+
+
+def test_step_prepend_non_multiple_raises():
+    """Prepend where gap is not a multiple of step raises ValueError."""
+    fp = script_path.joinpath('test_step_prepend_non_mult.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.generic('x', data=np.array([4.0, 5.0, 6.0], dtype='float32'), dtype='float32', step=True)
+        with pytest.raises(ValueError):
+            coord.prepend(np.array([1.5, 2.5], dtype='float32'))
+
+    fp.unlink()
+
+
+def test_step_append_fill_datetime():
+    """Datetime append with gap auto-fills intermediate dates."""
+    fp = script_path.joinpath('test_step_append_fill_dt.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        coord = ds.create.coord.time(
+            data=np.array(['2023-01-01', '2023-01-02', '2023-01-03'], dtype='datetime64[D]'),
+        )
+        coord.append(np.array(['2023-01-06', '2023-01-07'], dtype='datetime64[D]'))
+        expected = np.arange('2023-01-01', '2023-01-08', dtype='datetime64[D]')
+        assert np.array_equal(coord.data, expected)
 
     fp.unlink()
 
@@ -2053,6 +2205,138 @@ def test_view_crs():
     fp2.unlink()
 
 
+def test_partial_data_warning():
+    """open_dataset warns when opening a file with remote=True in metadata."""
+    import warnings
+    from cfdb import PartialDataWarning
+
+    fp = script_path.joinpath('test_partial_warn.cfdb')
+
+    # Create a dataset and manually set remote=True to simulate an edataset
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        ds._sys_meta.remote = True
+
+    # Reopen with open_dataset — should warn
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        with open_dataset(fp) as ds:
+            pass
+        assert len(w) == 1
+        assert issubclass(w[0].category, PartialDataWarning)
+        assert 'remote' in str(w[0].message).lower()
+
+    fp.unlink()
+
+
+def test_partial_data_warning_suppressed():
+    """allow_partial=True suppresses the warning."""
+    import warnings
+    from cfdb import PartialDataWarning
+
+    fp = script_path.joinpath('test_partial_suppress.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        ds._sys_meta.remote = True
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        with open_dataset(fp, allow_partial=True) as ds:
+            pass
+        partial_warnings = [x for x in w if issubclass(x.category, PartialDataWarning)]
+        assert len(partial_warnings) == 0
+
+    fp.unlink()
+
+
+def test_no_partial_data_warning_for_local():
+    """Normal local datasets should not trigger the warning."""
+    import warnings
+    from cfdb import PartialDataWarning
+
+    fp = script_path.joinpath('test_no_partial_warn.cfdb')
+
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        with open_dataset(fp) as ds:
+            pass
+        partial_warnings = [x for x in w if issubclass(x.category, PartialDataWarning)]
+        assert len(partial_warnings) == 0
+
+    fp.unlink()
+
+
+def test_to_netcdf4_crs(tmp_path):
+    """to_netcdf4 writes the CRS as a CF grid_mapping variable."""
+    import pyproj
+
+    cfdb_fp = tmp_path / "crs_grid.cfdb"
+    nc_fp = tmp_path / "crs_grid.nc"
+
+    lat = np.linspace(0, 9.9, 20, dtype='float32')
+    lon = np.linspace(-5, 4.9, 30, dtype='float32')
+    times = np.linspace(0, 9, 10, dtype='datetime64[D]')
+    data = np.random.default_rng(0).standard_normal((20, 30, 10)).astype('float32')
+
+    with open_dataset(cfdb_fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(10,))
+        ds.create.coord.lon(data=lon, chunk_shape=(15,))
+        ds.create.coord.time(data=times, dtype=times.dtype)
+
+        ds.create.crs.from_user_input(4326, 'longitude', 'latitude')
+
+        data_dtype = dtypes.dtype('float32')
+        dv = ds.create.data_var.generic(
+            'temperature', ('latitude', 'longitude', 'time'),
+            data_dtype, chunk_shape=(10, 15, 5))
+        dv[:] = data
+
+        expected_crs = ds.crs
+        ds.to_netcdf4(nc_fp)
+
+    with h5netcdf.File(nc_fp) as f:
+        # grid-mapping variable exists with CF attrs
+        assert 'spatial_ref' in f.variables
+        gm_attrs = dict(f['spatial_ref'].attrs)
+        assert 'crs_wkt' in gm_attrs
+        assert gm_attrs['grid_mapping_name'] == 'latitude_longitude'
+
+        # data var references the grid mapping
+        assert f['temperature'].attrs['grid_mapping'] == 'spatial_ref'
+
+        # spatial coords carry axis attrs
+        assert f['latitude'].attrs['axis'] == 'Y'
+        assert f['longitude'].attrs['axis'] == 'X'
+
+        # round-trip the CRS
+        assert pyproj.CRS.from_cf(gm_attrs) == expected_crs
+
+
+def test_to_netcdf4_no_crs(tmp_path):
+    """to_netcdf4 with no CRS set writes no grid_mapping variable or attrs."""
+    cfdb_fp = tmp_path / "no_crs_grid.cfdb"
+    nc_fp = tmp_path / "no_crs_grid.nc"
+
+    lat = np.linspace(0, 9.9, 20, dtype='float32')
+    lon = np.linspace(-5, 4.9, 30, dtype='float32')
+    data = np.random.default_rng(0).standard_normal((20, 30)).astype('float32')
+
+    with open_dataset(cfdb_fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat, chunk_shape=(10,))
+        ds.create.coord.lon(data=lon, chunk_shape=(15,))
+        dv = ds.create.data_var.generic(
+            'temperature', ('latitude', 'longitude'),
+            dtypes.dtype('float32'), chunk_shape=(10, 15))
+        dv[:] = data
+        ds.to_netcdf4(nc_fp)
+
+    with h5netcdf.File(nc_fp) as f:
+        assert 'spatial_ref' not in f.variables
+        assert 'grid_mapping' not in dict(f['temperature'].attrs)
 
 
 
@@ -2071,3 +2355,91 @@ def test_view_crs():
 
 
 
+
+
+
+
+def test_attrs_single_source_of_truth(tmp_path):
+    """
+    All Attributes instances for one variable must share one dict, and the
+    latest edits must survive close.
+
+    Regression: _var_cache is weak, so re-accessing a variable used to create a
+    second, independent Attributes dict; close() flushed the STALE instance
+    last, silently clobbering newer edits.
+    """
+    fp = tmp_path.joinpath('attrs_split_brain.cfdb')
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        a = ds['latitude'].attrs  # the Variable is dropped after this line; only attrs held
+        gc.collect()  # ensure the Variable is evicted from the weak _var_cache
+        b = ds['latitude'].attrs
+        b['edited'] = 'after'
+        assert a['edited'] == 'after'
+        a['edited_via_a'] = 'also'
+        assert b['edited_via_a'] == 'also'
+
+    with open_dataset(fp) as ds:
+        attrs = ds['latitude'].attrs
+        assert attrs['edited'] == 'after'
+        assert attrs['edited_via_a'] == 'also'
+
+
+def test_deleted_variable_attrs_removed(tmp_path):
+    """
+    Regression: deleting a variable removed its attrs key from the file, but a
+    live Attributes finalizer for that variable resurrected it at close.
+    """
+    fp = tmp_path.joinpath('attrs_delete.cfdb')
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        ds['latitude'].attrs['foo'] = 'bar'
+        del ds['latitude']
+
+    with open_dataset(fp) as ds:
+        assert ds._blt.get(attrs_key.format(var_name='latitude')) is None
+
+
+def test_attrs_clear_persists(tmp_path):
+    """
+    Regression: attrs.clear() never persisted (the flush skipped empty dicts
+    even when the file held a non-empty version).
+    """
+    fp = tmp_path.joinpath('attrs_clear.cfdb')
+    with open_dataset(fp, flag='n') as ds:
+        ds.attrs['a'] = 1
+
+    with open_dataset(fp, flag='w') as ds:
+        assert ds.attrs['a'] == 1
+        ds.attrs.clear()
+
+    with open_dataset(fp) as ds:
+        assert 'a' not in ds.attrs
+
+
+def test_sync_flushes_without_close(tmp_path):
+    """
+    Dataset.sync() must flush variable definitions and attrs to the file
+    mid-session (the file stays open and writable afterwards).
+    """
+    fp = tmp_path.joinpath('sync_local.cfdb')
+    with open_dataset(fp, flag='n') as ds:
+        ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
+        ds.attrs['project'] = 'envlib'
+        ds['latitude'].attrs['note'] = 'synced'
+
+        ds.sync()
+
+        meta = ds._blt.get_metadata()
+        assert meta is not None
+        assert 'latitude' in meta['variables']
+        raw_ds_attrs = ds._blt.get(attrs_key.format(var_name='_'))
+        assert msgspec.json.decode(raw_ds_attrs)['project'] == 'envlib'
+        raw_lat_attrs = ds._blt.get(attrs_key.format(var_name='latitude'))
+        assert msgspec.json.decode(raw_lat_attrs)['note'] == 'synced'
+
+        # still open and usable after sync
+        ds['latitude'].attrs['post_sync'] = True
+
+    with open_dataset(fp) as ds:
+        assert ds['latitude'].attrs['post_sync'] is True

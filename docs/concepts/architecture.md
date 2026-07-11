@@ -52,7 +52,6 @@ classDiagram
 
     class tools {
         <<module>>
-        netcdf4_to_cfdb(nc_path, cfdb_path, sel, sel_loc, max_mem, ...)
         cfdb_to_netcdf4(cfdb_path, nc_path, compression, sel, sel_loc, ...)
     }
 
@@ -324,10 +323,10 @@ All data in a cfdb file lives in one Booklet file:
 ## Metadata Lifecycle
 
 1. On open, `SysMeta` is deserialized from the Booklet metadata via `msgspec.convert()`
-2. During the session, `SysMeta` is modified in memory (adding variables, changing shapes, etc.)
-3. On close, a `weakref.finalize` callback serializes `SysMeta` back to Booklet metadata
+2. During the session, `SysMeta` is modified in memory (adding variables, changing shapes, etc.); variable/dataset attributes are likewise held in a single dataset-level cache (`Dataset._attrs_cache`) — every `Attributes` handle for a variable aliases the same dict
+3. On close, a `weakref.finalize` callback serializes `SysMeta` and the attrs cache back to Booklet keys
 
-This means metadata changes are batched and written on close, not on every operation.
+This means metadata changes are batched and written on close, not on every operation. `Dataset.sync()` performs the same flush mid-session without closing (`EDataset.push()`/`changes()` call it automatically, so a push always publishes the current structure).
 
 ## Chunk Storage
 

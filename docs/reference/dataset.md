@@ -17,6 +17,7 @@ with cfdb.open_dataset('data.cfdb', flag='r') as ds:
 | Property | Type | Description |
 |----------|------|-------------|
 | `file_path` | pathlib.Path | Path to the cfdb file |
+| `dataset_type` | str | The dataset type (`'grid'` or `'ts_ortho'`) |
 | `writable` | bool | Whether the dataset is open for writing |
 | `is_open` | bool | Whether the dataset is currently open |
 | `compression` | str | Compression algorithm (`'zstd'` or `'lz4'`) |
