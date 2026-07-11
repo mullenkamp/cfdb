@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.1 (Latest)
+## 0.9.1 (2026-07-12)
 
 - Fixed: `open_edataset` now supports `dataset_type='ts_ortho'` (it used to raise TypeError at create) and returns the class matching the dataset's STORED type for existing remotes (it always returned `EGrid`, even for ts_ortho remotes)
 - Changed: in both `open_dataset` and `open_edataset`, the `dataset_type` parameter now applies only when CREATING — existing datasets always open with their stored type and the matching class (previously the class silently followed the parameter, so an existing ts_ortho file opened without the parameter got a Grid-classed object)
