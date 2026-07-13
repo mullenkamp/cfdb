@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.2 (unreleased)
+
+- Changed: `EDataset.push()` now returns ebooklet's `PushResult` (passthrough; requires ebooklet >= 0.10.0): `result.updated`, `result.failures` (failed keys → error strings; pending changes retained for retry), and `bool(result)` = fully-successful push. Previously it returned True/False/dict — note the old partial-failure dict was truthy, so `if ds.push():` misread partial failure as success; any failure is now falsy
+- Updated dependency pins: `ebooklet>=0.10.0` (persistent journal, generational storage format 2, typed exceptions, PushResult, offline read mode — see ebooklet's changelog; format-1 remotes need the one-time re-push upgrade described there)
+
 ## 0.9.1 (2026-07-12)
 
 - Fixed: `open_edataset` now supports `dataset_type='ts_ortho'` (it used to raise TypeError at create) and returns the class matching the dataset's STORED type for existing remotes (it always returned `EGrid`, even for ts_ortho remotes)
