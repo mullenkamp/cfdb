@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.3 (unreleased)
+
+- Fixed: chained `.loc` access on a temporary variable — `ds[var].loc[...]` (read or write; on datasets, views, and EDatasets alike) crashed with `ReferenceError: weakly-referenced object no longer exists`; only the bound form (`v = ds[var]; v.loc[...]`) worked. The loc indexer is now created per access via a property and holds a strong reference to its variable for the duration of the expression; because it is no longer stored on the variable, no reference cycle is introduced and finalizer/collection timing is unchanged. Found by the envlib esa-sst ingest — the chained form is the natural notebook idiom (`cat.query(...)[0].open()[var].loc[...]`)
+- Note for user code: `v.loc` now returns a fresh indexer object on each access (`v.loc is v.loc` is `False`), and assigning to `v.loc` raises `AttributeError`
+
+## 0.9.2 (2026-07-13)
+
+- Changed: `EDataset.push()` now returns ebooklet's `PushResult` (passthrough; requires ebooklet >= 0.10.0): `result.updated`, `result.failures` (failed keys → error strings; pending changes retained for retry), and `bool(result)` = fully-successful push. Previously it returned True/False/dict — note the old partial-failure dict was truthy, so `if ds.push():` misread partial failure as success; any failure is now falsy
+- Updated dependency pins: `ebooklet>=0.10.0` (persistent journal, generational storage format 2, typed exceptions, PushResult, offline read mode — see ebooklet's changelog; format-1 remotes need the one-time re-push upgrade described there)
+
 ## 0.9.1 (2026-07-12)
 
 - Fixed: `open_edataset` now supports `dataset_type='ts_ortho'` (it used to raise TypeError at create) and returns the class matching the dataset's STORED type for existing remotes (it always returned `EGrid`, even for ts_ortho remotes)

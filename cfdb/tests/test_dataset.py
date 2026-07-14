@@ -195,6 +195,37 @@ def test_select():
         except ValueError:
             pass
 
+
+def test_chained_loc():
+    """
+    Chained .loc on a temporary variable (regression for the 0.9.2
+    ReferenceError: the loc indexer weakly referenced its variable, and the
+    weak-cached temporary in ds[var].loc[...] was freed mid-expression).
+    No bound variable may be alive in these blocks - a live reference keeps
+    the weak-cached variable alive and masks the bug.
+    """
+    expected = data_var_data[(slice(4, 7), slice(None, None), slice(3, 9))]
+
+    with open_dataset(file_path) as ds:
+        # chained read
+        assert np.allclose(ds[name].loc[loc_sel].data, expected)
+
+        # chained read on a view (view variables are never cached at all)
+        assert np.allclose(ds.select({'time': slice(0, 10)})[name].loc[loc_sel].data, expected)
+
+        # bound form still works (guards the property change)
+        data_var = ds[name]
+        assert np.allclose(data_var.loc[loc_sel].data, expected)
+
+    # chained write (same values - keeps the shared test file unchanged)
+    with open_dataset(file_path, flag='w') as ds:
+        ds[name].loc[loc_sel] = data_var_data[(slice(4, 7), slice(None, None), slice(3, 9))]
+
+    # the full notebook chain: dataset AND variable both temporaries
+    # (the dataset finalizer releases the file at refcount-zero)
+    assert np.allclose(open_dataset(file_path)[name].loc[loc_sel].data, expected)
+
+
 def test_rechunker_assignment():
     data_dtype = dtypes.dtype(data_var_data.dtype, 1, 0, 10000)
 

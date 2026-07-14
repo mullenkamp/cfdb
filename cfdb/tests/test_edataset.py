@@ -137,6 +137,11 @@ def test_edataset_push_and_pull(pushed_dataset):
         view2 = data_var.loc[loc_sel]
         assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(None, None), slice(3, 9))])
 
+        # chained .loc on a temporary (0.9.2 ReferenceError regression);
+        # del the bound variable first - a live ref masks the bug
+        del data_var, view1, view2
+        assert np.allclose(ds[name].loc[loc_sel].data, data_var_data[(slice(4, 7), slice(None, None), slice(3, 9))])
+
 
 def test_edataset_iter_chunks(pushed_dataset):
     """Test iter_chunks on an EDataset pulled from remote."""
@@ -219,7 +224,7 @@ def test_edataset_write_and_push(pushed_dataset):
         dv[modified_slice] = new_data
         changes = ds.changes()
         result = changes.push()
-        assert result is True or result == True
+        assert result.updated is True and not result.failures
 
     _clean_local()
 
@@ -341,7 +346,7 @@ def test_edataset_midsession_push(fg1_conn):
         dv = ds.create.data_var.generic('temp', ('latitude',), dtypes.dtype('float32'), chunk_shape=(20,))
         dv[:] = lat_data
 
-        assert ds.push() is True  # mid-session: the dataset is still open
+        assert ds.push()  # mid-session: the dataset is still open
 
         # Verify from an INDEPENDENT reader while the writer session is still open
         with open_edataset(fg1_conn, fg1_reader_path, flag='r') as ds2:
@@ -353,7 +358,7 @@ def test_edataset_midsession_push(fg1_conn):
 
         # The direct changes().push() path must be just as safe
         ds['latitude'].attrs['note2'] = 'via-changes'
-        assert ds.changes().push() is True
+        assert ds.changes().push()
 
     _clean_fg_local()
 
@@ -376,7 +381,7 @@ def fg2_pushed(fg2_conn):
 
     # num_groups must be re-passed here: the remote doesn't exist yet, so it can't be read from S3 metadata (same pattern as pushed_dataset above)
     with open_edataset(fg2_conn, fg2_file_path, flag='w', num_groups=num_groups) as ds:
-        assert ds.push() is True
+        assert ds.push()
 
     _clean_fg_local()
 
@@ -398,7 +403,7 @@ def test_edataset_fresh_local_w_attaches(fg2_pushed):
         # a real modification via the attached session must round-trip
         ds['latitude'].append(fg_lat_append)
         ds['temp'][100:110] = fg_lat_append
-        assert ds.push() is True
+        assert ds.push()
 
     _clean_fg_local()
 
@@ -429,7 +434,7 @@ def test_edataset_noop_session_pushes_nothing(fg2_pushed):
     pushed 'changes' even when idle).
     """
     with open_edataset(fg2_pushed, fg2_file_path, flag='w') as ds:
-        assert ds.push() is False
+        assert ds.push().updated is False
 
     _clean_fg_local()
 
@@ -496,7 +501,7 @@ def test_edataset_ts_ortho_e2e(ts1_conn, fg2_pushed):
     # num_groups must be re-passed: the remote doesn't exist yet (same pattern as fg2_pushed)
     with open_edataset(ts1_conn, ts1_file_path, flag='w', num_groups=num_groups) as ds:
         assert type(ds).__name__ == 'ETimeSeriesOrtho'
-        assert ds.push() is True
+        assert ds.push()
 
     _clean_ts1_local()
 

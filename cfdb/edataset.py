@@ -45,8 +45,10 @@ class EDataset(Dataset):
         """
         Push local changes to the remote. Safe to call mid-session: the current variable definitions and attributes are flushed to the local file before pushing.
 
-        Returns True if updated, False if no changes, or a dict of failed keys on partial failure.
-        Use force_push=True to retry after a partial failure.
+        Returns an ebooklet PushResult: `updated` (the remote changed), `failures`
+        (failed keys/groups -> error strings; the pending changes are retained for
+        retry), and `bool(result)` is True only for a fully-successful push that
+        changed the remote. Use force_push=True to retry after a partial failure.
         """
         return self.changes().push(force_push=force_push)
 

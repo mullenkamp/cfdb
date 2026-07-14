@@ -578,7 +578,6 @@ class Variable:
         # self._encoder = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, dataset._compressor)
         self.compressor = dataset._compressor
         self.dtype = dtypes.dtype(**msgspec.to_builtins(self._var_meta.dtype))
-        self.loc = indexers.LocationIndexer(self)
         self.writable = dataset.writable
 
         ## Assign all the encodings - should I do this?
@@ -598,6 +597,14 @@ class Variable:
     @property
     def values(self):
         return self.data
+
+    @property
+    def loc(self):
+        ## A fresh indexer per access: the indexer holds a strong ref to this
+        ## variable (keeping chained temporaries like ds[var].loc[...] alive),
+        ## and because it is not stored on the variable there is no reference
+        ## cycle to delay refcount-based collection/finalizers.
+        return indexers.LocationIndexer(self)
 
 
     def _make_blank_sel_array(self, sel, coord_origins):

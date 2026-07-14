@@ -319,17 +319,19 @@ def check_sel_input_data(sel, input_data, coord_origins, shape, dtype):
 ### Classes
 
 
-import weakref
-
 class LocationIndexer:
     """
-
+    Location-based (.loc) indexer for a variable. Created per access by the
+    Variable.loc property and discarded after the expression, so it must hold
+    a STRONG reference: it is the only thing keeping a temporary variable
+    (e.g. ds[var].loc[...]) alive until indexing runs. Because it is never
+    stored on the variable, no reference cycle is created.
     """
     def __init__(self, variable):
         """
 
         """
-        self.variable = weakref.proxy(variable)
+        self.variable = variable
 
 
     def __getitem__(self, key):
