@@ -137,6 +137,11 @@ def test_edataset_push_and_pull(pushed_dataset):
         view2 = data_var.loc[loc_sel]
         assert np.allclose(view2.data, data_var_data[(slice(4, 7), slice(None, None), slice(3, 9))])
 
+        # chained .loc on a temporary (0.9.2 ReferenceError regression);
+        # del the bound variable first - a live ref masks the bug
+        del data_var, view1, view2
+        assert np.allclose(ds[name].loc[loc_sel].data, data_var_data[(slice(4, 7), slice(None, None), slice(3, 9))])
+
 
 def test_edataset_iter_chunks(pushed_dataset):
     """Test iter_chunks on an EDataset pulled from remote."""
