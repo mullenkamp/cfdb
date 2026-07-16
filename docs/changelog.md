@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.3 (unreleased)
+## 0.9.3 (2026-07-14)
 
 - Fixed: chained `.loc` access on a temporary variable — `ds[var].loc[...]` (read or write; on datasets, views, and EDatasets alike) crashed with `ReferenceError: weakly-referenced object no longer exists`; only the bound form (`v = ds[var]; v.loc[...]`) worked. The loc indexer is now created per access via a property and holds a strong reference to its variable for the duration of the expression; because it is no longer stored on the variable, no reference cycle is introduced and finalizer/collection timing is unchanged. Found by the envlib esa-sst ingest — the chained form is the natural notebook idiom (`cat.query(...)[0].open()[var].loc[...]`)
 - Note for user code: `v.loc` now returns a fresh indexer object on each access (`v.loc is v.loc` is `False`), and assigning to `v.loc` raises `AttributeError`
