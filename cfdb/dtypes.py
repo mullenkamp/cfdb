@@ -258,14 +258,51 @@ class DTypeTranscoder(DataType):
     @sup
     def encode(self, data_decoded: np.ndarray):
         """
-
+        Values that cannot be represented in the encoded integer dtype are mapped to the
+        reserved fillvalue (decoding back to nan/NaT) BEFORE the integer cast: nan/inf,
+        NaT, and finite values whose scaled representation falls outside the encoded
+        integer's range. Casting such values is undefined behavior in C — numpy fabricates
+        arbitrary integers, and the result differs between the scalar and SIMD code paths,
+        so it cannot even be relied on to be consistent within one array.
         """
         if self._factor is None:
-            data_encoded = (data_decoded - self.offset).astype(self.dtype_encoded)
+            data_encoded = data_decoded - self.offset
         else:
-            data_encoded = (np.round((data_decoded - self.offset) * self._factor)).astype(self.dtype_encoded)
+            data_encoded = np.round((data_decoded - self.offset) * self._factor)
 
-        return data_encoded
+        if self.dtype_encoded is not None and np.dtype(self.dtype_encoded).kind in 'ui':
+            fill = 0 if self.fillvalue is None else self.fillvalue
+            info = np.iinfo(self.dtype_encoded)
+            if data_encoded.dtype.kind == 'M':
+                ticks = data_encoded.astype('int64')
+                invalid = np.isnat(data_encoded) | (ticks < info.min) | (ticks > info.max)
+                data_encoded = np.where(invalid, np.array(fill, dtype=data_encoded.dtype), data_encoded)
+            elif data_encoded.dtype.kind == 'f':
+                # compare against bounds prepared as exactly-representable values in the
+                # data's OWN dtype, so the checks run natively (no float64 copy — this is a
+                # hot per-chunk write path). A bound the dtype cannot represent is shrunk by
+                # one ULP toward the valid range, which is provably the largest/smallest
+                # representable value inside the bound — naive comparison would promote
+                # iinfo(uint32).max to float32(2**32) and let the top ULP band through to
+                # the undefined cast.
+                fdt = data_encoded.dtype
+                lo64, hi64 = np.float64(info.min), np.float64(info.max)
+                lo = fdt.type(lo64)
+                hi = fdt.type(hi64)
+                if lo < lo64:
+                    lo = np.nextafter(lo, fdt.type(np.inf))
+                if hi > hi64:
+                    hi = np.nextafter(hi, fdt.type(-np.inf))
+                invalid = ~np.isfinite(data_encoded) | (data_encoded < lo) | (data_encoded > hi)
+                if invalid.any():
+                    data_encoded = np.where(invalid, fill, data_encoded)
+            elif data_encoded.dtype.kind in 'iu':
+                # packed integers have no reserved missing value, so out-of-range cannot be
+                # mapped anywhere honest: fail loud instead of wrapping modulo the width
+                if ((data_encoded < info.min) | (data_encoded > info.max)).any():
+                    raise ValueError(f'integer value(s) outside the encodable range of {self.dtype_encoded}')
+
+        return data_encoded.astype(self.dtype_encoded)
 
     def decode(self, data_encoded: np.ndarray):
         """
