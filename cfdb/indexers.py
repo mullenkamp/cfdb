@@ -162,12 +162,66 @@ def loc_index_combo_all(key, coords):
 #     if isinstance(key, int):
 
 
+def _normalize_user_key_one(key, shape, pos):
+    """
+    Numpy-semantics normalization of one RAW user key component against the
+    object's shape: negative ints/slice-bounds wrap, out-of-range ints raise
+    IndexError, slice bounds clamp into [0, dim], descending ranges clamp to
+    empty (the downstream no-empty-selection ValueError then fires loudly).
+    """
+    if pos >= len(shape):
+        # over-long tuples fall through to index_combo_all's clearer length error
+        return key
+
+    if isinstance(key, slice):
+        dim = shape[pos]
+        start = key.start
+        stop = key.stop
+        if isinstance(start, int):
+            if start < 0:
+                start += dim
+            start = min(max(start, 0), dim)
+        if isinstance(stop, int):
+            if stop < 0:
+                stop += dim
+            stop = min(max(stop, 0), dim)
+            if isinstance(start, int):
+                stop = max(stop, start)
+        return slice(start, stop, key.step)
+
+    if isinstance(key, int):
+        dim = shape[pos]
+        key0 = key + dim if key < 0 else key
+        if key0 < 0 or key0 >= dim:
+            raise IndexError(f'index {key} is out of bounds for axis {pos} with size {dim}')
+        return key0
+
+    return key
+
+
+def normalize_user_key(key, shape):
+    """
+    Normalize a RAW user selection (int, slice, None, or tuple thereof) against
+    the selecting object's shape (the VIEW shape for views).
+
+    Apply this ONLY where user keys enter the system (__getitem__/_get, set,
+    select/select_loc). Never apply it to internal recomposed _sel tuples: those
+    are full-variable 0-based coordinates evaluated against view shapes, and
+    clamping them would empty-select every view that does not start at 0.
+    """
+    if isinstance(key, tuple):
+        return tuple(_normalize_user_key_one(k, shape, pos) for pos, k in enumerate(key))
+
+    return _normalize_user_key_one(key, shape, 0)
+
+
 def slice_int(key, coord_origins, var_shape, pos):
     """
 
     """
-    if key > var_shape[pos]:
-        raise ValueError('key is larger than the coord length.')
+    # Defense only: user ints arrive pre-normalized via normalize_user_key.
+    if key < 0 or key >= var_shape[pos]:
+        raise IndexError(f'index {key} is out of bounds for axis {pos} with size {var_shape[pos]}')
 
     slice1 = slice(key + coord_origins[pos], key + coord_origins[pos] + 1)
 
@@ -304,6 +358,7 @@ def check_sel_input_data(sel, input_data, coord_origins, shape, dtype):
     """
 
     """
+    sel = normalize_user_key(sel, shape)
     slices = index_combo_all(sel, coord_origins, shape)
     slices_shape = tuple(s.stop - s.start for s in slices)
 

@@ -23,7 +23,7 @@ try:
 except ImportError:
     import_h5netcdf = False
 
-from . import utils, indexers, data_models, creation, dtypes, support_classes as sc
+from . import utils, indexers, data_models, creation, support_classes as sc
 # import utils, indexers, data_models, creation, dtypes, support_classes as sc
 
 
@@ -182,7 +182,8 @@ class DatasetBase:
             coord = self[coord_name]
             zero_origins = tuple(0 for _ in range(coord.ndims))
             if coord_name in sel:
-                slices = indexers.index_combo_all(sel[coord_name], zero_origins, coord.shape)
+                user_key = indexers.normalize_user_key(sel[coord_name], coord.shape)
+                slices = indexers.index_combo_all(user_key, zero_origins, coord.shape)
             else:
                 slices = indexers.index_combo_all(None, zero_origins, coord.shape)
             _sel[coord_name] = slices
@@ -214,7 +215,8 @@ class DatasetBase:
             coord = self[coord_name]
             zero_origins = tuple(0 for _ in range(coord.ndims))
             if coord_name in sel:
-                slices = indexers.index_combo_all(indexers.loc_index_combo_all(sel[coord_name], (coord,)), zero_origins, coord.shape)
+                loc_key = indexers.normalize_user_key(indexers.loc_index_combo_all(sel[coord_name], (coord,)), coord.shape)
+                slices = indexers.index_combo_all(loc_key, zero_origins, coord.shape)
             else:
                 slices = indexers.index_combo_all(None, zero_origins, coord.shape)
             _sel[coord_name] = slices
@@ -314,62 +316,23 @@ class DatasetBase:
         tuple
             (target_chunk dict, var_data dict)
         """
-        # Normalize input to dict
-        if isinstance(coord_names, str):
-            chunk_shape = {coord_names: 1}
-        elif isinstance(coord_names, dict):
-            chunk_shape = dict(coord_names)
-        else:
-            chunk_shape = {cn: 1 for cn in coord_names}
-
-        # Resolve period strings
-        period_coord = None
-        period_groups = None
-
-        for cn, val in list(chunk_shape.items()):
-            if isinstance(val, str):
-                coord_meta = self._sys_meta.variables.get(cn)
-                if coord_meta is None or not isinstance(coord_meta, data_models.CoordinateVariable):
-                    raise ValueError(f"'{cn}' is not a coordinate variable.")
-                coord_dtype_obj = dtypes.dtype(**msgspec.to_builtins(coord_meta.dtype))
-                if coord_dtype_obj.kind != 'M':
-                    raise ValueError(
-                        f"Period strings are only valid on datetime coordinates, "
-                        f"but '{cn}' has kind '{coord_dtype_obj.kind}'."
-                    )
-                if period_coord is not None:
-                    raise ValueError('Only one period-based coordinate is supported per groupby call.')
-
-                count, unit = utils.parse_period_string(val)
-
-                chunk_size = utils.period_to_chunk_size(
-                    count, unit, coord_meta.step, coord_dtype_obj.dtype_decoded
-                )
-
-                if chunk_size is not None:
-                    # Regular period (D, h, W, etc.) — use rechunker.
-                    # The rechunker handles remainder chunks natively.
-                    chunk_shape[cn] = chunk_size
-                    continue
-
-                # Irregular period (M, Y) — compute groups for slice-based iteration
-                coord_obj = self[cn]
-                coord_data = coord_obj.data
-                groups = utils.compute_time_groups(coord_data, count, unit)
-                period_coord = cn
-                period_groups = groups
-
-        if period_coord is None:
-            return self.iter_chunks(chunk_shape, data_vars=data_vars, max_mem=max_mem)
-
-        # Validate no spatial chunk overrides with irregular periods
         if data_vars is None:
             data_vars_list = list(self.data_var_names)
         else:
             data_vars_list = list(data_vars)
 
+        if not data_vars_list:
+            raise ValueError('No data variables specified for rechunking.')
+
         first_dv = self[data_vars_list[0]]
         common_coord_names = first_dv.coord_names
+
+        chunk_shape, period_coord, period_groups = utils.resolve_groupby_spec(
+            coord_names, common_coord_names, self._sys_meta, lambda cn: self[cn].data
+        )
+
+        if period_coord is None:
+            return self.iter_chunks(chunk_shape, data_vars=data_vars, max_mem=max_mem)
 
         other_overrides = {
             cn: v for cn, v in chunk_shape.items()
@@ -633,7 +596,8 @@ class DatasetBase:
                     else:
                         dtype_encoded = coord.dtype.dtype_encoded
                         attrs['add_offset'] = coord.dtype.offset
-                        attrs['scale_factor'] = 1/coord.dtype._factor
+                        # Integer packing has no scale factor (_factor is None): unpacked = packed + offset
+                        attrs['scale_factor'] = 1.0 if coord.dtype._factor is None else 1/coord.dtype._factor
 
                 if fillvalue is not None:
                     attrs['_FillValue'] = fillvalue
@@ -651,7 +615,10 @@ class DatasetBase:
                     print(attrs)
                     raise err
 
-                for write_chunk, data in coord.iter_chunks(True, decoded=False):
+                # Datetimes stream DECODED so the int64 ticks match the 'since 1970-01-01'
+                # units attr (encoded datetime values are offset-shifted). Other encoded
+                # dtypes stream packed values, matched by the scale/offset/_FillValue attrs.
+                for write_chunk, data in coord.iter_chunks(True, decoded=(coord.dtype.kind == 'M')):
                     h5_coord[write_chunk] = data.astype(dtype_encoded)
 
             # Grid mapping variable (CRS)
@@ -699,7 +666,8 @@ class DatasetBase:
                     else:
                         dtype_encoded = data_var.dtype.dtype_encoded
                         attrs['add_offset'] = data_var.dtype.offset
-                        attrs['scale_factor'] = 1/data_var.dtype._factor
+                        # Integer packing has no scale factor (_factor is None): unpacked = packed + offset
+                        attrs['scale_factor'] = 1.0 if data_var.dtype._factor is None else 1/data_var.dtype._factor
 
                 if fillvalue is not None:
                     attrs['_FillValue'] = fillvalue
@@ -718,7 +686,8 @@ class DatasetBase:
 
                 h5_data_var.attrs.update(attrs)
 
-                for write_chunk, data in data_var.iter_chunks(decoded=False):
+                # Datetimes stream DECODED (ticks must match the units attr); see the coord loop.
+                for write_chunk, data in data_var.iter_chunks(decoded=(data_var.dtype.kind == 'M')):
                     h5_data_var[write_chunk] = data.astype(dtype_encoded)
 
             # Add global attrs
@@ -967,7 +936,8 @@ class DatasetView(DatasetBase):
             existing = self._sel[coord_name][0]
             if coord_name in sel:
                 view_shape = (existing.stop - existing.start,)
-                normalized = indexers.index_combo_all(sel[coord_name], (0,), view_shape)
+                user_key = indexers.normalize_user_key(sel[coord_name], view_shape)
+                normalized = indexers.index_combo_all(user_key, (0,), view_shape)
                 full_sel[coord_name] = slice(
                     existing.start + normalized[0].start,
                     existing.start + normalized[0].stop
@@ -990,7 +960,7 @@ class DatasetView(DatasetBase):
             existing = self._sel[coord_name][0]
             if coord_name in sel:
                 coord_view = self[coord_name]
-                idx = indexers.loc_index_combo_all(sel[coord_name], (coord_view,))
+                idx = indexers.normalize_user_key(indexers.loc_index_combo_all(sel[coord_name], (coord_view,)), (existing.stop - existing.start,))
                 view_shape = (existing.stop - existing.start,)
                 normalized = indexers.index_combo_all(idx, (0,), view_shape)
                 full_sel[coord_name] = slice(

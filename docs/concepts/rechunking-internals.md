@@ -144,6 +144,25 @@ for items in zip(*var_gens):
 
 All variables in a `DatasetRechunker` must share identical coordinates and shapes. Storage chunk shapes can differ — each variable's `Rechunker` handles its own storage layout independently.
 
+## Yield Lifetime Contract
+
+Arrays yielded by the rechunking generators (`Rechunker.rechunk`, `iter_chunks` with a
+`chunk_shape`, `groupby`, `DatasetRechunker.rechunk`, and the dataset-level wrappers)
+may be **views into rechunkit's internal buffer**, which is reused as iteration
+advances. Two rules for consumers:
+
+1. **Consume or `.copy()` each yielded array before advancing the generator.**
+   Collecting yields (e.g. `list(var.groupby(...))`) leaves earlier arrays pointing
+   at overwritten buffer memory — silently wrong data. Whether a given chunk is a
+   view or a copy depends on plan internals (and on whether the dtype is encoded),
+   so never rely on it.
+2. **Treat yielded arrays as read-only.** Storage-chunk iteration yields slices of
+   freshly deserialized chunks, but mutating yields in place is not a supported way
+   to write data — use `set()`/`__setitem__`.
+
+The supported pattern processes each chunk inside the loop body (writing it to a
+variable, aggregating it, or copying it).
+
 ## Memory Model
 
 Data flows through several stages during rechunking. Understanding where memory is allocated helps with tuning `max_mem`:

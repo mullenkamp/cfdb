@@ -158,8 +158,16 @@ class Rechunker:
         -------
         Generator
             tuple of the target slices to the np.ndarray of data
+
+        Notes
+        -----
+        Yielded arrays may be views into an internal buffer that is reused as
+        iteration advances. Consume (or ``.copy()``) each yielded array BEFORE
+        advancing the generator, and treat yielded arrays as read-only.
         """
         self._var.load()
+
+        dtypes.warn_legacy_int_fill(self._var.dtype)
 
         itemsize = self._guess_itemsize()
         full_shape = tuple(self._var._sys_meta.variables[c].shape[0] for c in self._var.coord_names)
@@ -312,7 +320,11 @@ class DatasetRechunker:
         return total_mem
 
     def calc_n_reads_rechunker(self, chunk_shape, max_mem=2**29):
-        """Calculate number of reads for the batch."""
+        """
+        Calculate the total number of physical reads and writes for the batch:
+        both counts are summed across all variables (each variable reads its own
+        source chunks and writes its own copy of every target chunk).
+        """
         target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
         per_var_mem = max_mem // len(self._data_vars)
         total_reads = 0
@@ -320,7 +332,7 @@ class DatasetRechunker:
         for name in self._data_vars:
             n_reads, n_writes = self._ds[name].rechunker().calc_n_reads_rechunker(target_chunk_shape, per_var_mem)
             total_reads += n_reads
-            total_writes = n_writes
+            total_writes += n_writes
         return total_reads, total_writes
 
     def rechunk(self, chunk_shape, max_mem=2**29):
@@ -340,6 +352,12 @@ class DatasetRechunker:
             {coord_name: slice}
         var_data : dict
             {var_name: ndarray}
+
+        Notes
+        -----
+        Yielded arrays may be views into internal buffers that are reused as
+        iteration advances. Consume (or ``.copy()``) each yielded array BEFORE
+        advancing the generator, and treat yielded arrays as read-only.
         """
         target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
         per_var_mem = max_mem // len(self._data_vars)
@@ -626,9 +644,14 @@ class Variable:
 
         """
         if not decoded and self.dtype.dtype_encoded is not None:
-            dtype = self.dtype.dtype_encoded
-        else:
-            dtype = self.dtype.dtype_decoded
+            # Encoded blank: fill with the dtype's reserved fillvalue so a missing
+            # chunk decodes to the decoded blank (NaN/NaT/0), never to a real value.
+            fillvalue = self.dtype.fillvalue
+            if fillvalue is None:
+                fillvalue = 0
+            return np.full(self.chunk_shape, fillvalue, self.dtype.dtype_encoded)
+
+        dtype = self.dtype.dtype_decoded
 
         if dtype.kind in ('f', 'M', 'T', 'O') and decoded:
             fillvalue = None
@@ -688,10 +711,17 @@ class Variable:
         -------
         Generator
             tuple of slices of the indexes, numpy array of the data
+
+        Notes
+        -----
+        Yielded arrays may be views into internal/shared buffers. Consume (or
+        ``.copy()``) each yielded array BEFORE advancing the generator, and treat
+        yielded arrays as read-only.
         """
         coord_origins = self.get_coord_origins()
 
         if not decoded and self.dtype.dtype_encoded is not None:
+            dtypes.warn_legacy_int_fill(self.dtype)
             func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
             blank = self._make_blank_chunk_array(decoded)
         else:
@@ -707,7 +737,9 @@ class Variable:
                 b1 = self._blt.get(blt_key)
                 if b1 is None:
                     blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
-                    yield target_chunk, blank[blank_slices]
+                    # copy: the blank is shared across iterations — an in-place
+                    # mutation by the consumer must not poison later yields
+                    yield target_chunk, blank[blank_slices].copy()
                 else:
                     data = func(b1)
 
@@ -729,7 +761,7 @@ class Variable:
         """
         Iterate through all indexes.
         """
-        for target_chunk, data in self.iter_chunks(include_data=True, decoded=True):
+        for target_chunk, data in self.iter_chunks(include_data=True, decoded=decoded):
             data_starts = tuple(s.start for s in target_chunk)
             for index in itertools.product(*(range(s.start, s.stop) for s in target_chunk)):
                 data_index = tuple(i - ds for i, ds in zip(index, data_starts))
@@ -889,6 +921,7 @@ class CoordinateView(Variable):
         # Coordinate origins are applied once at the point of data access.
         coord_origins = tuple(0 for _ in range(self.ndims))
 
+        sel = indexers.normalize_user_key(sel, self.shape)
         slices = indexers.index_combo_all(sel, coord_origins, self.shape)
 
         if self._sel is not None:
@@ -1028,11 +1061,17 @@ class Coordinate(CoordinateView):
         """
         chunk_len = self.chunk_shape[0]
 
-        # mem_arr1 = np.full(self.chunk_shape, fill_value=self.fillvalue, dtype=self.dtype_encoded)
-
-        mem_arr1 = self._make_blank_chunk_array()
-
-        # print(chunk_start)
+        if self.dtype.dtype_encoded is not None and self.dtype.kind in ('f', 'i', 'u', 'M'):
+            # Transcoder dtypes write in ENCODED space: blank tail cells of a partial
+            # last chunk keep the reserved encoded fillvalue instead of passing through
+            # encode() (which raises for int-packed dtypes whose range excludes 0).
+            mem_arr1 = self._make_blank_chunk_array(False)
+            write_data = self.dtype.encode(updated_data)
+            serialize = self.dtype.to_bytes
+        else:
+            mem_arr1 = self._make_blank_chunk_array()
+            write_data = updated_data
+            serialize = self.dtype.dumps
 
         chunk_iter = rechunkit.chunk_range(chunk_start, chunk_stop, self.chunk_shape, clip_ends=True)
         for chunk in chunk_iter:
@@ -1054,12 +1093,12 @@ class Coordinate(CoordinateView):
             # print(updated_data[coord_chunk_slice])
 
             mem_arr2 = mem_arr1.copy()
-            mem_arr2[mem_chunk_slice] = updated_data[coord_chunk_slice]
+            mem_arr2[mem_chunk_slice] = write_data[coord_chunk_slice]
 
             key = utils.make_var_chunk_key(self.name, (chunk_origin,))
             # print(key)
 
-            self._blt.set(key, self.compressor.compress(self.dtype.dumps(mem_arr2)))
+            self._blt.set(key, self.compressor.compress(serialize(mem_arr2)))
 
         self._data = updated_data
 
@@ -1310,6 +1349,13 @@ class DataVariableView(Variable):
         tuple
             (tuple of slices, ndarray) when include_data=True, or
             tuple of slices when include_data=False.
+
+        Notes
+        -----
+        Yielded arrays may be views into internal buffers that are reused as
+        iteration advances (particularly in rechunked mode). Consume (or
+        ``.copy()``) each yielded array BEFORE advancing the generator, and treat
+        yielded arrays as read-only.
         """
         if not include_data:
             coord_origins = self.get_coord_origins()
@@ -1331,6 +1377,7 @@ class DataVariableView(Variable):
             coord_origins = self.get_coord_origins()
 
             if not decoded and self.dtype.dtype_encoded is not None:
+                dtypes.warn_legacy_int_fill(self.dtype)
                 func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
                 blank = self._make_blank_chunk_array(decoded)
             else:
@@ -1344,7 +1391,9 @@ class DataVariableView(Variable):
                 b1 = self._blt.get(blt_key)
                 if b1 is None:
                     blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
-                    yield target_chunk, blank[blank_slices]
+                    # copy: the blank is shared across iterations — an in-place
+                    # mutation by the consumer must not poison later yields
+                    yield target_chunk, blank[blank_slices].copy()
                 else:
                     data = func(b1)
                     yield target_chunk, data[source_chunk]
@@ -1390,6 +1439,7 @@ class DataVariableView(Variable):
         # (in iter_chunks, set, data, etc.), avoiding double-application.
         zero_origins = tuple(0 for _ in self.coord_names)
 
+        sel = indexers.normalize_user_key(sel, self.shape)
         slices = indexers.index_combo_all(sel, zero_origins, self.shape)
 
         if self._sel is not None:
@@ -1407,7 +1457,21 @@ class DataVariableView(Variable):
 
         coord_origins = self.get_coord_origins()
 
-        if not decoded and self.dtype.dtype_encoded is not None:
+        if self.dtype.dtype_encoded is not None and self.dtype.kind in ('f', 'i', 'u', 'M'):
+            # Transcoder dtypes read-modify-write in ENCODED space: untouched cells
+            # never take a decode->re-encode round trip, and blank (missing) cells
+            # never pass through encode() -- they keep the reserved encoded fillvalue
+            # (encode() would raise for int-packed dtypes whose range excludes 0).
+            read_func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
+            write_func = lambda x: self.compressor.compress(self.dtype.to_bytes(x))
+            chunk_blank = self._make_blank_chunk_array(False)
+
+            if decoded:
+                slices, data = indexers.check_sel_input_data(sel, data, coord_origins, self.shape, self.dtype.dtype_decoded)
+                data = self.dtype.encode(data)
+            else:
+                slices, data = indexers.check_sel_input_data(sel, data, coord_origins, self.shape, self.dtype.dtype_encoded)
+        elif not decoded and self.dtype.dtype_encoded is not None:
             read_func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
             write_func = lambda x: self.compressor.compress(self.dtype.to_bytes(x))
             chunk_blank = self._make_blank_chunk_array(decoded)
@@ -1482,56 +1546,24 @@ class DataVariableView(Variable):
         ------
         tuple
             (tuple of slices, ndarray)
+
+        Notes
+        -----
+        Yielded arrays may be views into internal buffers that are reused as
+        iteration advances. Consume (or ``.copy()``) each yielded array BEFORE
+        advancing the generator, and treat yielded arrays as read-only.
         """
-        # Normalize input to dict
-        if isinstance(coord_names, str):
-            chunk_shape = {coord_names: 1}
-        elif isinstance(coord_names, dict):
-            chunk_shape = dict(coord_names)
-        else:
-            chunk_shape = {cn: 1 for cn in coord_names}
+        def coord_data_getter(cn):
+            # coordinate data restricted to THIS view's scope, so anchor checks and
+            # irregular groups live in the view's index space (not the full array's)
+            data = self._dataset[cn].data
+            if self._sel is not None:
+                data = data[self._sel[self.coord_names.index(cn)]]
+            return data
 
-        # Validate coord names
-        for cn in chunk_shape:
-            if cn not in self.coord_names:
-                raise ValueError(f'{cn} is not a coord of this variable.')
-
-        # Resolve period strings
-        period_coord = None
-        period_groups = None
-
-        for cn, val in chunk_shape.items():
-            if isinstance(val, str):
-                # Validate this is a datetime coordinate
-                coord_meta = self._sys_meta.variables[cn]
-                coord_dtype_obj = dtypes.dtype(**msgspec.to_builtins(coord_meta.dtype))
-                if coord_dtype_obj.kind != 'M':
-                    raise ValueError(
-                        f"Period strings are only valid on datetime coordinates, "
-                        f"but '{cn}' has kind '{coord_dtype_obj.kind}'."
-                    )
-                if period_coord is not None:
-                    raise ValueError('Only one period-based coordinate is supported per groupby call.')
-
-                count, unit = utils.parse_period_string(val)
-
-                # Try the rechunker fast path
-                chunk_size = utils.period_to_chunk_size(
-                    count, unit, coord_meta.step, coord_dtype_obj.dtype_decoded
-                )
-
-                if chunk_size is not None:
-                    # Regular period (D, h, W, etc.) — use rechunker.
-                    # The rechunker handles remainder chunks natively.
-                    chunk_shape[cn] = chunk_size
-                    continue
-
-                # Irregular period (M, Y) — compute groups for slice-based iteration
-                coord_obj = self._dataset[cn]
-                coord_data = coord_obj.data
-                groups = utils.compute_time_groups(coord_data, count, unit)
-                period_coord = cn
-                period_groups = groups
+        chunk_shape, period_coord, period_groups = utils.resolve_groupby_spec(
+            coord_names, self.coord_names, self._sys_meta, coord_data_getter
+        )
 
         if period_coord is None:
             # All values are ints — use existing rechunker path

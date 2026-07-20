@@ -20,6 +20,23 @@ with cfdb.open_dataset(file_path) as ds:
     row = temp[5, 0:100]
 ```
 
+Bounds behavior follows numpy semantics:
+
+```python
+with cfdb.open_dataset(file_path) as ds:
+    temp = ds['temperature']       # shape (40, 100)
+
+    temp[-1]                       # negative ints wrap: the last row
+    temp[35:60, :]                 # slice bounds clamp: rows 35-39 (5 rows)
+    temp[40]                       # IndexError: out of bounds
+    temp[45:60, :]                 # ValueError: empty selection
+```
+
+Out-of-range integer indexes raise `IndexError`; slices clamp to the variable extent
+exactly like numpy arrays. Selections that would be empty (fully out-of-range or
+descending slices) raise a `ValueError` — cfdb has no zero-size selections. A `.loc`
+scalar label beyond the coordinate's last value also raises `IndexError`.
+
 !!! note
     Advanced indexing (fancy indexing with arrays or boolean masks) is currently not supported.
 
