@@ -174,7 +174,7 @@ requires-dist = [
     { name = "msgspec" },
     { name = "numpy", specifier = ">2" },
     { name = "pyproj", specifier = ">3" },
-    { name = "rechunkit", specifier = ">=0.5.1" },
+    { name = "rechunkit", specifier = ">=0.6.0" },
     { name = "shapely", specifier = ">2" },
     { name = "xarray", marker = "extra == 'xarray'" },
     { name = "zstandard" },
@@ -1935,15 +1935,15 @@ wheels = [
 
 [[package]]
 name = "rechunkit"
-version = "0.5.1"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/81/f6/e2cd3323d8d91a0a387cafda40f6b21e88f313925a8e2cd6a117ca756321/rechunkit-0.5.1.tar.gz", hash = "sha256:5c53f23065b4a8603dbd9b617c333a70c935324834256a7b419cd169a414eb46", size = 9776, upload-time = "2026-04-02T05:04:24.009Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/60/7182e5a8b128929d36a89c9695945705acdec8f2681e13a0c3f8d6adb682/rechunkit-0.6.0.tar.gz", hash = "sha256:dda6fa3e45dbb78a2946b1fffbf42d0f859fdc8cebf840640bae341a3a8f68a6", size = 14893, upload-time = "2026-07-21T02:59:34.397Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/0e/0a9f89172e30aa9a151989b12e20dc734464737447d886bb827e701874af/rechunkit-0.5.1-py3-none-any.whl", hash = "sha256:ac2e3d895c5d2f51aa5d62d5d213b0035df473222c174b220d3afadd31b048e3", size = 9070, upload-time = "2026-04-02T05:04:22.17Z" },
+    { url = "https://files.pythonhosted.org/packages/36/07/9c491661bd559409fc5115919968f6c0faadd914fe55726952d5c1ec6233/rechunkit-0.6.0-py3-none-any.whl", hash = "sha256:e24bbf36ca385c241ed476f6a3f397e140ddcaaf46a490932e1d80e2e7204256", size = 14109, upload-time = "2026-07-21T02:59:32.851Z" },
 ]
 
 [[package]]
