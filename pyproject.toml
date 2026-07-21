@@ -22,7 +22,7 @@ dependencies = [
   'booklet>=0.12.6',
   'cfdb-models>=0.1.0',
   'cfdb-vars>=0.2.2',
-  'rechunkit>=0.5.1',  # RELEASE STEP: bump to >=0.6.0 AFTER tagging rechunkit 0.6.0 (cfdb calls its new planner params; TypeErrors on 0.5.1). Bumping earlier breaks resolution.
+  'rechunkit>=0.6.0',
   'numpy>2',
   'zstandard',
   'msgspec',
