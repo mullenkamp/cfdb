@@ -32,7 +32,7 @@ dt = cfdb.dtypes.dtype('point', precision=6)
 | `max_value` | number or None | Maximum value (for integer encoding) |
 | `dtype_encoded` | str or None | Explicit encoded dtype name |
 | `offset` | number or None | Offset for encoding |
-| `fillvalue` | int or None | Fill value for encoding |
+| `fillvalue` | int or None | Fill value for encoding (the reserved encoded code for missing data; auto-packed floats and integers reserve 0 — legitimate values always encode to codes ≥ 1, so missing data reads back as NaN/NaT for floats/datetimes and 0 for integers) |
 
 ## Type Classes
 

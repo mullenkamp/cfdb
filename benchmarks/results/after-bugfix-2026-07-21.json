@@ -1,0 +1,42 @@
+{
+ "read_full_plain": {
+  "median_s": 0.05111209099413827,
+  "mb_per_s": 955.3145655027065
+ },
+ "write_full_plain": {
+  "median_s": 0.09339059900958091,
+  "mb_per_s": 522.8376894230087
+ },
+ "write_partial_v": {
+  "median_s": 0.2650028240168467,
+  "blocks_per_s": 754.7089384499753
+ },
+ "write_partial_vf": {
+  "median_s": 0.0791244319989346,
+  "blocks_per_s": 2527.6642744518276
+ },
+ "write_partial_vi": {
+  "median_s": 0.07631649100221694,
+  "blocks_per_s": 2620.6655648539995
+ },
+ "rechunk_aligned": {
+  "median_s": 0.03553003800334409,
+  "mb_per_s": 1374.2773085523943
+ },
+ "iter_chunks_storage": {
+  "median_s": 0.03073128400137648,
+  "mb_per_s": 1588.8735725397269
+ },
+ "groupby_daily_fast": {
+  "median_s": 0.03492298995843157,
+  "mb_per_s": 1398.1656512835684
+ },
+ "many_small_ops_100": {
+  "median_s": 0.17811547097517177,
+  "ops_per_s": 1684.300630133461
+ },
+ "rechunk_prepended": {
+  "median_s": 0.12993789202300832,
+  "mb_per_s": 375.78049204733844
+ }
+}

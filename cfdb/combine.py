@@ -12,6 +12,29 @@ from cfdb import dtypes as dtypes_mod
 from cfdb.main import Dataset, DatasetView, open_dataset
 
 
+def _dtype_dict_comparison_form(dtype_dict):
+    """
+    Comparison form of a dtype dict. For int-packed dtypes, a fillvalue of 0 and an
+    absent fillvalue are byte-compatible encodings (the reserved-0 fillvalue only
+    changes how MISSING chunks read), so files created before and after the
+    fillvalue mapping was introduced remain combinable.
+    """
+    d = dict(dtype_dict)
+    if 'int' in d.get('name', '') and 'dtype_encoded' in d and d.get('fillvalue', 0) == 0:
+        d.pop('fillvalue', None)
+    return d
+
+
+def _merge_first_dtype_dict(first_dtype_dict, dtype_dict):
+    """
+    When two dtype dicts are comparison-equal but differ in raw form, prefer the
+    new-style dict (with fillvalue) for the output dataset.
+    """
+    if 'fillvalue' in dtype_dict and 'fillvalue' not in first_dtype_dict:
+        return dtype_dict
+    return first_dtype_dict
+
+
 def _open_inputs(datasets):
     """
     Open input datasets. Returns (list of datasets, list of ones we opened).
@@ -102,12 +125,13 @@ def _compute_combined_coords(ds_list):
                 first_chunk_shape = coord.chunk_shape
                 first_step = coord._var_meta.step
             else:
-                if dtype_dict != first_dtype_dict:
+                if _dtype_dict_comparison_form(dtype_dict) != _dtype_dict_comparison_form(first_dtype_dict):
                     msg = (
                         f"Coordinate {coord_name} has incompatible dtypes across datasets: "
                         f"{first_dtype_dict} vs {dtype_dict}"
                     )
                     raise ValueError(msg)
+                first_dtype_dict = _merge_first_dtype_dict(first_dtype_dict, dtype_dict)
                 if axis != first_axis:
                     msg = (
                         f"Coordinate {coord_name} has incompatible axis across datasets: "
@@ -212,12 +236,13 @@ def _collect_data_vars(ds_list, include_data_vars, exclude_data_vars):
                         f"{first_coords} vs {coords_tuple}"
                     )
                     raise ValueError(msg)
-                if dtype_dict != first_dtype_dict:
+                if _dtype_dict_comparison_form(dtype_dict) != _dtype_dict_comparison_form(first_dtype_dict):
                     msg = (
                         f"Data variable {var_name} has incompatible dtypes across datasets: "
                         f"{first_dtype_dict} vs {dtype_dict}"
                     )
                     raise ValueError(msg)
+                first_dtype_dict = _merge_first_dtype_dict(first_dtype_dict, dtype_dict)
 
         var_infos.append({
             "name": var_name,

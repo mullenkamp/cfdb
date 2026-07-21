@@ -61,8 +61,11 @@ class Rechunker:
     def guess_chunk_shape(self, target_chunk_size: int):
         """
         Guess an appropriate chunk layout for a dataset, given its shape and
-        the size of each element in bytes.  Will allocate chunks only as large
-        as target_chunk_size. Chunks will be assigned to the highest composite number within the target_chunk_size. Using composite numbers will benefit the rehunking process as there is a very high likelihood that the least common multiple of two composite numbers will be significantly lower than the product of those two numbers.
+        the size of each element in bytes. The returned chunk's pre-compressed
+        size targets target_chunk_size and may exceed it by up to 1.5x. Chunk
+        dims are snapped to composite numbers: the least common multiple of two
+        composite numbers is very likely far smaller than their product, which
+        benefits later rechunking between two guessed layouts.
 
         Parameters
         ----------
@@ -81,17 +84,21 @@ class Rechunker:
 
     def calc_ideal_read_chunk_shape(self, target_chunk_shape: Tuple[int, ...]):
         """
-        Calculates the minimum ideal read chunk shape between a source and target.
+        Calculates the minimum ideal read chunk shape between a source and target,
+        clipped to the variable's extent (per dim, the LCM never exceeds the
+        smallest source-aligned cover of the dim).
         """
-        return rechunkit.calc_ideal_read_chunk_shape(self._var.chunk_shape, target_chunk_shape)
+        return rechunkit.calc_ideal_read_chunk_shape(self._var.chunk_shape, target_chunk_shape, self._var.shape)
 
     def calc_ideal_read_chunk_mem(self, target_chunk_shape: Tuple[int, ...]):
         """
         Calculates the minimum ideal read chunk memory between a source and target.
+        The ideal shape is clipped to the variable's extent, so this reflects
+        what the rechunker would actually allocate on the ideal path.
         """
         itemsize = self._guess_itemsize()
 
-        ideal_read_chunk_shape = rechunkit.calc_ideal_read_chunk_shape(self._var.chunk_shape, target_chunk_shape)
+        ideal_read_chunk_shape = rechunkit.calc_ideal_read_chunk_shape(self._var.chunk_shape, target_chunk_shape, self._var.shape)
 
         return rechunkit.calc_ideal_read_chunk_mem(ideal_read_chunk_shape, itemsize)
 
@@ -112,7 +119,10 @@ class Rechunker:
         """
         itemsize = self._guess_itemsize()
 
-        return rechunkit.calc_source_read_chunk_shape(self._var.chunk_shape, target_chunk_shape, itemsize, max_mem)
+        # NOTE: no sel/phase is passed here, so for a misaligned view the
+        # returned shape's true buffer is a lower bound on the real
+        # allocation (phase adds up to chunk_shape - 1 per dim).
+        return rechunkit.calc_source_read_chunk_shape(self._var.chunk_shape, target_chunk_shape, itemsize, max_mem, shape=self._var.shape)
 
     def calc_n_chunks(self):
         """
@@ -121,7 +131,7 @@ class Rechunker:
         return rechunkit.calc_n_chunks(self._var.shape, self._var.chunk_shape)
 
 
-    def calc_n_reads_rechunker(self, target_chunk_shape: Tuple[int, ...], max_mem: int=2**27):
+    def calc_n_reads_rechunker(self, target_chunk_shape: Tuple[int, ...], max_mem: int=2**29):
         """
         Calculate the total number of reads and writes using the rechunker.
 
@@ -130,7 +140,7 @@ class Rechunker:
         target_chunk_shape: tuple of ints
             The chunk_shape of the target.
         max_mem: int
-            The max allocated memory to perform the chunking operation in bytes. This will only be as large as necessary for an optimum size chunk for the rechunking.
+            The memory budget for the rechunking operation in bytes (default 2**29 = 512 MB). This bounds the read buffer plus reorder/batch buffers, except for the documented irreducible floors and the wide-array pending residual — see docs/concepts/rechunking-internals.md.
 
         Returns
         -------
@@ -140,10 +150,22 @@ class Rechunker:
         itemsize = self._guess_itemsize()
         full_shape = tuple(self._var._sys_meta.variables[c].shape[0] for c in self._var.coord_names)
 
-        return rechunkit.calc_n_reads_rechunker(full_shape, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel)
+        # Identical storage-space transform to rechunk() so predicted counts
+        # match instrumented behavior (see rechunk()).
+        base_var = self._var._dataset.get(self._var.name)
+        coord_origins = base_var.get_coord_origins()
+        chunk_shape = base_var.chunk_shape
+        d = tuple(o % cs for o, cs in zip(coord_origins, chunk_shape))
+        decl_shape = tuple(fs + dd for fs, dd in zip(full_shape, d))
+        sel_user = self._var._sel
+        if sel_user is None:
+            sel_user = tuple(slice(0, fs) for fs in full_shape)
+        sel_decl = tuple(slice(s.start + dd, s.stop + dd) for s, dd in zip(sel_user, d))
+
+        return rechunkit.calc_n_reads_rechunker(decl_shape, itemsize, self._var.chunk_shape, target_chunk_shape, max_mem, sel_decl)
 
 
-    def rechunk(self, target_chunk_shape, max_mem: int=2**27):
+    def rechunk(self, target_chunk_shape, max_mem: int=2**29):
         """
         This method takes a target chunk_shape and max memory size and returns a generator that converts to the new target chunk shape. It optimises the rechunking by using an in-memory numpy ndarray with a size defined by the max_mem.
 
@@ -152,26 +174,58 @@ class Rechunker:
         target_chunk_shape: tuple of ints
             The chunk_shape of the target.
         max_mem: int
-            The max allocated memory to perform the chunking operation in bytes. This will only be as large as necessary for an optimum size chunk for the rechunking.
+            The memory budget for the rechunking operation in bytes (default 2**29 = 512 MB). This bounds the read buffer plus reorder/batch buffers, except for the documented irreducible floors and the wide-array pending residual — see docs/concepts/rechunking-internals.md.
 
         Returns
         -------
         Generator
             tuple of the target slices to the np.ndarray of data
+
+        Notes
+        -----
+        Yielded arrays may be views into an internal buffer that is reused as
+        iteration advances. Consume (or ``.copy()``) each yielded array BEFORE
+        advancing the generator, and treat yielded arrays as read-only.
         """
         self._var.load()
+
+        dtypes.warn_legacy_int_fill(self._var.dtype)
 
         itemsize = self._guess_itemsize()
         full_shape = tuple(self._var._sys_meta.variables[c].shape[0] for c in self._var.coord_names)
         base_var = self._var._dataset.get(self._var.name)
         coord_origins = base_var.get_coord_origins()
 
+        # Storage-space declaration: declare the source grid to rechunkit at
+        # the REAL storage-chunk alignment. Coordinate origins (from prepend)
+        # shift the storage grid off the 0-based index space; expressing the
+        # rechunk in a declared space where storage boundaries sit at
+        # multiples of chunk_shape makes rechunkit's phase machinery align
+        # every read to exactly one storage chunk (no neighbour
+        # re-decompression). declared = user + d; storage = declared − shift;
+        # shift is a multiple of chunk_shape, so key alignment is preserved.
+        # Yields are unaffected: rechunkit yields selection-relative slices
+        # and the selection window contains the same elements.
+        chunk_shape = base_var.chunk_shape
+        d = tuple(o % cs for o, cs in zip(coord_origins, chunk_shape))
+        shift = tuple(dd - o for dd, o in zip(d, coord_origins))
+        decl_shape = tuple(fs + dd for fs, dd in zip(full_shape, d))
+        sel_user = self._var._sel
+        if sel_user is None:
+            # materialize explicitly: passing None with d != 0 would make
+            # rechunkit treat decl_shape as phase-free
+            sel_user = tuple(slice(0, fs) for fs in full_shape)
+        sel_decl = tuple(slice(s.start + dd, s.stop + dd) for s, dd in zip(sel_user, d))
+
         if self._var.dtype.dtype_encoded is None:
             deserialize = lambda x: base_var.dtype.loads(base_var.compressor.decompress(x), base_var.chunk_shape)
             blank = base_var._make_blank_chunk_array()
 
             def read_decoded(sel):
-                slices = indexers.index_combo_all(sel, coord_origins, full_shape)
+                # declared -> storage is a constant shift; every read maps to
+                # one storage chunk (the multi-chunk assembly below remains
+                # as a defensive fallback only)
+                slices = tuple(slice(s.start - sh, s.stop - sh) for s, sh in zip(sel, shift))
                 chunks = indexers.slices_to_chunks_keys(slices, base_var.name, base_var.chunk_shape)
                 tgt_chunk, src_chunk, blt_key = next(chunks)
                 b1 = base_var._blt.get(blt_key)
@@ -204,7 +258,7 @@ class Rechunker:
                         target[tgt_chunk] = deserialize(b1)[src_chunk]
                 return target
 
-            rechunkit1 = rechunkit.rechunker(read_decoded, full_shape, self._var.dtype.dtype_decoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
+            rechunkit1 = rechunkit.rechunker(read_decoded, decl_shape, self._var.dtype.dtype_decoded, self._var.chunk_shape, target_chunk_shape, max_mem, sel_decl, itemsize=itemsize)
 
             for slices, data_decoded in rechunkit1:
                 yield slices, data_decoded
@@ -213,7 +267,8 @@ class Rechunker:
             blank = base_var._make_blank_chunk_array(False)
 
             def read_encoded(sel):
-                slices = indexers.index_combo_all(sel, coord_origins, full_shape)
+                # declared -> storage: constant shift (see read_decoded)
+                slices = tuple(slice(s.start - sh, s.stop - sh) for s, sh in zip(sel, shift))
                 chunks = indexers.slices_to_chunks_keys(slices, base_var.name, base_var.chunk_shape)
                 tgt_chunk, src_chunk, blt_key = next(chunks)
                 b1 = base_var._blt.get(blt_key)
@@ -246,7 +301,7 @@ class Rechunker:
                         target[tgt_chunk] = deserialize(b1)[src_chunk]
                 return target
 
-            rechunkit1 = rechunkit.rechunker(read_encoded, full_shape, self._var.dtype.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, self._var._sel, itemsize=itemsize)
+            rechunkit1 = rechunkit.rechunker(read_encoded, decl_shape, self._var.dtype.dtype_encoded, self._var.chunk_shape, target_chunk_shape, max_mem, sel_decl, itemsize=itemsize)
 
             for slices, data_encoded in rechunkit1:
                 yield slices, self._var.dtype.decode(data_encoded)
@@ -312,7 +367,11 @@ class DatasetRechunker:
         return total_mem
 
     def calc_n_reads_rechunker(self, chunk_shape, max_mem=2**29):
-        """Calculate number of reads for the batch."""
+        """
+        Calculate the total number of physical reads and writes for the batch:
+        both counts are summed across all variables (each variable reads its own
+        source chunks and writes its own copy of every target chunk).
+        """
         target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
         per_var_mem = max_mem // len(self._data_vars)
         total_reads = 0
@@ -320,7 +379,7 @@ class DatasetRechunker:
         for name in self._data_vars:
             n_reads, n_writes = self._ds[name].rechunker().calc_n_reads_rechunker(target_chunk_shape, per_var_mem)
             total_reads += n_reads
-            total_writes = n_writes
+            total_writes += n_writes
         return total_reads, total_writes
 
     def rechunk(self, chunk_shape, max_mem=2**29):
@@ -340,6 +399,12 @@ class DatasetRechunker:
             {coord_name: slice}
         var_data : dict
             {var_name: ndarray}
+
+        Notes
+        -----
+        Yielded arrays may be views into internal buffers that are reused as
+        iteration advances. Consume (or ``.copy()``) each yielded array BEFORE
+        advancing the generator, and treat yielded arrays as read-only.
         """
         target_chunk_shape = self._resolve_chunk_shape(chunk_shape)
         per_var_mem = max_mem // len(self._data_vars)
@@ -626,9 +691,14 @@ class Variable:
 
         """
         if not decoded and self.dtype.dtype_encoded is not None:
-            dtype = self.dtype.dtype_encoded
-        else:
-            dtype = self.dtype.dtype_decoded
+            # Encoded blank: fill with the dtype's reserved fillvalue so a missing
+            # chunk decodes to the decoded blank (NaN/NaT/0), never to a real value.
+            fillvalue = self.dtype.fillvalue
+            if fillvalue is None:
+                fillvalue = 0
+            return np.full(self.chunk_shape, fillvalue, self.dtype.dtype_encoded)
+
+        dtype = self.dtype.dtype_decoded
 
         if dtype.kind in ('f', 'M', 'T', 'O') and decoded:
             fillvalue = None
@@ -688,10 +758,17 @@ class Variable:
         -------
         Generator
             tuple of slices of the indexes, numpy array of the data
+
+        Notes
+        -----
+        Yielded arrays may be views into internal/shared buffers. Consume (or
+        ``.copy()``) each yielded array BEFORE advancing the generator, and treat
+        yielded arrays as read-only.
         """
         coord_origins = self.get_coord_origins()
 
         if not decoded and self.dtype.dtype_encoded is not None:
+            dtypes.warn_legacy_int_fill(self.dtype)
             func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
             blank = self._make_blank_chunk_array(decoded)
         else:
@@ -707,7 +784,9 @@ class Variable:
                 b1 = self._blt.get(blt_key)
                 if b1 is None:
                     blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
-                    yield target_chunk, blank[blank_slices]
+                    # copy: the blank is shared across iterations — an in-place
+                    # mutation by the consumer must not poison later yields
+                    yield target_chunk, blank[blank_slices].copy()
                 else:
                     data = func(b1)
 
@@ -729,7 +808,7 @@ class Variable:
         """
         Iterate through all indexes.
         """
-        for target_chunk, data in self.iter_chunks(include_data=True, decoded=True):
+        for target_chunk, data in self.iter_chunks(include_data=True, decoded=decoded):
             data_starts = tuple(s.start for s in target_chunk)
             for index in itertools.product(*(range(s.start, s.stop) for s in target_chunk)):
                 data_index = tuple(i - ds for i, ds in zip(index, data_starts))
@@ -889,6 +968,7 @@ class CoordinateView(Variable):
         # Coordinate origins are applied once at the point of data access.
         coord_origins = tuple(0 for _ in range(self.ndims))
 
+        sel = indexers.normalize_user_key(sel, self.shape)
         slices = indexers.index_combo_all(sel, coord_origins, self.shape)
 
         if self._sel is not None:
@@ -1028,11 +1108,17 @@ class Coordinate(CoordinateView):
         """
         chunk_len = self.chunk_shape[0]
 
-        # mem_arr1 = np.full(self.chunk_shape, fill_value=self.fillvalue, dtype=self.dtype_encoded)
-
-        mem_arr1 = self._make_blank_chunk_array()
-
-        # print(chunk_start)
+        if self.dtype.dtype_encoded is not None and self.dtype.kind in ('f', 'i', 'u', 'M'):
+            # Transcoder dtypes write in ENCODED space: blank tail cells of a partial
+            # last chunk keep the reserved encoded fillvalue instead of passing through
+            # encode() (which raises for int-packed dtypes whose range excludes 0).
+            mem_arr1 = self._make_blank_chunk_array(False)
+            write_data = self.dtype.encode(updated_data)
+            serialize = self.dtype.to_bytes
+        else:
+            mem_arr1 = self._make_blank_chunk_array()
+            write_data = updated_data
+            serialize = self.dtype.dumps
 
         chunk_iter = rechunkit.chunk_range(chunk_start, chunk_stop, self.chunk_shape, clip_ends=True)
         for chunk in chunk_iter:
@@ -1054,12 +1140,12 @@ class Coordinate(CoordinateView):
             # print(updated_data[coord_chunk_slice])
 
             mem_arr2 = mem_arr1.copy()
-            mem_arr2[mem_chunk_slice] = updated_data[coord_chunk_slice]
+            mem_arr2[mem_chunk_slice] = write_data[coord_chunk_slice]
 
             key = utils.make_var_chunk_key(self.name, (chunk_origin,))
             # print(key)
 
-            self._blt.set(key, self.compressor.compress(self.dtype.dumps(mem_arr2)))
+            self._blt.set(key, self.compressor.compress(serialize(mem_arr2)))
 
         self._data = updated_data
 
@@ -1297,7 +1383,7 @@ class DataVariableView(Variable):
         chunk_shape : dict or None
             {coord_name: int} for target chunk sizes. None uses storage chunks.
         max_mem : int
-            Max memory in bytes for rechunker buffer. Default 128 MB.
+            Max memory in bytes for rechunker buffer. Default 512 MB.
         decoded : bool
             If False and dtype has an encoded form, yield encoded data.
             Only applies in storage-chunk mode (chunk_shape=None).
@@ -1310,6 +1396,13 @@ class DataVariableView(Variable):
         tuple
             (tuple of slices, ndarray) when include_data=True, or
             tuple of slices when include_data=False.
+
+        Notes
+        -----
+        Yielded arrays may be views into internal buffers that are reused as
+        iteration advances (particularly in rechunked mode). Consume (or
+        ``.copy()``) each yielded array BEFORE advancing the generator, and treat
+        yielded arrays as read-only.
         """
         if not include_data:
             coord_origins = self.get_coord_origins()
@@ -1331,6 +1424,7 @@ class DataVariableView(Variable):
             coord_origins = self.get_coord_origins()
 
             if not decoded and self.dtype.dtype_encoded is not None:
+                dtypes.warn_legacy_int_fill(self.dtype)
                 func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
                 blank = self._make_blank_chunk_array(decoded)
             else:
@@ -1344,7 +1438,9 @@ class DataVariableView(Variable):
                 b1 = self._blt.get(blt_key)
                 if b1 is None:
                     blank_slices = tuple(slice(0, sc.stop - sc.start) for sc in source_chunk)
-                    yield target_chunk, blank[blank_slices]
+                    # copy: the blank is shared across iterations — an in-place
+                    # mutation by the consumer must not poison later yields
+                    yield target_chunk, blank[blank_slices].copy()
                 else:
                     data = func(b1)
                     yield target_chunk, data[source_chunk]
@@ -1390,6 +1486,7 @@ class DataVariableView(Variable):
         # (in iter_chunks, set, data, etc.), avoiding double-application.
         zero_origins = tuple(0 for _ in self.coord_names)
 
+        sel = indexers.normalize_user_key(sel, self.shape)
         slices = indexers.index_combo_all(sel, zero_origins, self.shape)
 
         if self._sel is not None:
@@ -1407,7 +1504,21 @@ class DataVariableView(Variable):
 
         coord_origins = self.get_coord_origins()
 
-        if not decoded and self.dtype.dtype_encoded is not None:
+        if self.dtype.dtype_encoded is not None and self.dtype.kind in ('f', 'i', 'u', 'M'):
+            # Transcoder dtypes read-modify-write in ENCODED space: untouched cells
+            # never take a decode->re-encode round trip, and blank (missing) cells
+            # never pass through encode() -- they keep the reserved encoded fillvalue
+            # (encode() would raise for int-packed dtypes whose range excludes 0).
+            read_func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
+            write_func = lambda x: self.compressor.compress(self.dtype.to_bytes(x))
+            chunk_blank = self._make_blank_chunk_array(False)
+
+            if decoded:
+                slices, data = indexers.check_sel_input_data(sel, data, coord_origins, self.shape, self.dtype.dtype_decoded)
+                data = self.dtype.encode(data)
+            else:
+                slices, data = indexers.check_sel_input_data(sel, data, coord_origins, self.shape, self.dtype.dtype_encoded)
+        elif not decoded and self.dtype.dtype_encoded is not None:
             read_func = lambda x: self.dtype.from_bytes(self.compressor.decompress(x), self.chunk_shape)
             write_func = lambda x: self.compressor.compress(self.dtype.to_bytes(x))
             chunk_blank = self._make_blank_chunk_array(decoded)
@@ -1482,56 +1593,24 @@ class DataVariableView(Variable):
         ------
         tuple
             (tuple of slices, ndarray)
+
+        Notes
+        -----
+        Yielded arrays may be views into internal buffers that are reused as
+        iteration advances. Consume (or ``.copy()``) each yielded array BEFORE
+        advancing the generator, and treat yielded arrays as read-only.
         """
-        # Normalize input to dict
-        if isinstance(coord_names, str):
-            chunk_shape = {coord_names: 1}
-        elif isinstance(coord_names, dict):
-            chunk_shape = dict(coord_names)
-        else:
-            chunk_shape = {cn: 1 for cn in coord_names}
+        def coord_data_getter(cn):
+            # coordinate data restricted to THIS view's scope, so anchor checks and
+            # irregular groups live in the view's index space (not the full array's)
+            data = self._dataset[cn].data
+            if self._sel is not None:
+                data = data[self._sel[self.coord_names.index(cn)]]
+            return data
 
-        # Validate coord names
-        for cn in chunk_shape:
-            if cn not in self.coord_names:
-                raise ValueError(f'{cn} is not a coord of this variable.')
-
-        # Resolve period strings
-        period_coord = None
-        period_groups = None
-
-        for cn, val in chunk_shape.items():
-            if isinstance(val, str):
-                # Validate this is a datetime coordinate
-                coord_meta = self._sys_meta.variables[cn]
-                coord_dtype_obj = dtypes.dtype(**msgspec.to_builtins(coord_meta.dtype))
-                if coord_dtype_obj.kind != 'M':
-                    raise ValueError(
-                        f"Period strings are only valid on datetime coordinates, "
-                        f"but '{cn}' has kind '{coord_dtype_obj.kind}'."
-                    )
-                if period_coord is not None:
-                    raise ValueError('Only one period-based coordinate is supported per groupby call.')
-
-                count, unit = utils.parse_period_string(val)
-
-                # Try the rechunker fast path
-                chunk_size = utils.period_to_chunk_size(
-                    count, unit, coord_meta.step, coord_dtype_obj.dtype_decoded
-                )
-
-                if chunk_size is not None:
-                    # Regular period (D, h, W, etc.) — use rechunker.
-                    # The rechunker handles remainder chunks natively.
-                    chunk_shape[cn] = chunk_size
-                    continue
-
-                # Irregular period (M, Y) — compute groups for slice-based iteration
-                coord_obj = self._dataset[cn]
-                coord_data = coord_obj.data
-                groups = utils.compute_time_groups(coord_data, count, unit)
-                period_coord = cn
-                period_groups = groups
+        chunk_shape, period_coord, period_groups = utils.resolve_groupby_spec(
+            coord_names, self.coord_names, self._sys_meta, coord_data_getter
+        )
 
         if period_coord is None:
             # All values are ints — use existing rechunker path

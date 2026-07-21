@@ -38,6 +38,13 @@ Templates set standard names, dtypes, and attributes. Any parameter accepted by 
 | `dtype` | str, np.dtype, or DataType | Data type |
 | `chunk_shape` | tuple of int or None | Chunk shape (auto-estimated if None) |
 
+!!! tip "Fill coordinates before creating data variables"
+    When `chunk_shape` is `None`, the chunk shape is estimated from the coordinate
+    lengths *at creation time*. Create **and fill** your coordinates first, then
+    create data variables, so the estimate sees real dimension lengths. If any
+    referenced coordinate is still empty, creation raises a `ValueError` — either
+    append the coordinate data first or pass `chunk_shape` explicitly.
+
 ### Creating from Existing
 
 ```python
@@ -170,6 +177,13 @@ with cfdb.open_dataset(file_path) as ds:
 
 **Supported period units:** `Y` (year), `M` (month), `W` (week), `D` (day), `h` (hour), `m` (minute), `s` (second), `ms`, `us`, `ns`. Prefix with a count for multiples, e.g. `'7D'`, `'3M'`, `'6h'`.
 
+**Group anchoring:** single-unit periods (`'D'`, `'h'`, `'M'`, `'Y'`, `'W'`, …) produce
+true calendar groups — data starting mid-period gets a shorter first group (e.g. hourly
+data starting at 06:00 grouped by `'D'` yields an 18-hour first group, then full days).
+Multi-count periods (`'7D'`, `'6h'`, …) anchor their windows at the first coordinate
+value. Note `'W'` follows numpy's week epoch and anchors weeks on **Thursdays**; use
+`'7D'` if you want weeks anchored at your first timestamp instead.
+
 Dict values can also be integers (chunk sizes), which can be mixed with period strings on different coordinates:
 
 ```python
@@ -178,9 +192,11 @@ for slices, data in temp.groupby({'time': 'D', 'latitude': 50}):
     print(slices, data.shape)
 ```
 
-**Performance:** When the period maps to a fixed number of time steps (e.g. daily on hourly data = 24 steps) and all groups are the same size, cfdb uses the efficient rechunker path. For irregular periods like monthly or yearly, it falls back to a slice-based iteration that reads each group separately.
+**Performance:** When the period maps to a fixed number of time steps (e.g. daily on hourly data = 24 steps) AND the first coordinate value sits on the period boundary, cfdb uses the efficient rechunker path. For irregular periods (monthly, yearly) or boundary-misaligned data, it falls back to a slice-based iteration that reads each group separately — the groups are identical either way; only the speed differs.
 
-The `max_mem` parameter controls the memory budget for the rechunking operation (default 128 MB).
+Groupby-style iteration (small chunks along one coordinate, full extent along the others) is efficient even when the group size doesn't divide the storage chunk size: the rechunker clips its read plan to the array extent and batches reads within the memory budget, so each stored chunk is decompressed close to once per pass.
+
+The `max_mem` parameter controls the memory budget for the rechunking operation (default 512 MB). It genuinely bounds the rechunker's allocation (see [Rechunking Internals](../concepts/rechunking-internals.md) for the memory model and the documented floors).
 
 ## Parallel Map
 

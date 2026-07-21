@@ -31,16 +31,14 @@ No intermediate allocation is needed — the sliced array from the deserialized 
 
 ### Multi-Chunk Assembly
 
-When a read request spans multiple storage chunks, the source function must assemble data from several chunks into a single output array. This happens when rechunkit's read buffer is larger than one source chunk, or — critically — when a **selection offset** misaligns the read requests with the storage chunk grid.
-
-In this case, the source function:
+When a read request spans multiple storage chunks, the source function assembles data from several chunks into a single output array:
 
 1. Allocates an output array sized to the requested slice (not the full variable)
 2. Iterates through all overlapping storage chunks via `slices_to_chunks_keys()`
 3. Reads each chunk from Booklet, deserializes, and copies the relevant portion into the output array
 4. Returns the assembled array
 
-The output array size is controlled by rechunkit's memory planning, so this stays within the user's `max_mem` budget.
+Since the **storage-space declaration** (next section) every normal read maps to exactly one storage chunk, so this assembly loop is a **defensive fallback** — kept (and deliberately exercised by a test) so a future invariant drift degrades gracefully instead of corrupting reads. The output array size follows rechunkit's read plan.
 
 ## Selections and Chunk Alignment
 
@@ -64,27 +62,25 @@ rechunkit.rechunker(
 
 rechunkit computes the **phase** — the misalignment between the selection start and the source chunk grid (`sel.start % source_chunk_shape`). It then shifts its read plan backward by this phase so that every read request, after being shifted to absolute positions, lands on a source chunk boundary. This guarantees that a source function backed by chunk-aligned storage can serve each read without needing to assemble across chunk boundaries — even when the selection offset doesn't fall on a chunk boundary.
 
-### Why Multi-Chunk Assembly Is Still Needed
+### Coordinate Origins: The Storage-Space Declaration
 
-rechunkit's selection alignment solves the offset problem in **0-based index space**. However, cfdb has a second source of misalignment that rechunkit can't address: **coordinate origins**.
+rechunkit's selection alignment solves the offset problem for **selection starts**. cfdb has a second source of misalignment: **coordinate origins**. When data is prepended to a coordinate, its origin shifts negative (see [Chunking & Storage](chunking-storage.md#chunk-alignment-and-origins)), and storage chunk keys are floor-aligned to `chunk_shape` in storage coordinate space — so the storage grid sits off the 0-based index grid.
 
-When data is prepended to a coordinate, its origin shifts to a negative value (see [Chunking & Storage](chunking-storage.md#chunk-alignment-and-origins)). Storage chunk keys are floor-aligned to `chunk_shape` in storage coordinate space, which creates a mismatch between the 0-based index space that rechunkit operates in and the actual storage chunk grid.
-
-For example, with `origin = -50` and `chunk_shape = 20`:
+cfdb resolves this by folding the origin into rechunkit's *existing* phase machinery: the `Rechunker` declares the array to rechunkit in a **declared space** shifted so that storage-chunk boundaries land on multiples of `chunk_shape`:
 
 ```
-Storage chunks (storage space):  [-60───-40)[-40───-20)[-20────0)[0─────20)
-                                      ↑
-                                  origin = -50 (mid-chunk)
-
-User indices (0-based):          [0──────10)[10─────30)[30─────50)[50────70)
-                                  ↑
-                                  index 0 = storage position -50
+d          = origin % chunk_shape          # per dim, 0 <= d < chunk (Python mod)
+declared   = user index + d                # what rechunkit sees
+storage    = declared - shift              # shift = d - origin, a multiple of chunk
+decl_shape = full_shape + d
+sel_decl   = (user sel, or the full range) + d
 ```
 
-User index 0 maps to storage position -50, which is at offset 10 within the storage chunk `[-60, -40)`. A rechunkit read at `[0, 20)` (aligned in 0-based space) maps to storage `[-50, -30)`, spanning two storage chunks. rechunkit can't fix this because it doesn't know about coordinate origins — it only sees a 0-based array of the declared shape.
+With `origin = -50` and `chunk_shape = 20`: `d = 10`, so user index 0 becomes declared index 10 — exactly the offset of storage position −50 within its chunk `[-60, -40)`. The selection's phase against the declared grid is then the true misalignment against the **storage** grid, and rechunkit's phase-shifted reads land on real storage-chunk boundaries: **every read maps to exactly one storage chunk**, for any origins. The source function converts declared reads to storage space by subtracting the constant `shift` and feeds `slices_to_chunks_keys()` directly.
 
-This is why cfdb's source function uses `slices_to_chunks_keys()` to handle arbitrary multi-chunk reads, with a single-chunk fast path for the common case. When origins are zero (no prepend/append), rechunkit's alignment guarantee means every read maps to exactly one storage chunk and the fast path is always taken. When origins are non-zero, the multi-chunk assembly handles the storage-level misalignment transparently.
+Two properties make this transparent to everything downstream: `shift` is always a multiple of `chunk_shape` (key alignment is preserved), and rechunkit's yields are selection-relative (the shifted selection contains the same elements, so consumers — `iter_chunks`, `groupby`, `DatasetRechunker` — see byte-identical output; verified against the pre-change implementation). For aligned variables (`d == 0` in every dim) the declaration degenerates to the plain 0-based call.
+
+Before this declaration existed, every post-prepend read spanned 2 storage chunks per misaligned dim and re-decompressed the neighbours (~3.4x measured on a 2-dim prepend); it is now exactly 1.0x.
 
 ## Encoded vs Decoded Paths
 
@@ -144,19 +140,45 @@ for items in zip(*var_gens):
 
 All variables in a `DatasetRechunker` must share identical coordinates and shapes. Storage chunk shapes can differ — each variable's `Rechunker` handles its own storage layout independently.
 
+## Yield Lifetime Contract
+
+Arrays yielded by the rechunking generators (`Rechunker.rechunk`, `iter_chunks` with a
+`chunk_shape`, `groupby`, `DatasetRechunker.rechunk`, and the dataset-level wrappers)
+may be **views into rechunkit's internal buffer**, which is reused as iteration
+advances. Two rules for consumers:
+
+1. **Consume or `.copy()` each yielded array before advancing the generator.**
+   Collecting yields (e.g. `list(var.groupby(...))`) leaves earlier arrays pointing
+   at overwritten buffer memory — silently wrong data. Whether a given chunk is a
+   view or a copy depends on plan internals (and on whether the dtype is encoded),
+   so never rely on it.
+2. **Treat yielded arrays as read-only.** Storage-chunk iteration yields slices of
+   freshly deserialized chunks, but mutating yields in place is not a supported way
+   to write data — use `set()`/`__setitem__`.
+
+The supported pattern processes each chunk inside the loop body (writing it to a
+variable, aggregating it, or copying it).
+
 ## Memory Model
 
 Data flows through several stages during rechunking. Understanding where memory is allocated helps with tuning `max_mem`:
 
 | Stage | What lives in memory | Size |
 |-------|---------------------|------|
-| Source function call | One deserialized storage chunk (or assembled multi-chunk array) | Up to source read chunk size |
-| rechunkit buffer | Intermediate array for converting layouts | Controlled by `max_mem` |
+| Source function call | One deserialized storage chunk | One storage chunk |
+| rechunkit bulk buffer | Intermediate array for converting layouts | Counted against `max_mem` |
+| Canonical-order pending | Copies of not-yet-due target chunks | Counted against `max_mem` |
+| Batched-path buffers | One dedicated array per batched target chunk | Counted against `max_mem` |
 | Yielded chunk | Target chunk array passed to user | One target chunk |
 
-The user's `max_mem` controls the rechunkit buffer, which is the largest allocation. The source function's temporary arrays are bounded by rechunkit's read plan — it never requests more data than fits in the buffer.
+`max_mem` is an honest **total** over the bulk buffer, the canonical-order pending copies, and the batched-single-path buffers, with two documented exceptions:
+
+- **Irreducible floors** — you cannot read less than one storage chunk or materialize less than one target chunk. The bulk-path floor is per-dim `max(source_chunk, target_chunk)`; the batched-path floor is one target chunk + one source chunk. When a floor exceeds `max_mem`, the allocation is the floor.
+- **Wide-array pending residual** — when a single source chunk spans multiple target-chunk rows on a wide array (tall source chunks rechunked to much flatter targets), one target-row band `(ceil(src0/tgt0) − 1) × row_width × itemsize` is physically unavoidable without multiplying reads; cfdb holds the band. Peak memory for that operation is ~one band regardless of `max_mem`.
 
 For `DatasetRechunker`, the effective per-variable budget is `max_mem / n_variables`. With many variables, this can become small enough to force extra read passes. Monitor with `calc_n_reads_rechunker()`.
+
+For `map()` with multiprocessing: `max_mem` is **per call** — N workers peak at ~N × the budget. The batched single path keeps each worker close to its budget, which removes the slack the old over-allocation accidentally provided in some shapes; size `max_mem` accordingly.
 
 ## Chunk Key Mapping
 

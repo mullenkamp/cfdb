@@ -68,6 +68,12 @@ with cfdb.open_dataset(file_path, flag='n') as ds:
     lat.append(np.linspace(0, 19.9, 200, dtype='float32'))
 ```
 
+!!! note
+    Data variables that reference a still-empty coordinate must be created with an
+    explicit `chunk_shape` — automatic chunk estimation needs real coordinate lengths
+    and raises a `ValueError` otherwise. When practical, fill coordinates before
+    creating data variables (see the [data variables guide](data-variables.md)).
+
 ## Append and Prepend
 
 Coordinates can only grow — values cannot be removed or modified.

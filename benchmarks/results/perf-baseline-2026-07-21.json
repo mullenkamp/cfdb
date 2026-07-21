@@ -1,0 +1,50 @@
+{
+ "read_full_plain": {
+  "median_s": 0.0553247929783538,
+  "mb_per_s": 882.5722134939454
+ },
+ "write_full_plain": {
+  "median_s": 0.09879418002674356,
+  "mb_per_s": 494.24090555518796
+ },
+ "write_partial_v": {
+  "median_s": 0.2763362959958613,
+  "blocks_per_s": 723.7558109376823
+ },
+ "write_partial_vf": {
+  "median_s": 0.08094032597728074,
+  "blocks_per_s": 2470.9561962493
+ },
+ "write_partial_vi": {
+  "median_s": 0.077221525949426,
+  "blocks_per_s": 2589.9514098048803
+ },
+ "rechunk_aligned": {
+  "median_s": 0.03544248302932829,
+  "mb_per_s": 1377.672240390021
+ },
+ "iter_chunks_storage": {
+  "median_s": 0.03228472202317789,
+  "mb_per_s": 1512.4220355667069
+ },
+ "groupby_daily_fast": {
+  "median_s": 0.03617478103842586,
+  "mb_per_s": 1349.7835674010964
+ },
+ "groupby_amplification": {
+  "planned_reads": 2730,
+  "stored_chunks": 100,
+  "amplification": 27.3,
+  "max_mem_mb": 4.0,
+  "median_s": 0.8459289030288346,
+  "mb_per_s": 57.72131065054249
+ },
+ "many_small_ops_100": {
+  "median_s": 0.1796120300423354,
+  "ops_per_s": 1670.2667406480991
+ },
+ "rechunk_prepended": {
+  "median_s": 0.12216758803697303,
+  "mb_per_s": 399.68150132605194
+ }
+}

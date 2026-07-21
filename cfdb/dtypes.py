@@ -5,6 +5,8 @@ Created on Mon Aug  4 11:04:14 2025
 
 @author: mike
 """
+import warnings
+
 import numpy as np
 from typing import Set, Optional, Dict, Tuple, List, Union, Any
 import msgspec
@@ -258,14 +260,51 @@ class DTypeTranscoder(DataType):
     @sup
     def encode(self, data_decoded: np.ndarray):
         """
-
+        Values that cannot be represented in the encoded integer dtype are mapped to the
+        reserved fillvalue (decoding back to nan/NaT) BEFORE the integer cast: nan/inf,
+        NaT, and finite values whose scaled representation falls outside the encoded
+        integer's range. Casting such values is undefined behavior in C — numpy fabricates
+        arbitrary integers, and the result differs between the scalar and SIMD code paths,
+        so it cannot even be relied on to be consistent within one array.
         """
         if self._factor is None:
-            data_encoded = (data_decoded - self.offset).astype(self.dtype_encoded)
+            data_encoded = data_decoded - self.offset
         else:
-            data_encoded = (np.round((data_decoded - self.offset) * self._factor)).astype(self.dtype_encoded)
+            data_encoded = np.round((data_decoded - self.offset) * self._factor)
 
-        return data_encoded
+        if self.dtype_encoded is not None and np.dtype(self.dtype_encoded).kind in 'ui':
+            fill = 0 if self.fillvalue is None else self.fillvalue
+            info = np.iinfo(self.dtype_encoded)
+            if data_encoded.dtype.kind == 'M':
+                ticks = data_encoded.astype('int64')
+                invalid = np.isnat(data_encoded) | (ticks < info.min) | (ticks > info.max)
+                data_encoded = np.where(invalid, np.array(fill, dtype=data_encoded.dtype), data_encoded)
+            elif data_encoded.dtype.kind == 'f':
+                # compare against bounds prepared as exactly-representable values in the
+                # data's OWN dtype, so the checks run natively (no float64 copy — this is a
+                # hot per-chunk write path). A bound the dtype cannot represent is shrunk by
+                # one ULP toward the valid range, which is provably the largest/smallest
+                # representable value inside the bound — naive comparison would promote
+                # iinfo(uint32).max to float32(2**32) and let the top ULP band through to
+                # the undefined cast.
+                fdt = data_encoded.dtype
+                lo64, hi64 = np.float64(info.min), np.float64(info.max)
+                lo = fdt.type(lo64)
+                hi = fdt.type(hi64)
+                if lo < lo64:
+                    lo = np.nextafter(lo, fdt.type(np.inf))
+                if hi > hi64:
+                    hi = np.nextafter(hi, fdt.type(-np.inf))
+                invalid = ~np.isfinite(data_encoded) | (data_encoded < lo) | (data_encoded > hi)
+                if invalid.any():
+                    data_encoded = np.where(invalid, fill, data_encoded)
+            elif data_encoded.dtype.kind in 'iu':
+                # packed integers have no reserved missing value, so out-of-range cannot be
+                # mapped anywhere honest: fail loud instead of wrapping modulo the width
+                if ((data_encoded < info.min) | (data_encoded > info.max)).any():
+                    raise ValueError(f'integer value(s) outside the encodable range of {self.dtype_encoded}')
+
+        return data_encoded.astype(self.dtype_encoded)
 
     def decode(self, data_encoded: np.ndarray):
         """
@@ -273,16 +312,26 @@ class DTypeTranscoder(DataType):
         """
         data_decoded = data_encoded.astype(self.dtype_decoded)
 
+        int_fill_mask = None
+
         ## Datetime exception...
         if self.dtype_decoded.kind == 'M':
             data_decoded[data_decoded == np.array(0, dtype=self.dtype_decoded)] = np.datetime64('nat')
         elif self.dtype_decoded.kind == 'f':
             data_decoded[data_decoded == self.fillvalue] = np.nan
+        elif self.dtype_decoded.kind in ('i', 'u') and self.fillvalue is not None:
+            # integers have no NaN: the reserved encoded fillvalue decodes to 0,
+            # matching the decoded blank used for unwritten data everywhere else.
+            # Mask computed pre-offset, applied post-offset (offset would shift it).
+            int_fill_mask = data_encoded == self.fillvalue
 
         if self._factor is None:
             data_decoded = data_decoded + self.offset
         else:
             data_decoded = (data_decoded / self._factor)  + self.offset
+
+        if int_fill_mask is not None:
+            data_decoded[int_fill_mask] = 0
 
         return data_decoded
 
@@ -393,6 +442,20 @@ class String(DataType):
 ### Functions
 
 
+def warn_legacy_int_fill(dtype):
+    """
+    Warn when reading int-encoded data through rechunker/encoded paths with a dtype that
+    predates the reserved fillvalue (created before the missing-value mapping existed).
+    Such variables read missing chunks as min_value - 1 through these paths (0 via .data).
+    """
+    if dtype.dtype_encoded is not None and dtype.kind in ('i', 'u') and dtype.fillvalue is None:
+        warnings.warn(
+            'legacy int-encoded variable (stored dtype has no fillvalue): missing chunks read '
+            'as min_value-1 through rechunker/encoded paths, but 0 via .data; see the cfdb '
+            'changelog (missing-value fillvalue mapping) for details.',
+            UserWarning, stacklevel=3)
+
+
 def compute_int_and_offset(min_value: Union[int, float, np.number], max_value: Union[int, float, np.number], precision: int):
     """
     Computes the integer byte size and offset for a float using a min value, max value, and the precision. A value of 0 is set asside for the fillvalue.
@@ -425,15 +488,25 @@ def compute_int_and_offset(min_value: Union[int, float, np.number], max_value: U
     offset = min_value - 1
 
     ## Determine int byte size
+    # The largest encoded code is (max_value - offset) * factor = data_range - 1 + factor,
+    # and code 0 is reserved for the fillvalue, so the width must satisfy
+    # max_code <= 256**i - 1. The old test (data_range <= 256**i) made the declared
+    # max unencodable exactly when the range filled the width.
+    max_code = data_range - 1 + factor
     int_byte_size = None
     for i in (1, 2, 4, 8):
         max_int = 256**i
-        if data_range <= max_int:
+        if max_code <= max_int - 1:
             int_byte_size = i
             break
 
     if int_byte_size is None:
         raise ValueError('8 bytes is not enough!')
+
+    # numpy scalars (np.int64 offsets from datetime/np-typed min/max inputs) are not
+    # msgspec-serializable: they crash SysMeta persistence at dataset close.
+    if isinstance(offset, np.generic):
+        offset = offset.item()
 
     return int_byte_size, offset
 
@@ -447,12 +520,16 @@ def parse_np_dtypes(dtype_decoded: np.dtype, precision: int=None, min_value: flo
         dtype1 = Bool(dtype_decoded)
     elif 'int' in np_name:
         if dtype_encoded is not None and offset is not None:
+            # fillvalue must pass through: auto-packed dtype dicts re-enter through
+            # THIS branch on reopen (they contain dtype_encoded + offset), and dropping
+            # it would silently revert the missing-value mapping after close/reopen.
+            # Old files lack the key -> None -> legacy semantics preserved.
             dtype_encoded = np.dtype(dtype_encoded)
-            dtype1 = Integer(dtype_decoded, dtype_encoded, None, offset, None)
+            dtype1 = Integer(dtype_decoded, dtype_encoded, None, offset, fillvalue)
         elif isinstance(min_value, (int, np.integer)) and isinstance(max_value, (int, np.integer)):
             int_byte_size, offset = compute_int_and_offset(min_value, max_value, 0)
             dtype_encoded = np.dtype(f'u{int_byte_size}')
-            dtype1 = Integer(dtype_decoded, dtype_encoded, None, offset, None)
+            dtype1 = Integer(dtype_decoded, dtype_encoded, None, offset, 0)
         else:
             dtype1 = Integer(dtype_decoded)
 

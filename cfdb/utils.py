@@ -629,8 +629,11 @@ def parse_coord_inputs(dataset_type: str, name: str, data: np.ndarray | None = N
 
     ## Guess the chunk_shape from the dtype
     if isinstance(chunk_shape, tuple):
-        if not all([isinstance(c, int) for c in chunk_shape]):
+        if not all([isinstance(c, (int, np.integer)) for c in chunk_shape]):
             raise TypeError('chunk_shape must be a tuple of ints.')
+        if not all(c > 0 for c in chunk_shape):
+            raise ValueError('chunk_shape dims must all be > 0.')
+        chunk_shape = tuple(int(c) for c in chunk_shape)
     elif chunk_shape is None:
         if dtype.dtype_encoded is None:
             itemsize = dtype.itemsize
@@ -692,9 +695,19 @@ def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str
 
     ## Guess the chunk_shape from the dtype
     if isinstance(chunk_shape, tuple):
-        if not all([isinstance(c, int) for c in chunk_shape]):
+        if not all([isinstance(c, (int, np.integer)) for c in chunk_shape]):
             raise TypeError('chunk_shape must be a tuple of ints.')
+        if not all(c > 0 for c in chunk_shape):
+            raise ValueError('chunk_shape dims must all be > 0.')
+        chunk_shape = tuple(int(c) for c in chunk_shape)
     elif chunk_shape is None:
+        empty_coords = [coord_name for coord_name, s in zip(coords, shape) if s == 0]
+        if empty_coords:
+            names = ', '.join(f"'{cn}'" for cn in empty_coords)
+            raise ValueError(
+                f'coordinate(s) {names} are empty, so a chunk_shape cannot be guessed. '
+                'Pass chunk_shape explicitly, or append coordinate data before creating the data variable.'
+            )
         if dtype.dtype_encoded is None:
             itemsize = dtype.itemsize
             if itemsize is None:
@@ -1087,6 +1100,88 @@ def period_to_chunk_size(count, unit, coord_step, coord_dtype):
         return None
 
     return int(ratio)
+
+
+def resolve_groupby_spec(coord_names_arg, var_coord_names, sys_meta, coord_data_getter):
+    """
+    Shared groupby resolution used by both DataVariableView.groupby and
+    DatasetBase.groupby: normalizes the user spec, validates coord names, parses
+    period strings, and decides fast path (fixed chunk size) vs irregular
+    (explicit calendar groups) per coordinate.
+
+    The fast path requires BOTH a regular step-divisible period AND the first
+    coordinate value sitting exactly on the period-unit boundary — otherwise
+    fixed windows anchored at coord[0] would silently disagree with the calendar
+    groups the fallback (and the docs) promise.
+
+    Parameters
+    ----------
+    coord_names_arg : str, iterable of str, or dict
+        The user's groupby spec.
+    var_coord_names : tuple of str
+        Coordinates of the variable/batch being grouped.
+    sys_meta : data_models.SysMeta
+        For coordinate metadata (step, dtype).
+    coord_data_getter : callable(coord_name) -> np.ndarray
+        Coordinate data RESTRICTED to the caller's scope (view-sliced for
+        variable views, full otherwise). Used for the anchor check and the
+        irregular group computation, so groups always live in the caller's
+        index space.
+
+    Returns
+    -------
+    tuple
+        (chunk_shape_dict, period_coord_name or None, period_groups or None)
+    """
+    if isinstance(coord_names_arg, str):
+        chunk_shape = {coord_names_arg: 1}
+    elif isinstance(coord_names_arg, dict):
+        chunk_shape = dict(coord_names_arg)
+    else:
+        chunk_shape = {cn: 1 for cn in coord_names_arg}
+
+    for cn in chunk_shape:
+        if cn not in var_coord_names:
+            raise ValueError(f'{cn} is not a coord of the grouped variable(s).')
+
+    period_coord = None
+    period_groups = None
+
+    for cn, val in chunk_shape.items():
+        if isinstance(val, str):
+            coord_meta = sys_meta.variables[cn]
+            coord_dtype_obj = dtypes.dtype(**msgspec.to_builtins(coord_meta.dtype))
+            if coord_dtype_obj.kind != 'M':
+                raise ValueError(
+                    f"Period strings are only valid on datetime coordinates, "
+                    f"but '{cn}' has kind '{coord_dtype_obj.kind}'."
+                )
+            if period_coord is not None:
+                raise ValueError('Only one period-based coordinate is supported per groupby call.')
+
+            count, unit = parse_period_string(val)
+
+            chunk_size = period_to_chunk_size(
+                count, unit, coord_meta.step, coord_dtype_obj.dtype_decoded
+            )
+
+            coord_data = coord_data_getter(cn)
+
+            if chunk_size is not None:
+                if len(coord_data) == 0 or coord_data[0].astype(f'datetime64[{unit}]') == coord_data[0]:
+                    # Regular period anchored on the unit boundary (or nothing to
+                    # group) — fixed windows coincide with calendar groups; the
+                    # rechunker handles the remainder chunk natively.
+                    chunk_shape[cn] = chunk_size
+                    continue
+                # not boundary-anchored: fixed windows would span period boundaries;
+                # fall through to the calendar-correct irregular path
+
+            groups = compute_time_groups(coord_data, count, unit)
+            period_coord = cn
+            period_groups = groups
+
+    return chunk_shape, period_coord, period_groups
 
 
 

@@ -35,8 +35,6 @@ def cfdb_to_netcdf4(cfdb_path: Union[str, pathlib.Path], nc_path: Union[str, pat
         Selection by coordinate indexes.
     sel_loc: dict
         Selection by coordinate values.
-    max_mem: int
-        The max memory in bytes if required when coordinates are in decending order (and must be resorted in ascending order).
     kwargs
         Any kwargs that can be passed to the h5netcdf.File function.
 
