@@ -397,7 +397,7 @@ class DatasetBase:
         data_vars : list of str, optional
             Data variable names to include. Default: all.
         max_mem : int
-            Max memory for rechunker buffer per variable. Default 128 MB.
+            Max memory for rechunker buffer per variable. Default 512 MB total.
         n_workers : int, optional
             Number of worker processes. Defaults to os.cpu_count().
 

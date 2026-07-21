@@ -69,7 +69,7 @@ for chunk_slices, data in temp.iter_chunks({'latitude': 50}):
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `chunk_shape` | dict or None | `{coord_name: int}` for target chunk sizes. `None` uses storage chunks. |
-| `max_mem` | int | Max memory for rechunker buffer (default 128 MB). |
+| `max_mem` | int | Memory budget for the rechunker (default 512 MB). |
 | `decoded` | bool | If `False`, yield encoded data. Only applies in storage-chunk mode. |
 | `include_data` | bool | If `False`, yield only chunk position slices without loading data. Default `True`. |
 
@@ -106,7 +106,7 @@ Group by one or more coordinates. Returns a generator of `(slices, data)` tuples
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `coord_names` | str, list of str, or dict | Coordinates to group by. Dict values can be `int` (chunk size) or `str` (time period). |
-| `max_mem` | int | Max memory for rechunker buffer (default 128 MB). |
+| `max_mem` | int | Memory budget for the rechunker (default 512 MB). |
 
 **Period strings:** `'D'` (day), `'7D'` (7 days), `'M'` (month), `'Y'` (year), `'6h'` (6 hours), etc. Valid units: `Y`, `M`, `W`, `D`, `h`, `m`, `s`, `ms`, `us`, `ns`. Only valid on datetime coordinates.
 

@@ -194,7 +194,9 @@ for slices, data in temp.groupby({'time': 'D', 'latitude': 50}):
 
 **Performance:** When the period maps to a fixed number of time steps (e.g. daily on hourly data = 24 steps) AND the first coordinate value sits on the period boundary, cfdb uses the efficient rechunker path. For irregular periods (monthly, yearly) or boundary-misaligned data, it falls back to a slice-based iteration that reads each group separately — the groups are identical either way; only the speed differs.
 
-The `max_mem` parameter controls the memory budget for the rechunking operation (default 128 MB).
+Groupby-style iteration (small chunks along one coordinate, full extent along the others) is efficient even when the group size doesn't divide the storage chunk size: the rechunker clips its read plan to the array extent and batches reads within the memory budget, so each stored chunk is decompressed close to once per pass.
+
+The `max_mem` parameter controls the memory budget for the rechunking operation (default 512 MB). It genuinely bounds the rechunker's allocation (see [Rechunking Internals](../concepts/rechunking-internals.md) for the memory model and the documented floors).
 
 ## Parallel Map
 

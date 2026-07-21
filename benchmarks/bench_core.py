@@ -121,6 +121,28 @@ def run_benchmarks(base: Path):
         t = _median_time(groupby_daily)
         results['groupby_daily_fast'] = {'median_s': t, 'mb_per_s': mb / t}
 
+        # Non-divisor groupby amplification (P1's cfdb-level gate): daily
+        # groups (chunk 24, non-divisor of storage 640) under a small max_mem
+        # so the target's LCM band exceeds the budget.  Planned reads vs
+        # stored chunks is the deterministic amplification metric; wall time
+        # rides along.
+        gb_mm = 2**22
+        stored_chunks = (NY // CS[0]) * (NT // CS[1])
+        n_reads, _n_writes = dv.rechunker().calc_n_reads_rechunker((NY, 24), gb_mm)
+        results['groupby_amplification'] = {
+            'planned_reads': n_reads,
+            'stored_chunks': stored_chunks,
+            'amplification': n_reads / stored_chunks,
+            'max_mem_mb': gb_mm / 2**20,
+        }
+
+        def groupby_daily_tight():
+            for _sl, _d in dv.groupby({'time': 'D'}, max_mem=gb_mm):
+                pass
+        t = _median_time(groupby_daily_tight)
+        results['groupby_amplification']['median_s'] = t
+        results['groupby_amplification']['mb_per_s'] = mb / t
+
         # Many-small-operations microbench: per-call selection overhead.
         small = data[:5, :5]
 

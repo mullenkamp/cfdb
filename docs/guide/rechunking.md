@@ -68,14 +68,14 @@ with cfdb.open_dataset(file_path) as ds:
 
 #### Memory Control
 
-The `max_mem` parameter (default 128 MB) controls the intermediate buffer size:
+The `max_mem` parameter (default 512 MB) controls the memory budget:
 
 ```python
-for slices, data in rechunker.rechunk(new_chunk_shape, max_mem=2**27):
+for slices, data in rechunker.rechunk(new_chunk_shape, max_mem=2**29):
     print(data.shape)
 ```
 
-Larger buffers reduce the number of read operations but use more memory. The rechunker will only use an amount of memory up to the ideal chunk shape. See the [rechunkit](https://github.com/mullenkamp/rechunkit) package for more details.
+Larger budgets generally reduce the number of read operations but use more memory; the budget genuinely bounds the rechunker's allocation (buffer, reorder copies, and batch buffers), up to the documented floors — see [Rechunking Internals](../concepts/rechunking-internals.md) and the [rechunkit](https://github.com/mullenkamp/rechunkit) package for details.
 
 #### Planning Rechunk Operations
 
@@ -90,14 +90,14 @@ n_chunks = rechunker.calc_n_chunks()
 # Number of reads and writes for a rechunk operation
 n_reads, n_writes = rechunker.calc_n_reads_rechunker(new_chunk_shape)
 
-# Ideal read chunk shape (LCM-based)
+# Ideal read chunk shape (LCM-based, clipped to the variable's extent)
 ideal_shape = rechunker.calc_ideal_read_chunk_shape(new_chunk_shape)
 
 # Memory required for the ideal read chunk
 ideal_mem = rechunker.calc_ideal_read_chunk_mem(new_chunk_shape)
 
 # Optimal read shape given a memory budget
-optimal_shape = rechunker.calc_source_read_chunk_shape(new_chunk_shape, max_mem=2**27)
+optimal_shape = rechunker.calc_source_read_chunk_shape(new_chunk_shape, max_mem=2**29)
 ```
 
 ## Multivariable Rechunking
