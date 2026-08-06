@@ -205,18 +205,40 @@ with open_dataset('data.cfdb') as ds:
 
 ### Writing Data
 
+> **Write INCREMENTALLY. Do not assemble the whole array in RAM first.**
+>
+> This is the most common way cfdb gets misused, and it discards the main reason to use it.
+> cfdb reads and writes in **chunks** — a dataset far larger than memory is normal. Building a
+> full dense array and assigning it in one statement turns an operational database into a "hope
+> it fits" batch job, and it fails late: fine on a test subset, OOM at the end of a real run.
+>
+> Memory scales with the **dimensions**, not with how much real data you have. A sparse
+> station×time dataset — 261 stations × 565 k hourly steps, only 20 % populated — is **1.18 GB
+> per plane as float64**, and you usually have two or three planes plus encode copies live at
+> once. Measured peak for such a build: **4.5 GB**. Writing one station row at a time needs
+> **4.5 MB** — same file on disk, ~250x less RAM.
+>
+> **Rule: the write loop should mirror `chunk_shape`.** If the chunk shape is `(1, 25_000)` —
+> one row — write one row at a time. `np.full((n_rows, n_cols), np.nan)` immediately before a
+> write loop is the canonical smell: that array is the bug.
+
 ```python
 with open_dataset('data.cfdb', flag='w') as ds:
     temp = ds['temperature']
 
-    # Write all data at once:
-    temp[:] = data_array
+    # PREFERRED — incremental, chunk-aligned. Peak memory is one chunk, not one dataset.
+    for i, row in enumerate(source_iter):        # a generator, not a materialised dict
+        temp[i, :] = row                         # one row == one chunk column
 
     # Write a slice:
     temp[slice(0, 10), :, slice(0, 5)] = partial_data
 
     # Explicit set method:
     temp.set((slice(0, 10), slice(None), slice(0, 5)), partial_data)
+
+    # Whole-array assignment. ONLY when the array is genuinely small, or already in memory for
+    # another reason. `data_array` must exist in full before this line runs — that is the cost.
+    temp[:] = data_array
 
     # Append/prepend coordinate data:
     lat = ds['latitude']
@@ -459,14 +481,33 @@ with open_dataset('data.cfdb', flag='w') as ds:
     del ds['altitude']      # delete a coordinate (only if no data vars reference it)
 ```
 
-### Pruning
-
-Remove deleted data from the file to reclaim space:
+### Pruning — REQUIRED for any dataset that is updated repeatedly
 
 ```python
 with open_dataset('data.cfdb', flag='w') as ds:
     removed = ds.prune()  # returns count of removed items
 ```
+
+> ⚠️ **This is not just about deletes. The store is LOG-STRUCTURED: every chunk *overwrite*
+> appends a new block and orphans the old one.** The file grows on every update — the old bytes
+> are invisible to reads but still on disk — and `prune()` is the only thing that reclaims them.
+>
+> **This bites hardest on the append-into-a-partial-chunk pattern**, which is what almost every
+> continuously-updated dataset does: new data lands in the *tail* chunk, so that chunk is
+> rewritten in full on every run however few values arrived. At a 25,000-step time chunk on
+> hourly data, a tail chunk is rewritten ~25,000 times before it is ever full.
+>
+> Measured on a 250-station × 140,000-step dataset merging a routine 48-step window hourly:
+> 99.5 MB after build → **353 MB after one day** → back to 99.5 MB after `prune()`, in **0.3 s**.
+> ~10.6 MB of dead space per run, fully reclaimable, cheap enough to run every time.
+>
+> **`prune()` preserves each key's timestamp and the key set** (verified). That matters for
+> S3-backed `EDataset`s: the push diffs per-key timestamps against the remote index, so pruning
+> cannot inflate the next upload. It is local-only. Prefer to prune **after** publishing.
+>
+> Same design, two more costs: writing a row in two column-slices instead of one call grew a file
+> **+42 %**, and rewriting each row twice **+84 %**; and `Coordinate.truncate` leaves dead bytes
+> in boundary chunks until pruned.
 
 ### Interpolation
 
@@ -581,4 +622,11 @@ with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
 - Data variables support `__setitem__` for writing data to any position.
 - Always use context managers (`with`) to ensure proper cleanup.
 - `DataVariable.data` loads the **entire array** into memory -- use `iter_chunks()` for large data.
+- **Write in the same shape you chunked in.** The chunk shape is the write unit as well as the
+  storage unit; if your loop and your `chunk_shape` disagree, you pay in memory or in dead space.
+- **Never assemble a whole dense array to write it.** Peak memory should track one chunk, not the
+  dataset. `np.full((n_rows, n_cols), ...)` before a write loop is the canonical smell.
+- **The store is log-structured: overwriting a chunk orphans the old block.** Any repeatedly
+  updated dataset grows every run (the tail chunk is rewritten each time) and needs `prune()` to
+  reclaim it. Prune after publishing; it preserves timestamps, so it cannot inflate a push.
 - Thread-safe and multiprocessing-safe via locks.
