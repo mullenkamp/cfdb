@@ -91,16 +91,16 @@ wheels = [
 
 [[package]]
 name = "booklet"
-version = "0.12.9"
+version = "0.12.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "portalocker" },
     { name = "uuid6" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9d/bc/5abf1dfcbcd533b44d4eb957a553e9b983af59beda708d54f82aac7a9777/booklet-0.12.9.tar.gz", hash = "sha256:a80b4fd8fa855db2b82161be128c75f970360b40584d5ca0b2efc34de47d2f12", size = 39645, upload-time = "2026-07-21T08:44:48.755Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/c8/3911be82f3c3f231b97f7f2acceb4462daf37fe5f7117963d3e821a47262/booklet-0.12.10.tar.gz", hash = "sha256:5a8a5637303daab8ff40a7458d0ba02eb43fea140556bfb3c1582828fc923cc6", size = 40063, upload-time = "2026-08-24T22:22:19.921Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/e0/f45201d6d81738612378300f42504780ea426cc91d260e5d38261647d2cd/booklet-0.12.9-py3-none-any.whl", hash = "sha256:058e685d824122f3a07d0a1a703ee08c9c84c6d1a2322f627baacea1ab82c43a", size = 41721, upload-time = "2026-07-21T08:44:47.076Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/fe/7c0966bc0a7b09f9bc10705d1ce52a20967bb269f70a451c216b3ad9d35b/booklet-0.12.10-py3-none-any.whl", hash = "sha256:b7e34911320aa283e3b490534969053fd48ae8234ef0969e57bc9f293c63d10d", size = 41938, upload-time = "2026-08-24T22:22:18.646Z" },
 ]
 
 [[package]]
@@ -164,9 +164,9 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "booklet", specifier = ">=0.12.6" },
-    { name = "cfdb-models", specifier = ">=0.1.0" },
-    { name = "cfdb-vars", specifier = ">=0.2.2" },
+    { name = "booklet", specifier = ">=0.12.10" },
+    { name = "cfdb-models", specifier = ">=0.1.1" },
+    { name = "cfdb-vars", specifier = ">=0.2.3" },
     { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.10.0" },
     { name = "geointerp", specifier = ">=0.1.1" },
     { name = "h5netcdf", marker = "extra == 'netcdf4'" },
@@ -202,24 +202,24 @@ docs = [
 
 [[package]]
 name = "cfdb-models"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f1/50/1357bef5ff8b440c519fd0fb4868112d4aa1122009c591e896e20969db75/cfdb_models-0.1.0.tar.gz", hash = "sha256:63a7d6abff0ee28479cca83ca798fd6e8903a6539382a8f6639679895dfeb32f", size = 4220, upload-time = "2026-02-20T03:02:18.204Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/64/78/956bd06091b147dde8d622b11a5b967ad7147ef5f7d23b4f9707f83eda6a/cfdb_models-0.1.1.tar.gz", hash = "sha256:d058dcf57efcb23f4cc5bc497f0970526655a33f4c8b1ce5f372f92ff0c62543", size = 4673, upload-time = "2026-08-25T01:41:53.677Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/f7/29112de4955eba16fccc97ac4a8e973665ac72a46b9923be8e3a0b47d365/cfdb_models-0.1.0-py3-none-any.whl", hash = "sha256:90a903f2d35fa41064298352d37be92f4092997af85cb845075663edfb330704", size = 3736, upload-time = "2026-02-20T03:02:17.038Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/9e/04a26bfe094b1d9c8061a819985319b67b6485a6db9c4618ae4a313d5653/cfdb_models-0.1.1-py3-none-any.whl", hash = "sha256:98a046ef02a66f88c64f10f74e40e4701013a852094c43413d22ff790f748db9", size = 4206, upload-time = "2026-08-25T01:41:52.574Z" },
 ]
 
 [[package]]
 name = "cfdb-vars"
-version = "0.2.2"
+version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cfdb-models" },
     { name = "msgspec" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9b/7c/63e4fee26412bdf4b93f3ecacad9424504da315b320e46147fabbd005e80/cfdb_vars-0.2.2.tar.gz", hash = "sha256:19484cbbf4259f267bbd4b3a216decbf3f14d78b342c6762816df6fa2026903b", size = 7949, upload-time = "2026-03-27T02:35:46.893Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/eb/8b/5e280983ed082f9305cc14b1cad3b8330cd7b20ca093b2978f77555c5a03/cfdb_vars-0.2.3.tar.gz", hash = "sha256:606d22c068c76e6a5d704ed1c281124874b5d023658ba9d2d054264e9b09bee1", size = 8836, upload-time = "2026-08-25T01:44:49.427Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/49/054e7d8806ff5e36274bf45ffbe894d406923bf0a4512b83779cf567a4c9/cfdb_vars-0.2.2-py3-none-any.whl", hash = "sha256:14518f9a7d123e7a10445be002348ecdbf6656c9b18ca2f126efe57672c05a63", size = 8064, upload-time = "2026-03-27T02:35:45.953Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/b4/008cad8cb4cc389becb65fef40b05cb5cc5a6e814f2d0d1c7cc18c412717/cfdb_vars-0.2.3-py3-none-any.whl", hash = "sha256:9f89657563bddef02ffbbf8b153136ae1a7f2cf5c3ec43c83206041ac94ea1bf", size = 8953, upload-time = "2026-08-25T01:44:48.189Z" },
 ]
 
 [[package]]
