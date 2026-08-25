@@ -601,9 +601,12 @@ def parse_coord_inputs(dataset_type: str, name: str, data: np.ndarray | None = N
         raise TypeError('dtype must not be None.')
 
     ## Check that the dtype is valid for the dataset type?
-    if dataset_type == 'grid':
+    ## Both grid types, NOT just 'grid' -- exact equality here would have let grid_forecast
+    ## take a Geometry coordinate. The 'ts_' substring below is deliberate and already covers
+    ## ts_forecast (see the note in creation.py where the string form is passed in).
+    if dataset_type in ('grid', 'grid_forecast'):
         if dtype.kind == 'G':
-            raise TypeError('The grid dataset type cannot use a Geometry dtype for a coordinate.')
+            raise TypeError('The grid dataset types cannot use a Geometry dtype for a coordinate.')
     elif 'ts_' in dataset_type:
         if name in ('lat', 'latitude', 'lon', 'longitude', 'x', 'y') or axis in ('x', 'y'):
             raise TypeError('time series dataset types cannot have independent lat/y and lon/x coordinates. They must have a Geometry dtype to represent the x and y axis.')

@@ -177,7 +177,7 @@ with cfdb.open_dataset(file_path) as ds:
 
 ### interp(x=None, y=None, z=None, iter_dim=None, xy=None)
 
-Create an interpolation object for spatial interpolation. Returns `GridInterp` for grid datasets or `PointInterp` for ts_ortho datasets. Requires geointerp and a CRS.
+Create an interpolation object for spatial interpolation. Returns `GridInterp` for `grid` datasets or `PointInterp` for `ts_ortho` datasets. Requires geointerp and a CRS. **Raises `NotImplementedError` for `ts_forecast` and `grid_forecast`** -- their two non-spatial dimensions are not handled by the current interpolators.
 
 ```python
 gi = temp.interp()

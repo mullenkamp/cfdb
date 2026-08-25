@@ -1793,10 +1793,24 @@ class DataVariableView(Variable):
         """
         dataset_type = self._dataset.dataset_type
 
+        ## Explicit dispatch, not a catch-all else. The forecast types have TWO non-spatial
+        ## dimensions, which breaks GridInterp's single-iter-dim assumption -- and it breaks
+        ## it silently: _compute_spatial_transpose builds a transpose of the wrong length
+        ## rather than raising, and the failure escapes later, mid-iteration, because the
+        ## generator is lazy. Raising here is the honest behaviour until forecast interp is
+        ## actually implemented.
         if dataset_type == 'ts_ortho':
             return interp.PointInterp(self, xy=xy, z=z, iter_dim=iter_dim)
-        else:
+        elif dataset_type == 'grid':
             return interp.GridInterp(self, x=x, y=y, z=z, iter_dim=iter_dim)
+        elif dataset_type in ('ts_forecast', 'grid_forecast'):
+            raise NotImplementedError(
+                f'interp is not implemented for the {dataset_type!r} dataset type. Its '
+                f'(forecast_reference_time, forecast_period) axes give it two non-spatial '
+                f'dimensions, which the current interpolators do not handle.'
+            )
+        else:
+            raise TypeError(f'Unknown dataset_type {dataset_type!r}.')
 
     def __repr__(self):
         """

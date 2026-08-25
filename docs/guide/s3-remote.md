@@ -110,7 +110,7 @@ check it via the `dataset_type` property:
 
 ```python
 with cfdb.open_edataset(remote, 'stations.cfdb') as ds:
-    print(ds.dataset_type)   # 'grid' or 'ts_ortho'
+    print(ds.dataset_type)   # 'grid', 'ts_ortho', 'ts_forecast' or 'grid_forecast'
 ```
 
 ## Remote Management

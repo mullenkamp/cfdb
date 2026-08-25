@@ -19,9 +19,18 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-  'booklet>=0.12.6',
-  'cfdb-models>=0.1.0',
-  'cfdb-vars>=0.2.2',
+  # These three are HARD floors, not hygiene. Each older version SATISFIES the previous
+  # floor, so an in-place `pip install -U cfdb` silently keeps it and the failure appears
+  # far from its cause:
+  #   booklet <0.12.10  -- calls portalocker.lock(f, LOCK_UN), which portalocker 4.x rejects,
+  #                        so the finalizer dies and an OS file lock is never released.
+  #   cfdb-models <0.1.1 -- Type enum lacks ts_forecast/grid_forecast; reading such a file
+  #                        dies with a bare `Invalid enum value` naming no remedy.
+  #   cfdb-vars <0.2.3   -- no forecast coord defs, so ds.create.coord.forecast_reference_time
+  #                        simply does not exist (constructors are generated at import).
+  'booklet>=0.12.10',
+  'cfdb-models>=0.1.1',
+  'cfdb-vars>=0.2.3',
   'rechunkit>=0.6.0',
   'numpy>2',
   'zstandard',

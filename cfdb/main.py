@@ -582,7 +582,10 @@ class DatasetBase:
                         units = utils.parse_cf_time_units(coord.dtype.dtype_decoded)
                         attrs['units'] = units
                         attrs['calendar'] = "proleptic_gregorian"
-                        attrs['standard_name'] = 'time'
+                        ## setdefault, NOT assignment: a variable carrying its own
+                        ## standard_name (forecast_reference_time above all) must keep it,
+                        ## or a CF reader decodes the init axis as the valid time.
+                        attrs.setdefault('standard_name', 'time')
                         dtype_encoded = np.dtypes.Int64DType()
                     else:
                         dtype_encoded = coord.dtype.dtype_decoded
@@ -591,7 +594,10 @@ class DatasetBase:
                         units = utils.parse_cf_time_units(coord.dtype.dtype_decoded)
                         attrs['units'] = units
                         attrs['calendar'] = "proleptic_gregorian"
-                        attrs['standard_name'] = 'time'
+                        ## setdefault, NOT assignment: a variable carrying its own
+                        ## standard_name (forecast_reference_time above all) must keep it,
+                        ## or a CF reader decodes the init axis as the valid time.
+                        attrs.setdefault('standard_name', 'time')
                         dtype_encoded = np.dtypes.Int64DType()
                     else:
                         dtype_encoded = coord.dtype.dtype_encoded
@@ -661,7 +667,10 @@ class DatasetBase:
                         units = utils.parse_cf_time_units(data_var.dtype.dtype_decoded)
                         attrs['units'] = units
                         attrs['calendar'] = "proleptic_gregorian"
-                        attrs['standard_name'] = 'time'
+                        ## setdefault, NOT assignment: a variable carrying its own
+                        ## standard_name (forecast_reference_time above all) must keep it,
+                        ## or a CF reader decodes the init axis as the valid time.
+                        attrs.setdefault('standard_name', 'time')
                         dtype_encoded = np.dtypes.Int64DType()
                     else:
                         dtype_encoded = data_var.dtype.dtype_encoded
@@ -758,6 +767,10 @@ class Dataset(DatasetBase):
         self._finalizers = [weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta, self._attrs_cache, self.writable)]
 
         self.attrs = sc.Attributes(self._blt, '_', self.writable, self._attrs_cache)
+        ## Deliberately exact 'ts_ortho' and NOT extended to ts_forecast: CF's discrete-
+        ## sampling-geometry featureType='timeSeries' implies ONE time dimension per station,
+        ## and (point, forecast_reference_time, forecast_period) is not a valid DSG. Emitting
+        ## no featureType is the CF-correct choice for the forecast types.
         if create and dataset_type == 'ts_ortho':
             self.attrs['featureType'] = 'timeSeries'
 
@@ -982,6 +995,16 @@ class TimeSeriesOrtho(Dataset):
 
     """
 
+class TimeSeriesForecast(Dataset):
+    """
+    (point, forecast_reference_time, forecast_period) station forecasts.
+    """
+
+class GridForecast(Dataset):
+    """
+    (x, y, forecast_reference_time, forecast_period) gridded forecasts.
+    """
+
 #######################################################
 ### Open functions
 
@@ -1035,22 +1058,40 @@ def open_dataset(file_path: Union[str, pathlib.Path],
     else:
         create = False
 
-    ## The class follows the STORED dataset_type for existing files; the
-    ## dataset_type parameter only applies at creation. (meta is None on a
-    ## corrupt/empty file - fall through to the param so Dataset.__init__
-    ## raises its clear msgspec ValidationError instead of a NoneType error.)
-    if create:
-        dt = dataset_type.lower()
-    else:
-        meta = open_blt.get_metadata()
-        dt = dataset_type.lower() if meta is None else meta['dataset_type']
+    ## The try/except must wrap everything after booklet.open: a leaked handle holds an OS
+    ## file lock, so a later write-reopen BLOCKS rather than failing. That includes resolving
+    ## dt -- `dataset_type.lower()` raises AttributeError on None and `meta['dataset_type']`
+    ## raises KeyError on a file whose metadata lacks the key, both after the store is open --
+    ## and Dataset.__init__ itself, which raises on a stored dataset_type this cfdb-models does
+    ## not know. Mirrors open_edataset, which resolves dt inside its try.
+    try:
+        ## The class follows the STORED dataset_type for existing files; the
+        ## dataset_type parameter only applies at creation. (meta is None on a
+        ## corrupt/empty file - fall through to the param so Dataset.__init__
+        ## raises its clear msgspec ValidationError instead of a NoneType error.)
+        if create:
+            dt = dataset_type.lower()
+        else:
+            meta = open_blt.get_metadata()
+            dt = dataset_type.lower() if meta is None else meta['dataset_type']
 
-    if dt == 'grid':
-        ds = Grid(fp, open_blt, create, compression, compression_level, 'grid')
-    elif dt == 'ts_ortho':
-        ds = TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
-    else:
-        raise TypeError('dataset_type must be either "grid" or "ts_ortho".')
+        if dt == 'grid':
+            ds = Grid(fp, open_blt, create, compression, compression_level, 'grid')
+        elif dt == 'ts_ortho':
+            ds = TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
+        elif dt == 'ts_forecast':
+            ds = TimeSeriesForecast(fp, open_blt, create, compression, compression_level, 'ts_forecast')
+        elif dt == 'grid_forecast':
+            ds = GridForecast(fp, open_blt, create, compression, compression_level, 'grid_forecast')
+        else:
+            raise TypeError(
+                f'dataset_type must be one of "grid", "ts_ortho", "ts_forecast" or '
+                f'"grid_forecast"; got {dt!r}. If this file was written by a newer cfdb, '
+                f'upgrade cfdb and cfdb-models.'
+            )
+    except BaseException:
+        open_blt.close()
+        raise
 
     if not allow_partial and not create and ds._sys_meta.remote:
         warnings.warn(

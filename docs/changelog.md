@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.9.6 (2026-08-25)
+
+Adds the two forecast dataset types. Requires **cfdb-models >= 0.1.1** (the `Type` enum members),
+**cfdb-vars >= 0.2.3** (the coordinate definitions) and **booklet >= 0.12.10**. All three floors are
+hard: each older version *satisfies the previous floor*, so an in-place `pip install -U cfdb` keeps
+it and the failure surfaces far from its cause.
+
+Designed and dual-blind reviewed as round `ecan-theta-1`.
+
+### New dataset types
+
+- **`ts_forecast`** — `(point, forecast_reference_time, forecast_period)` and **`grid_forecast`** —
+  `(x, y, forecast_reference_time, forecast_period)`. Both use a **lead** axis rather than a
+  valid-time axis: `(point, init, valid_time)` is ~97 % empty because each run fills only a short
+  diagonal band, whereas `(point, init, lead)` is dense. Valid time is `init + lead`.
+- New named coordinate constructors `ds.create.coord.forecast_reference_time()` and
+  `.forecast_period()` (from cfdb-vars 0.2.3). **`forecast_reference_time` carries CF `axis='T'`;
+  `forecast_period` deliberately carries no axis** — CF defines only X/Y/Z/T, and cfdb refuses two
+  coordinates sharing an axis.
+- ⚠️ **`forecast_period` is a bare integer with a CF `units` attribute; the attribute is REQUIRED,
+  is deliberately NOT defaulted, and reading it is mandatory.** cfdb has no timedelta dtype, so adding a lead to a `datetime64` evaluates in the
+  *datetime's* unit: against the standard `datetime64[m]` time dtype, `frt[-1] + lead.max()` adds
+  **minutes**, silently. Build an explicit `np.timedelta64(lead, units)`.
+- ⚠️ **Declare an explicit step on `forecast_reference_time`.** It is what makes recovery of a
+  *missed* run possible: the step auto-fills the skipped slot and a later `merge_into` writes into
+  it, whereas with no step the merge raises `NotImplementedError: In-place coordinate insertions are
+  unsupported`. Note `step=True` infers nothing from the single-value axis the first-ever run
+  creates.
+- `.interp()` raises `NotImplementedError` on both forecast types. Previously the dispatch `else`
+  handed *any* non-`ts_ortho` type a `GridInterp`, which for a 4-D layout built a transpose of the
+  wrong length and failed later, mid-iteration, rather than raising.
+- No `featureType` is written for `ts_forecast`: CF's discrete-sampling-geometry
+  `featureType='timeSeries'` implies one time dimension per station, which a `(point, init, lead)`
+  layout is not.
+
+### Fixed
+
+- **`open_dataset` no longer leaks the open store when it rejects a `dataset_type`.** It raised
+  after `booklet.open`, with no `try/except`; the leaked handle holds an OS file lock, so a
+  subsequent write-open **blocked** rather than failing. The guard now wraps dataset *construction*
+  as well as the raise, matching `open_edataset`. This is the path an older cfdb takes when it meets
+  a forecast file.
+- **netCDF export no longer overwrites an explicit `standard_name` on datetime variables.** It
+  assigned `standard_name = 'time'` unconditionally, so an exported `forecast_reference_time` told
+  CF readers it was *the* valid time. Now `setdefault`, on all three live sites (both coordinate
+  branches and the data-variable branch).
+- The geometry-dtype guard in `parse_coord_inputs` keyed on exact `dataset_type == 'grid'`, so
+  `grid_forecast` could have taken a Geometry coordinate. It now covers both grid types.
+- `TypeError` messages for an unknown `dataset_type` now name all four types and suggest upgrading
+  cfdb/cfdb-models, instead of claiming only `"grid"` or `"ts_ortho"` exist.
+
+### Known limitations
+
+- Forecast interpolation is not implemented (it raises); `grid_forecast` has two non-spatial
+  dimensions, which the current interpolators do not handle.
+- Exporting any dataset with a geometry coordinate to netCDF still fails with `'Point' object has no
+  attribute '_factor'` — pre-existing, unrelated to this release, and inherited by `ts_forecast`.
+
 ## 0.9.5 (2026-07-21)
 
 Two rounds from the 2026-07-20 rechunkit/cfdb dual-blind code review: the bug-fix round (correctness) and the performance round. Requires the matching rechunkit release (>= 0.6.0 — cfdb calls the new planner parameters and will TypeError on 0.5.1).

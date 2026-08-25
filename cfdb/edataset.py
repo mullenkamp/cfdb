@@ -69,6 +69,16 @@ class ETimeSeriesOrtho(EDataset):
 
     """
 
+class ETimeSeriesForecast(EDataset):
+    """
+    S3-backed (point, forecast_reference_time, forecast_period) station forecasts.
+    """
+
+class EGridForecast(EDataset):
+    """
+    S3-backed (x, y, forecast_reference_time, forecast_period) gridded forecasts.
+    """
+
 
 def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
                   file_path: Union[str, pathlib.Path],
@@ -150,8 +160,16 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
             return EGrid(fp, open_blt, create, compression, compression_level, 'grid')
         elif dt == 'ts_ortho':
             return ETimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
+        elif dt == 'ts_forecast':
+            return ETimeSeriesForecast(fp, open_blt, create, compression, compression_level, 'ts_forecast')
+        elif dt == 'grid_forecast':
+            return EGridForecast(fp, open_blt, create, compression, compression_level, 'grid_forecast')
         else:
-            raise TypeError('dataset_type must be either "grid" or "ts_ortho".')
+            raise TypeError(
+                f'dataset_type must be one of "grid", "ts_ortho", "ts_forecast" or '
+                f'"grid_forecast"; got {dt!r}. If this dataset was written by a newer cfdb, '
+                f'upgrade cfdb and cfdb-models.'
+            )
     except BaseException:
         open_blt.close()
         raise

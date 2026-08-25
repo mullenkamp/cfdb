@@ -48,7 +48,8 @@ ds = open_dataset('data.cfdb', flag='c')
 ds = open_dataset('data.cfdb', flag='n', compression='zstd', compression_level=1)
 ds = open_dataset('data.cfdb', flag='n', compression='lz4')
 
-# Dataset types: 'grid' (default) or 'ts_ortho' (time series with point geometries)
+# Dataset types: 'grid' (default), 'ts_ortho' (time series with point geometries), or the
+# forecast pair 'ts_forecast' / 'grid_forecast' ((init, lead) axes instead of a time axis)
 ds = open_dataset('data.cfdb', flag='n', dataset_type='ts_ortho')
 ```
 
