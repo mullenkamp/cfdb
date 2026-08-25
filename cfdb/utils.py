@@ -442,10 +442,19 @@ def _generate_step_fill(start_val, end_val, step, dtype):
     elif dtype.kind == 'M':
         unit = np.datetime_data(dtype.dtype_decoded)[0]
         dt_step = np.timedelta64(step, unit)
-        gap = int((end_val - start_val) / dt_step)
-        if not np.isclose(gap, round(gap)):
+        # Use MODULO, like the integer branch above, and check BEFORE narrowing to an int.
+        # datetime64 differences are integral in the coordinate's own unit, so this is exact.
+        #
+        # This previously read `gap = int((end_val - start_val) / dt_step)` followed by
+        # `np.isclose(gap, round(gap))` -- which compares an already-truncated integer to its own
+        # rounding and is therefore true for EVERY input. The check was vacuous, and the failure it
+        # was meant to catch is silent: an off-grid value was appended onto an axis that went on
+        # reporting its declared step, so an axis could hold 7h and 1h gaps while declaring 6h.
+        # Callers guarantee start_val < end_val (see append_new_data / prepend_new_data).
+        if (end_val - start_val) % dt_step != np.timedelta64(0, unit):
             raise ValueError('The gap between existing and new data is not a multiple of the step.')
-        if round(gap) <= 1:
+        gap = int((end_val - start_val) / dt_step)
+        if gap <= 1:
             return np.array([], dtype=dtype.dtype_decoded)
         return np.arange(start_val + dt_step, end_val, dt_step)
     else:

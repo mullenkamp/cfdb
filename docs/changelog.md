@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.9.7 (2026-08-25)
+
+### Fixed
+
+- **A stepped `datetime64` coordinate now REFUSES an append/prepend that is off its own grid.**
+  It previously accepted one silently.
+
+  `utils._generate_step_fill`'s datetime branch computed `gap = int((end - start) / dt_step)` —
+  truncating — and then asserted `np.isclose(gap, round(gap))` on the already-truncated integer,
+  which is true for every input. The check could not fail. The float branch validates *before*
+  rounding and the integer branch uses modulo; only the datetime branch — the one every time axis
+  goes through — was vacuous. It now uses modulo on the timedelta, which is exact because
+  `datetime64` differences are integral in the coordinate's own unit.
+
+  **Why this mattered more than it looks.** The failure was silent and self-concealing: the
+  off-grid value was appended and the axis went on reporting its declared step, so a coordinate
+  could hold 7 h and 1 h gaps while declaring `step=360` (6 h). Nothing downstream re-derives an
+  axis from its step, and envlib's validation does not check axis uniformity, so a coordinate that
+  lied about its own regularity would pass every gate. Reproduced on 0.9.6: appending `+7 h` to a
+  6-hourly axis produced gaps of `[420, 360, 360, 60]` minutes.
+
+  Found while designing a forecast producer, where `forecast_reference_time` carries an explicit
+  step so a missed run can be back-filled — but the exposure is general and applies to every
+  stepped datetime coordinate, `ts_ortho` time axes included.
+
+  Legitimate on-grid gaps still auto-fill exactly as before.
+
 ## 0.9.6 (2026-08-25)
 
 Adds the two forecast dataset types. Requires **cfdb-models >= 0.1.1** (the `Type` enum members),
