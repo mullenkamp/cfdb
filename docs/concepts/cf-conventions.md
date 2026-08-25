@@ -56,6 +56,12 @@ cfdb's dataset types map to CF structures:
 |-----------|-------------|
 | `grid` | Standard CF dimensions/coordinates |
 | `ts_ortho` | [Orthogonal multidimensional array representation of time series](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series) |
+| `ts_forecast` | The same point layout, with CF's `forecast_reference_time` (init) and `forecast_period` (lead) in place of `time`. **Not** a CF discrete-sampling geometry — `featureType='timeSeries'` implies one time dimension per station, so none is written. |
+| `grid_forecast` | Standard CF dimensions plus the same `(forecast_reference_time, forecast_period)` pair. |
+
+`forecast_reference_time` carries CF `axis='T'`; `forecast_period` carries **no** `axis`, because CF
+defines only X/Y/Z/T and a lead-time dimension is none of them (cfdb also refuses two coordinates
+sharing an axis). Per CF, `forecast_period` must declare `units`; cfdb does not default it.
 
 ## CF Attributes
 

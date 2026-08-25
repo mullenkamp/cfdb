@@ -81,6 +81,12 @@ with open_dataset('data.cfdb', flag='n') as ds:
     # For ts_ortho datasets, use geometry coordinates:
     ds.create.coord.point()  # then append shapely Point objects
 
+    # For the forecast types (cfdb >= 0.9.6). The explicit step and the units attr are both
+    # load-bearing -- see the forecast-types section below.
+    ds.create.coord.forecast_reference_time(data=init_array, step=180)   # axis='T'
+    lead = ds.create.coord.forecast_period(data=np.arange(1, 73, dtype='int32'), step=1)
+    lead.attrs['units'] = 'h'   # REQUIRED -- deliberately not defaulted
+
     # Generic method (full control):
     ds.create.coord.generic(
         name='my_coord',
@@ -520,7 +526,41 @@ with open_dataset('data.cfdb') as ds:
     interp_obj = temp.interp()  # auto-detects x/y from CRS axis metadata
     # For grid: returns GridInterp
     # For ts_ortho: returns PointInterp
+    # For ts_forecast / grid_forecast: raises NotImplementedError -- two non-spatial dims
 ```
+
+### Forecast dataset types — `ts_forecast` / `grid_forecast` (cfdb >= 0.9.6)
+
+A forecast archive is a sequence of *runs*: each is issued at some time and predicts a series of
+future steps. These types replace the single `time` axis with a pair — `forecast_reference_time`
+(init, CF `axis='T'`) and `forecast_period` (lead, **no** axis, since CF defines only X/Y/Z/T and
+cfdb refuses two coordinates sharing an axis).
+
+| type | dimensions |
+|---|---|
+| `ts_forecast` | `(point, forecast_reference_time, forecast_period)` |
+| `grid_forecast` | `(x, y, forecast_reference_time, forecast_period)` |
+
+**Why a lead axis and not valid time:** indexing by valid time leaves the array ~97 % empty (each
+run fills only a short diagonal band); indexing by lead is dense. Valid time is `init + lead` —
+but reading *by* valid time is a diagonal gather across the two axes, which cfdb does not do for you.
+
+**Three traps, all of which fail SILENTLY:**
+
+1. **`forecast_period` is a bare integer — always read its `units` attr.** cfdb has no timedelta
+   dtype, so a lead added to a `datetime64` evaluates in the *datetime's* storage unit. Against
+   the standard `datetime64[m]`, a 96-hour lead adds 96 **minutes**. There is no default unit, on
+   purpose. Bare `'m'` is metres in CF — write `'min'`.
+2. **Declare an EXPLICIT step on `forecast_reference_time`.** It is the only thing that makes
+   recovery of a *missed* run possible: the step auto-fills the skipped slot and a later
+   `merge_into` writes into it. With no step the merge raises `NotImplementedError: In-place
+   coordinate insertions are unsupported`. `step=True` is NOT enough — it infers nothing from the
+   single-value axis the first-ever run creates.
+3. **`.interp()` raises `NotImplementedError`** on both (two non-spatial dims).
+
+`combine`, `merge_into`, `groupby`, `iter_chunks`, `rechunk`, `.loc`, `copy`, the xarray backend
+and `to_netcdf4` all work normally. No `featureType` is written for `ts_forecast` — CF's DSG
+`featureType='timeSeries'` implies one time dimension per station.
 
 ### EDataset (S3-backed remote datasets)
 

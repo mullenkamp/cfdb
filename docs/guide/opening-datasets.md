@@ -57,6 +57,8 @@ The `dataset_type` parameter selects the coordinate structure:
 |------|-------------|
 | `'grid'` | Standard N-dimensional grid (default). Each coordinate is 1-D with a unique axis. |
 | `'ts_ortho'` | Time series with point geometries ([Orthogonal multidimensional array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series)). |
+| `'ts_forecast'` | Forecasts at point geometries: `(point, forecast_reference_time, forecast_period)`. cfdb >= 0.9.6. |
+| `'grid_forecast'` | Gridded forecasts: `(x, y, forecast_reference_time, forecast_period)`. cfdb >= 0.9.6. |
 
 ```python
 ds = cfdb.open_dataset('stations.cfdb', flag='n', dataset_type='ts_ortho')
