@@ -1,0 +1,21 @@
+mslp                                          2.6 MB raw, stored ratio     1.53
+pwat                                          2.6 MB raw, stored ratio     3.03
+vimf_u                                        2.6 MB raw, stored ratio     1.08
+vimf_v                                        2.6 MB raw, stored ratio     1.08
+
+Dataset: /home/mike/git/wrf-repos/wrf-model-eval/data/gabriele_3km/gabriele_3km_era5.cfdb  (stored as zstd-1)
+4 vars, raw 10.2 MB, stored 7.3 MB (ratio 1.41)
+HARD = the 4 vars whose STORED ratio is < 5.0 (a fixed set chosen from the file as stored, so every codec is scored on the same population; ALL is the whole-file number): mslp, pwat, vimf_u, vimf_v
+codec                                ALL ratio   ALL MB vs stored | HARD ratio  comp MB/s  decomp MB/s
+------------------------------------------------------------------------------------------------------
+shuffle+zstd-1                            1.70      6.0      0.83 |       1.70       1155         2816
+shuffle+lz4-1                             1.48      6.9      0.95 |       1.48       1311         3386
+zstd-1                                    1.41      7.3      1.00 |       1.41        770         1921
+lz4-1                                     1.19      8.6      1.18 |       1.19       1346         8380
+
+Per-variable ratio:
+var                                      dtype      stored           zstd-1   shuffle+zstd-1            lz4-1    shuffle+lz4-1
+mslp                                     float32       1.5             1.53             2.51             1.16             1.91
+pwat                                     float32       3.0             3.03             2.50             2.05             1.83
+vimf_u                                   float32       1.1             1.08             1.29             1.00             1.24
+vimf_v                                   float32       1.1             1.08             1.28             1.00             1.22

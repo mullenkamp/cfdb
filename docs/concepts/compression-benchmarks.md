@@ -10,7 +10,7 @@ work; this page shows the evidence behind them.
   zstd on packed grids and station series (0.83× on raw float32), and makes zstd **faster in
   both directions** at the chunk sizes cfdb uses.
 - Plain `lz4` is still the fastest decoder, but its files are **1.2–1.4× larger** than zstd's.
-  `lz4_shuffle` shrinks them to about 0.8× zstd, but decodes more slowly than plain `lz4`.
+  `lz4_shuffle` shrinks them to 0.76–0.95× zstd, but decodes more slowly than plain `lz4`.
 - The compression ratio barely changes from multi-MB chunks down to a few thousand elements, so
   large chunks buy almost no compression. Speed does depend on chunk size, and it peaks near the
   2¹⁸-element default.
@@ -66,7 +66,8 @@ numpy operations per chunk and need no extra dependency.
 The saving carries over to station data: the streamflow series shrinks by the same 28 %, and
 compression is twice as fast. At that dataset's small 25 000-element chunks, decompression is only
 1.1× faster than plain zstd. On raw float32 the saving is smaller (0.83×), because the low bytes of
-full-precision floats are mostly noise. `lz4_shuffle` was not run on the ERA5 dataset.
+full-precision floats are mostly noise. The shuffle helps lz4 least on floats: `lz4_shuffle` is
+0.95× zstd there, against 0.83× on the WRF grid and 0.76× on the stations.
 
 ## Per variable
 
@@ -141,7 +142,6 @@ compress speed and decompress speed at once.
 - The WRF grid dominates the evidence. The ERA5 grid is small (10 MB), and the streamflow set is a
   single variable.
 - `lz4_shuffle` was measured after the benchmark review, so no reviewer has checked those numbers.
-  It has been measured on the WRF grid and the streamflow data only.
 - Bool, datetime and int64 variables round-trip correctly in the tests, but their speed was not
   benchmarked.
 

@@ -267,6 +267,14 @@ z
 " clip-path="url(#p58e7b5307c)" style="fill: #f58518"/>
    </g>
    <g id="patch_8">
+    <path d="M 318.434909 244.078125 
+L 358.013653 244.078125 
+L 358.013653 112.702638 
+L 318.434909 112.702638 
+z
+" clip-path="url(#p58e7b5307c)" style="fill: #e45756"/>
+   </g>
+   <g id="patch_9">
     <path d="M 397.857139 244.078125 
 L 437.435884 244.078125 
 L 437.435884 144.729598 
@@ -274,7 +282,7 @@ L 397.857139 144.729598
 z
 " clip-path="url(#p58e7b5307c)" style="fill: #12a38f"/>
    </g>
-   <g id="patch_9">
+   <g id="patch_10">
     <path d="M 440.877514 244.078125 
 L 480.456259 244.078125 
 L 480.456259 45.527916 
@@ -282,7 +290,7 @@ L 440.877514 45.527916
 z
 " clip-path="url(#p58e7b5307c)" style="fill: #f58518"/>
    </g>
-   <g id="patch_10">
+   <g id="patch_11">
     <path d="M 483.897889 244.078125 
 L 523.476634 244.078125 
 L 523.476634 138.180344 
@@ -295,12 +303,12 @@ z
 L 546.303906 105.478125 
 " clip-path="url(#p58e7b5307c)" style="fill: none; stroke: #222222; stroke-width: 0.9; stroke-linecap: square"/>
    </g>
-   <g id="patch_11">
+   <g id="patch_12">
     <path d="M 44.103906 244.078125 
 L 44.103906 22.318125 
 " style="fill: none; stroke: #666666; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
    </g>
-   <g id="patch_12">
+   <g id="patch_13">
     <path d="M 44.103906 244.078125 
 L 546.303906 244.078125 
 " style="fill: none; stroke: #666666; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
@@ -321,8 +329,7 @@ L 546.303906 244.078125
     <text style="font-size: 8px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #222222" x="295.203906" y="77.729186" transform="rotate(-0 295.203906 77.729186)">1.18</text>
    </g>
    <g id="text_19">
-    <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #666666" transform="translate(332.08307 228.146074)">not</text>
-    <text style="font-size: 7.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #666666" transform="translate(319.488929 237.148125)">measured</text>
+    <text style="font-size: 8px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #222222" x="338.224281" y="109.702638" transform="rotate(-0 338.224281 109.702638)">0.95</text>
    </g>
    <g id="text_20">
     <text style="font-size: 8px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #222222" x="417.646511" y="141.729598" transform="rotate(-0 417.646511 141.729598)">0.72</text>
@@ -340,7 +347,7 @@ L 546.303906 244.078125
     <text style="font-size: 12px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #222222" x="295.203906" y="16.318125" transform="rotate(-0 295.203906 16.318125)">Whole-file size on three datasets, relative to zstd</text>
    </g>
    <g id="legend_1">
-    <g id="patch_13">
+    <g id="patch_14">
      <path d="M 51.753906 36.426797 
 L 68.753906 36.426797 
 L 68.753906 30.476797 
@@ -351,7 +358,7 @@ z
     <g id="text_25">
      <text style="font-size: 8.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #222222" x="75.553906" y="36.426797" transform="rotate(-0 75.553906 36.426797)">zstd_shuffle (default)</text>
     </g>
-    <g id="patch_14">
+    <g id="patch_15">
      <path d="M 182.313906 36.426797 
 L 199.313906 36.426797 
 L 199.313906 30.476797 
@@ -362,7 +369,7 @@ z
     <g id="text_26">
      <text style="font-size: 8.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #222222" x="206.113906" y="36.426797" transform="rotate(-0 206.113906 36.426797)">lz4</text>
     </g>
-    <g id="patch_15">
+    <g id="patch_16">
      <path d="M 235.344609 36.426797 
 L 252.344609 36.426797 
 L 252.344609 30.476797 

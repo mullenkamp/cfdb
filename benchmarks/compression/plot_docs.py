@@ -178,7 +178,7 @@ def datasets(out, theme):
     """Size relative to zstd for the three other cfdb options, on the three datasets."""
     t = style(theme)
     sets = (('WRF grid\n33 vars, packed ints\n4.3 MB chunks', [D01 / 'codec_bench_lz4.json']),
-            ('ERA5 3 km grid\n4 vars, raw float32\n2.5 MB chunks', [ERA5 / 'codec_bench.json']),
+            ('ERA5 3 km grid\n4 vars, raw float32\n2.5 MB chunks', [ERA5 / 'codec_bench_lz4.json']),
             ('hourly streamflow\n141 stations, packed uint32\n100 KB chunks', [STATIONS / 'codec_bench.json']))
     options = ['shuffle+zstd-1', 'lz4-1', 'shuffle+lz4-1']
     fig, ax = plt.subplots(figsize=(9, 4))
