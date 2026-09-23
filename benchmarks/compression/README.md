@@ -218,12 +218,15 @@ use `codec_bench` for sizes and the sweep for the shape of the curve.
 
 **Caveats.** Not measured: bool/datetime/int64 variables (the filters round-trip them; speed
 unmeasured). `shuffle+lz4-1` was measured after review round `cfdb-compression-1` and has not been
-reviewed.
+reviewed. On the raw-float32 ERA5 set (`2026-09-22_gabriele_3km_era5/codec_bench_lz4.txt`, run
+2026-09-24) it gains least: 0.95x zstd-1 (6.9 vs 7.3 MB; d01 0.83x, streamflow 0.76x), compress
+1311 vs 770 MB/s, decompress 3.4 vs 1.9 GB/s (plain lz4-1 8.4 GB/s, shuffle+zstd-1 2.8 GB/s at 0.83x).
+Four whole-array chunks, so the speeds are thin evidence.
 
 ## Results layout
 
 - `results/review-cfdb-compression-1.md` — the review round: 17 findings with verdicts, the exploration results, before/after of the tools.
-- `results/<date>_<dataset>/codec_bench.{txt,json}`, `chunk_size_sweep.{txt,json}` — output of the two tools (regenerated with the reviewed tools; `blosc1` included). `*_lz4.{txt,json}` (d01): lz4-1 and shuffle+lz4-1 against the zstd pair; `chunk_size_sweep_all.{txt,json}` (d01): all five pipelines in one run, the source of Tables 3–5. `2026-09-23_ecan_streamflow/`: the ts_ortho run in finding 7.
+- `results/<date>_<dataset>/codec_bench.{txt,json}`, `chunk_size_sweep.{txt,json}` — output of the two tools (regenerated with the reviewed tools; `blosc1` included). `*_lz4.{txt,json}` (d01 and ERA5): lz4-1 and shuffle+lz4-1 against the zstd pair; `chunk_size_sweep_all.{txt,json}` (d01): all five pipelines in one run, the source of Tables 3–5. `2026-09-23_ecan_streamflow/`: the ts_ortho run in finding 7.
 - `results/2026-09-22_wrf_v50_12km_d01/exploration/` — the original scratchpad round (30+ codecs
   including blosc2/pcodec/zfp/fpzip/bitshuffle, delta-axis experiments, float32-direct test,
   per-variable size sweep); `REPORT.md` there is the narrative (superseded by the Findings above
