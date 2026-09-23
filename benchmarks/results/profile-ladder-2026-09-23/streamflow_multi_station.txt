@@ -1,0 +1,61 @@
+  (43, 24576)                 8 chunks  read    3430.7 us/chunk  write    7858.5 us/chunk
+  (43, 12288)                15 chunks  read    1213.3 us/chunk  write    3470.2 us/chunk
+  (43, 6144)                 30 chunks  read     607.3 us/chunk  write    1862.4 us/chunk
+  (43, 3072)                 60 chunks  read     314.8 us/chunk  write     889.4 us/chunk
+  (43, 1536)                120 chunks  read     167.7 us/chunk  write     496.3 us/chunk
+  (43, 768)                 239 chunks  read      87.0 us/chunk  write     295.0 us/chunk
+  (43, 384)                 478 chunks  read      47.5 us/chunk  write     152.0 us/chunk
+  (43, 192)                 955 chunks  read      29.0 us/chunk  write      87.1 us/chunk
+  (43, 96)                 1909 chunks  read      19.3 us/chunk  write      54.0 us/chunk
+  (43, 48)                 3818 chunks  read      14.3 us/chunk  write      29.6 us/chunk
+  (43, 24)                 7635 chunks  read      11.4 us/chunk  write      21.5 us/chunk
+
+cfdb per-chunk profile — streamflow (43, 183227) float32 (stored as uint32), zstd-1, warm page cache, min of 3
+source: /tmp/claude-1000/-home-mike-git-cfdb-repos-cfdb/70ccb4ba-b8ea-45c1-b2d0-d12f421c0efa/scratchpad/remote/flow_full.cfdb
+
+READ (iter_chunks) — microseconds per chunk (! = component split unreliable at >= 1000000 elements)
+ elements  chunks         keys         get  decompress  from_bytes      decode         sum        full       resid      resid%
+ 1056768!       8         3.81       84.70     1603.39      162.46      679.33     2533.68     3430.71      897.03         26%
+  528384       15         3.50       31.87      853.45       68.06      304.37     1261.26     1213.33      -47.93         -4%
+  264192       30         2.38       15.03      428.50       30.11      146.99      623.02      607.32      -15.69         -3%
+  132096       60         2.26        8.38      220.33       13.95       80.19      325.11      314.81      -10.29         -3%
+   66048      120         1.98        5.29      109.42        8.65       47.19      172.52      167.70       -4.82         -3%
+   33024      239         1.86        3.43       58.03        5.04       23.64       91.99       87.03       -4.96         -6%
+   16512      478         1.80        2.49       29.45        2.71       12.97       49.42       47.49       -1.93         -4%
+    8256      955         1.79        2.07       16.59        1.50        7.85       29.81       29.03       -0.78         -3%
+    4128     1909         1.89        1.87       10.11        1.06        5.22       20.14       19.31       -0.83         -4%
+    2064     3818         1.77        1.72        6.42        0.85        4.08       14.84       14.31       -0.54         -4%
+    1032     7635         1.79        1.53        3.86        0.63        3.26       11.07       11.38        0.30          3%
+
+WRITE (one set() per source block) — microseconds per chunk (! = component split unreliable at >= 1000000 elements)
+ elements  chunks         keys get_missing      encode    assemble    to_bytes    compress         set         sum        full       resid      resid%   per_chunk         rmw
+ 1056768!       8         4.93        2.48     1673.76      204.02      160.06     4335.97      587.41     6968.64     7858.50      889.85         11%     6385.75     9659.83
+  528384       15         3.21        2.15      570.81       98.33       65.62     2275.88      344.40     3360.41     3470.21      109.80          3%     3332.81     4472.16
+  264192       30         2.58        2.12      445.58       57.44       28.41     1161.32      187.76     1885.21     1862.42      -22.79         -1%     1775.33     2180.81
+  132096       60         2.12        2.17      143.94       38.69       12.50      599.61      102.48      901.51      889.43      -12.09         -1%      912.72     1168.45
+   66048      120         2.63        2.03       79.32       22.43        8.30      327.53       53.75      495.99      496.34        0.35          0%      526.89      614.05
+   33024      239         1.94        2.14       35.03       11.98        5.27      209.29       29.97      295.62      295.03       -0.59         -0%      324.86      366.82
+   16512      478         1.85        2.03       17.22        6.19        2.56      102.43       17.23      149.51      152.03        2.51          2%      187.49      193.01
+    8256      955         1.98        2.02        9.99        4.04        1.41       58.63       11.01       89.07       87.11       -1.97         -2%      123.43      113.54
+    4128     1909         1.85        2.04        4.52        2.50        0.76       32.30        7.88       51.85       54.03        2.18          4%       85.76       69.62
+    2064     3818         1.81        2.01        2.23        1.77        0.40       14.52        6.24       28.98       29.57        0.59          2%       63.55       41.64
+    1032     7635         1.85        2.02        1.18        1.39        0.18        9.26        5.35       21.23       21.46        0.23          1%       54.30       30.97
+  per_chunk = the same data written with one set() per target chunk; rmw = block write over existing chunks
+
+Full pipelines, ns per element — per REAL element (the variable's) / per STORED element (incl. edge padding)
+ elements stored/real            read     write (block)   write (per chunk)     write (rmw)
+  1056768       1.073      3.48 /  3.25     7.98 /  7.44     6.48 /  6.04     9.81 /  9.14
+   528384       1.006      2.31 /  2.30     6.61 /  6.57     6.35 /  6.31     8.51 /  8.46
+   264192       1.006      2.31 /  2.30     7.09 /  7.05     6.76 /  6.72     8.30 /  8.25
+   132096       1.006      2.40 /  2.38     6.77 /  6.73     6.95 /  6.91     8.90 /  8.85
+    66048       1.006      2.55 /  2.54     7.56 /  7.51     8.02 /  7.98     9.35 /  9.30
+    33024       1.002      2.64 /  2.64     8.95 /  8.93     9.85 /  9.84    11.13 / 11.11
+    16512       1.002      2.88 /  2.88     9.22 /  9.21    11.37 / 11.35    11.71 / 11.69
+     8256       1.001      3.52 /  3.52    10.56 / 10.55    14.96 / 14.95    13.76 / 13.75
+     4128       1.000      4.68 /  4.68    13.09 / 13.09    20.78 / 20.78    16.87 / 16.87
+     2064       1.000      6.93 /  6.93    14.33 / 14.32    30.79 / 30.79    20.18 / 20.17
+     1032       1.000     11.02 / 11.02    20.80 / 20.80    52.62 / 52.62    30.01 / 30.01
+
+Per FILE after a fresh block write: 1056768: Booklet sync 1.4 ms + close 13.9 ms, 528384: Booklet sync 0.4 ms + close 12.9 ms, 264192: Booklet sync 0.2 ms + close 15.0 ms, 132096: Booklet sync 0.2 ms + close 1.7 ms, 66048: Booklet sync 0.2 ms + close 18.9 ms, 33024: Booklet sync 0.1 ms + close 16.2 ms, 16512: Booklet sync 0.2 ms + close 14.6 ms, 8256: Booklet sync 0.3 ms + close 15.1 ms, 4128: Booklet sync 0.6 ms + close 14.2 ms, 2064: Booklet sync 1.2 ms + close 13.1 ms, 1032: Booklet sync 2.9 ms + close 25.9 ms
+Residual (full - sum) is a coarse check: mutation tests in review round cfdb-profile-1 put its detection floor at
+~5-10 us/chunk, and it cannot see errors that cancel. A positive residual is uncovered work (the Python loop).

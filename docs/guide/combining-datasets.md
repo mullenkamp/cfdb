@@ -106,7 +106,7 @@ cfdb.combine(datasets, 'out.cfdb', overlap='error')
 ## Requirements
 
 For both functions, all input datasets must:
-- Have the **same `dataset_type`** (e.g., all `grid` or all `ts_ortho`)
+- Have the **same `dataset_type`** (e.g., all `grid`, or all `ts_ortho`, or all `ts_forecast`)
 - Have **compatible coordinate dtypes** for any shared coordinate names
 - Have **compatible data variable dtypes and dimensions** for any shared variable names
 - Have **matching CRS** if any datasets define one

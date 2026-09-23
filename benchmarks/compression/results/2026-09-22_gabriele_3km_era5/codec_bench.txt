@@ -1,0 +1,24 @@
+mslp                                          2.6 MB raw, stored ratio     1.53
+pwat                                          2.6 MB raw, stored ratio     3.03
+vimf_u                                        2.6 MB raw, stored ratio     1.08
+vimf_v                                        2.6 MB raw, stored ratio     1.08
+
+Dataset: /home/mike/git/wrf-repos/wrf-model-eval/data/gabriele_3km/gabriele_3km_era5.cfdb  (stored as zstd-1)
+4 vars, raw 10.2 MB, stored 7.3 MB (ratio 1.41)
+HARD = the 4 vars whose STORED ratio is < 5.0 (a fixed set chosen from the file as stored, so every codec is scored on the same population; ALL is the whole-file number): mslp, pwat, vimf_u, vimf_v
+codec                                ALL ratio   ALL MB vs stored | HARD ratio  comp MB/s  decomp MB/s
+------------------------------------------------------------------------------------------------------
+shuffle+ydelta+zstd-1                     1.85      5.5      0.76 |       1.85        897         1359
+shuffle+zstd-3                            1.74      5.9      0.81 |       1.74        545         2227
+shuffle+zstd-1                            1.70      6.0      0.83 |       1.70       1096         2806
+blosc1 shuffle zstd-1                     1.60      6.4      0.88 |       1.60        870         2771
+zstd-3                                    1.48      6.9      0.95 |       1.48        502         1749
+zstd-1                                    1.41      7.3      1.00 |       1.41        779         1944
+lz4-1                                     1.19      8.6      1.18 |       1.19       1331         8364
+
+Per-variable ratio:
+var                                      dtype      stored           zstd-1           zstd-3            lz4-1   shuffle+zstd-1   shuffle+zstd-3 shuffle+ydelta+z blosc1 shuffle z
+mslp                                     float32       1.5             1.53             1.78             1.16             2.51             2.75             3.19             2.27
+pwat                                     float32       3.0             3.03             3.57             2.05             2.50             2.65             2.91             2.13
+vimf_u                                   float32       1.1             1.08             1.08             1.00             1.29             1.30             1.33             1.27
+vimf_v                                   float32       1.1             1.08             1.08             1.00             1.28             1.28             1.33             1.25

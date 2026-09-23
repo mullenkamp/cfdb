@@ -540,30 +540,105 @@ class Attributes:
         return self._data.__repr__()
 
 
+SHUFFLE_KINDS = ('b', 'i', 'u', 'f', 'M')
+SHUFFLE_ITEMSIZES = (2, 4, 8)
+
+
+def shuffle_itemsize(dtype):
+    """
+    Item size, in bytes, of the values a variable's compressor actually sees: the ENCODED width
+    for packed dtypes (a packed float64 is stored as e.g. uint16, so 2), the decoded width
+    otherwise. None for variable-length dtypes (String, Geometry), which are serialised with
+    msgpack and never shuffled.
+
+    Gate on kind first: String and Geometry carry numpy placeholder dtypes whose .itemsize (16)
+    looks plausible but is meaningless here. Never use ``dtype.itemsize``, which is the DECODED
+    width and is mutated by ``infer_itemsize``.
+    """
+    if dtype.kind not in SHUFFLE_KINDS:
+        return None
+    enc = dtype.dtype_encoded if dtype.dtype_encoded is not None else dtype.dtype_decoded
+    return np.dtype(enc).itemsize
+
+
+def shuffle_bytes(data: bytes, itemsize: int) -> bytes:
+    """
+    Split ``data`` (a run of ``itemsize``-byte values) into byte planes: all values' byte 0, then
+    all values' byte 1, ... Bytes are numbered in little-endian order, which on any host is the
+    order they sit in memory, so the layout is the same whatever machine wrote it.
+    Bit-op formulation (``(u >> 8*i).astype('u1')`` truncates to the byte), measured faster to
+    undo than a transpose — benchmarks/compression/README.md.
+    """
+    if len(data) % itemsize:
+        raise ValueError(f'{len(data)} bytes cannot be split into {itemsize}-byte values.')
+    u = np.frombuffer(data, dtype=f'<u{itemsize}')
+    return b''.join([u.astype('u1').tobytes()] + [(u >> (8 * i)).astype('u1').tobytes() for i in range(1, itemsize)])
+
+
+def unshuffle_bytes(data: bytes, itemsize: int) -> bytes:
+    """Inverse of ``shuffle_bytes``."""
+    if len(data) % itemsize:
+        raise ValueError(f'{len(data)} bytes cannot be joined into {itemsize}-byte values.')
+    m = len(data) // itemsize
+    planes = [np.frombuffer(data, dtype='u1', count=m, offset=i * m) for i in range(itemsize)]
+    u = planes[-1].astype(f'u{itemsize}')
+    for i in range(itemsize - 2, -1, -1):
+        u <<= 8
+        u |= planes[i]
+    return u.astype(f'<u{itemsize}', copy=False).tobytes()
+
+
 class Compressor:
     """
+    Compresses and decompresses one variable's chunk bytes.
 
+    ``compression`` is one of utils.compression_options. The ``*_shuffle`` values split the bytes
+    into byte planes (``shuffle_bytes``) before the codec and rejoin them after, for values of
+    ``itemsize`` bytes; any itemsize other than 2, 4 or 8 makes them identical to the plain codec. The
+    item size is bound per variable (``shuffle_itemsize``), because the dataset-level setting
+    alone does not know the width of the values.
     """
-    def __init__(self, compression, compression_level):
+    def __init__(self, compression, compression_level, itemsize=None):
         """
 
         """
         self.compression = compression
         self.compression_level = compression_level
+        self.itemsize = itemsize
 
-        if compression == 'lz4':
-            self.compress = self._lz4_compress
-            self.decompress = self._lz4_decompress
-        elif compression == 'zstd':
+        codec, _, filt = compression.partition('_')
+        if filt not in ('', 'shuffle'):
+            raise ValueError(f'Unknown compression {compression!r}.')
+        # numpy has unsigned ints of 2, 4 and 8 bytes only: 1-byte and wider values (e.g. 16-byte
+        # float128) are stored unshuffled
+        self._shuffle_n = itemsize if (filt == 'shuffle' and itemsize in SHUFFLE_ITEMSIZES) else None
+
+        if codec == 'lz4':
+            self._codec_compress = self._lz4_compress
+            self._codec_decompress = self._lz4_decompress
+        elif codec == 'zstd':
             self._cctx = zstd.ZstdCompressor(level=self.compression_level)
             self._dctx = zstd.ZstdDecompressor()
-            self.compress = self._zstd_compress
-            self.decompress = self._zstd_decompress
+            self._codec_compress = self._zstd_compress
+            self._codec_decompress = self._zstd_decompress
         else:
-            raise ValueError('compression must be either lz4 or zstd')
+            raise ValueError(f'Unknown compression {compression!r}.')
+
+        if self._shuffle_n is None:
+            self.compress = self._codec_compress
+            self.decompress = self._codec_decompress
+        else:
+            self.compress = self._shuffle_compress
+            self.decompress = self._shuffle_decompress
 
     def __reduce__(self):
-        return (Compressor, (self.compression, self.compression_level))
+        return (Compressor, (self.compression, self.compression_level, self.itemsize))
+
+    def _shuffle_compress(self, data: bytes):
+        return self._codec_compress(shuffle_bytes(data, self._shuffle_n))
+
+    def _shuffle_decompress(self, data: bytes):
+        return unshuffle_bytes(self._codec_decompress(data), self._shuffle_n)
 
     def _lz4_compress(self, data: bytes):
         """
@@ -641,8 +716,9 @@ class Variable:
         self._sel = sel
 
         # self._encoder = Encoding(self.chunk_shape, self.dtype_decoded, self.dtype_encoded, self.fillvalue, self.scale_factor, self.add_offset, dataset._compressor)
-        self.compressor = dataset._compressor
         self.dtype = dtypes.dtype(**msgspec.to_builtins(self._var_meta.dtype))
+        # bound to this variable's value width: the shuffle filters need it (see shuffle_itemsize)
+        self.compressor = dataset._compressor_for(shuffle_itemsize(self.dtype))
         self.writable = dataset.writable
 
         ## Assign all the encodings - should I do this?
@@ -1793,10 +1869,24 @@ class DataVariableView(Variable):
         """
         dataset_type = self._dataset.dataset_type
 
+        ## Explicit dispatch, not a catch-all else. The forecast types have TWO non-spatial
+        ## dimensions, which breaks GridInterp's single-iter-dim assumption -- and it breaks
+        ## it silently: _compute_spatial_transpose builds a transpose of the wrong length
+        ## rather than raising, and the failure escapes later, mid-iteration, because the
+        ## generator is lazy. Raising here is the honest behaviour until forecast interp is
+        ## actually implemented.
         if dataset_type == 'ts_ortho':
             return interp.PointInterp(self, xy=xy, z=z, iter_dim=iter_dim)
-        else:
+        elif dataset_type == 'grid':
             return interp.GridInterp(self, x=x, y=y, z=z, iter_dim=iter_dim)
+        elif dataset_type in ('ts_forecast', 'grid_forecast'):
+            raise NotImplementedError(
+                f'interp is not implemented for the {dataset_type!r} dataset type. Its '
+                f'(forecast_reference_time, forecast_period) axes give it two non-spatial '
+                f'dimensions, which the current interpolators do not handle.'
+            )
+        else:
+            raise TypeError(f'Unknown dataset_type {dataset_type!r}.')
 
     def __repr__(self):
         """

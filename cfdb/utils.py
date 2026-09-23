@@ -25,7 +25,19 @@ from . import data_models, dtypes
 
 # CHUNK_BASE = 32*1024    # Multiplier by which chunks are adjusted
 # CHUNK_MIN = 32*1024      # Soft lower limit (32k)
-chunk_max = 2**21   # Hard upper limit (2M)
+# Default chunk sizes when chunk_shape is not given (both go through rechunkit.guess_chunk_shape,
+# which targets BYTES and may exceed the target by up to 1.5x):
+# - coordinates: 2 MiB. They are read whole and held in memory, so fewer, larger chunks suit them.
+# - data variables: 2**18 ELEMENTS, i.e. a byte target of 2**18 x the stored item size (512 KiB for
+#   packed uint16, 1 MiB for 4-byte, 2 MiB for 8-byte). Per-chunk read cost, rechunking under
+#   memory pressure and subset read amplification are all best around 1e5-5e5 elements whatever
+#   the item size; a single byte target gave 8-byte types ~30 K elements. Evidence:
+#   benchmarks/RESULTS.md ("Per-chunk costs vs chunk size", "Rechunking vs chunk size").
+# - variable-length data variables (str, geometry) keep the 2 MiB byte target: their item size is
+#   only an estimate and the element evidence covers fixed-width numeric types only.
+coord_chunk_max = 2**21
+data_var_chunk_elements = 2**18
+var_length_chunk_max = 2**21
 
 time_str_conversion = {'days': 'datetime64[D]',
                        'hours': 'datetime64[h]',
@@ -65,8 +77,12 @@ time_units_dict = {
     'ns': 'nanoseconds',
     }
 
-compression_options = ('zstd', 'lz4')
-default_compression_levels = {'zstd': 1, 'lz4': 1}
+compression_options = ('zstd', 'lz4', 'zstd_shuffle', 'lz4_shuffle')
+default_compression = 'zstd_shuffle'   # evidence: benchmarks/compression/README.md
+default_compression_levels = {'zstd': 1, 'lz4': 1, 'zstd_shuffle': 1, 'lz4_shuffle': 1}
+# On-disk format version written by this cfdb. Files without the field predate it (0); a file
+# with a higher version was written by a newer cfdb and is refused with an upgrade message.
+format_version = 1
 default_n_buckets = 144013
 
 
@@ -442,10 +458,19 @@ def _generate_step_fill(start_val, end_val, step, dtype):
     elif dtype.kind == 'M':
         unit = np.datetime_data(dtype.dtype_decoded)[0]
         dt_step = np.timedelta64(step, unit)
-        gap = int((end_val - start_val) / dt_step)
-        if not np.isclose(gap, round(gap)):
+        # Use MODULO, like the integer branch above, and check BEFORE narrowing to an int.
+        # datetime64 differences are integral in the coordinate's own unit, so this is exact.
+        #
+        # This previously read `gap = int((end_val - start_val) / dt_step)` followed by
+        # `np.isclose(gap, round(gap))` -- which compares an already-truncated integer to its own
+        # rounding and is therefore true for EVERY input. The check was vacuous, and the failure it
+        # was meant to catch is silent: an off-grid value was appended onto an axis that went on
+        # reporting its declared step, so an axis could hold 7h and 1h gaps while declaring 6h.
+        # Callers guarantee start_val < end_val (see append_new_data / prepend_new_data).
+        if (end_val - start_val) % dt_step != np.timedelta64(0, unit):
             raise ValueError('The gap between existing and new data is not a multiple of the step.')
-        if round(gap) <= 1:
+        gap = int((end_val - start_val) / dt_step)
+        if gap <= 1:
             return np.array([], dtype=dtype.dtype_decoded)
         return np.arange(start_val + dt_step, end_val, dt_step)
     else:
@@ -601,9 +626,12 @@ def parse_coord_inputs(dataset_type: str, name: str, data: np.ndarray | None = N
         raise TypeError('dtype must not be None.')
 
     ## Check that the dtype is valid for the dataset type?
-    if dataset_type == 'grid':
+    ## Both grid types, NOT just 'grid' -- exact equality here would have let grid_forecast
+    ## take a Geometry coordinate. The 'ts_' substring below is deliberate and already covers
+    ## ts_forecast (see the note in creation.py where the string form is passed in).
+    if dataset_type in ('grid', 'grid_forecast'):
         if dtype.kind == 'G':
-            raise TypeError('The grid dataset type cannot use a Geometry dtype for a coordinate.')
+            raise TypeError('The grid dataset types cannot use a Geometry dtype for a coordinate.')
     elif 'ts_' in dataset_type:
         if name in ('lat', 'latitude', 'lon', 'longitude', 'x', 'y') or axis in ('x', 'y'):
             raise TypeError('time series dataset types cannot have independent lat/y and lon/x coordinates. They must have a Geometry dtype to represent the x and y axis.')
@@ -645,7 +673,7 @@ def parse_coord_inputs(dataset_type: str, name: str, data: np.ndarray | None = N
         else:
             itemsize = dtype.dtype_encoded.itemsize
 
-        chunk_shape = rechunkit.guess_chunk_shape((1000000,), itemsize, chunk_max)
+        chunk_shape = rechunkit.guess_chunk_shape((1000000,), itemsize, coord_chunk_max)
     else:
         raise TypeError('chunk_shape must be either a tuple of ints or None.')
 
@@ -717,7 +745,11 @@ def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str
                     itemsize = 60
         else:
             itemsize = dtype.dtype_encoded.itemsize
-        chunk_shape = rechunkit.guess_chunk_shape(shape, itemsize, chunk_max)
+        if dtype.kind in ('b', 'i', 'u', 'f', 'M'):
+            target = data_var_chunk_elements * itemsize
+        else:
+            target = var_length_chunk_max
+        chunk_shape = rechunkit.guess_chunk_shape(shape, itemsize, target)
     else:
         raise TypeError('chunk_shape must be either a tuple of ints or None.')
 

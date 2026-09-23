@@ -1,0 +1,36 @@
+streamflow                               9 block shapes: (1, 25000) -> (1, 97)
+
+=== zstd-1: per-variable ratio vs block size (elements per block; "-" = no rung within 1.5x) ===
+var                                      dtype        25000     12500      6250      3125      1562       781       390       195        97
+streamflow                               uint32         2.8       2.8       2.8       2.8       2.7       2.7       2.6       2.4       2.2
+WHOLE FILE projected ratio                             2.79      2.79      2.78      2.77      2.74      2.68      2.60      2.42      2.18
+WHOLE FILE projected MB                                37.0      37.1      37.2      37.2      37.7      38.5      39.8      42.7      47.4
+
+=== shuffle+zstd-1: per-variable ratio vs block size (elements per block; "-" = no rung within 1.5x) ===
+var                                      dtype        25000     12500      6250      3125      1562       781       390       195        97
+streamflow                               uint32         3.9       3.9       3.8       3.8       3.8       3.7       3.6       3.5       3.2
+WHOLE FILE projected ratio                             3.91      3.88      3.85      3.85      3.79      3.73      3.62      3.45      3.18
+WHOLE FILE projected MB                                26.4      26.6      26.9      26.9      27.2      27.7      28.6      29.9      32.5
+
+=== lz4-1: per-variable ratio vs block size (elements per block; "-" = no rung within 1.5x) ===
+var                                      dtype        25000     12500      6250      3125      1562       781       390       195        97
+streamflow                               uint32         2.0       2.0       1.9       1.9       1.9       1.8       1.8       1.7       1.6
+WHOLE FILE projected ratio                             1.99      1.98      1.95      1.91      1.88      1.83      1.79      1.71      1.60
+WHOLE FILE projected MB                                51.9      52.1      53.0      54.0      55.1      56.3      57.9      60.3      64.6
+
+=== shuffle+lz4-1: per-variable ratio vs block size (elements per block; "-" = no rung within 1.5x) ===
+var                                      dtype        25000     12500      6250      3125      1562       781       390       195        97
+streamflow                               uint32         3.7       3.7       3.6       3.6       3.6       3.5       3.3       3.1       2.7
+WHOLE FILE projected ratio                             3.72      3.69      3.65      3.61      3.55      3.47      3.33      3.08      2.70
+WHOLE FILE projected MB                                27.8      28.0      28.3      28.6      29.1      29.8      31.1      33.5      38.3
+
+Throughput MB/s (pooled over vars, nearest rung) by block size:
+                                                      25000     12500      6250      3125      1562       781       390       195        97
+zstd-1 compress                                         775       715       651       662       580       458       314       212       132
+zstd-1 decompress                                      2345      2104      1787      1380      1006       659       395       232       123
+shuffle+zstd-1 compress                                1369      1221      1031       826       553       366       220       129        70
+shuffle+zstd-1 decompress                              2658      2204      1673      1083       654       376       209       113        57
+lz4-1 compress                                         1601      1474      1547      1564      1491      1285       985       723       452
+lz4-1 decompress                                       3072      4600      3864      2912      1869      1078       581       313       160
+shuffle+lz4-1 compress                                 2386      2097      1752      1318       885       569       332       187        97
+shuffle+lz4-1 decompress                               2087      2512      1881      1213       708       386       209       113        57

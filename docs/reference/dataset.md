@@ -17,10 +17,10 @@ with cfdb.open_dataset('data.cfdb', flag='r') as ds:
 | Property | Type | Description |
 |----------|------|-------------|
 | `file_path` | pathlib.Path | Path to the cfdb file |
-| `dataset_type` | str | The dataset type (`'grid'` or `'ts_ortho'`) |
+| `dataset_type` | str | The dataset type (`'grid'`, `'ts_ortho'`, `'ts_forecast'` or `'grid_forecast'`) |
 | `writable` | bool | Whether the dataset is open for writing |
 | `is_open` | bool | Whether the dataset is currently open |
-| `compression` | str | Compression algorithm (`'zstd'` or `'lz4'`) |
+| `compression` | str | Chunk compression recorded in the file: `'zstd_shuffle'` (default for new datasets), `'zstd'`, `'lz4_shuffle'` or `'lz4'` |
 | `compression_level` | int | Compression level |
 | `crs` | pyproj.CRS or None | Coordinate reference system |
 | `attrs` | Attributes | Dataset-level attributes |

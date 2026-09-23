@@ -1,0 +1,8 @@
+zstd-1 (current)                             HARD ratio= 1.53 size= 550.1 MB comp=  699 MB/s decomp= 1792 MB/s | ALL file= 556.3 MB
+numpy transpose-shuffle + zstd-1 (prev)      HARD ratio= 2.13 size= 396.0 MB comp= 1157 MB/s decomp=  829 MB/s | ALL file= 400.6 MB
+numpy bitop-shuffle + zstd-1                 HARD ratio= 2.13 size= 396.0 MB comp= 1226 MB/s decomp= 2888 MB/s | ALL file= 400.6 MB
+numpy bitop-shuffle + bytedelta + zstd-1     HARD ratio= 2.47 size= 342.2 MB comp=  648 MB/s decomp=  536 MB/s | ALL file= 346.4 MB
+numpy bitop-shuffle + bytedelta + zstd-3     HARD ratio= 2.47 size= 341.9 MB comp=  591 MB/s decomp=  527 MB/s | ALL file= 346.1 MB
+blosc1 zstd-1 shuffle (zero-dep pkg)         HARD ratio= 2.08 size= 406.8 MB comp=  991 MB/s decomp= 3348 MB/s | ALL file= 427.0 MB
+blosc2 zstd-1 shuffle                        HARD ratio= 2.14 size= 394.9 MB comp= 1292 MB/s decomp= 3372 MB/s | ALL file= 414.7 MB
+blosc2 zstd-1 shuffle+bytedelta              HARD ratio= 2.47 size= 342.1 MB comp= 1025 MB/s decomp= 2006 MB/s | ALL file= 358.4 MB

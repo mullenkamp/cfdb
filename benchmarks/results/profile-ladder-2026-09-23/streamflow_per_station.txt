@@ -1,0 +1,37 @@
+  (1, 24576)                344 chunks  read      63.0 us/chunk  write     201.1 us/chunk
+  (1, 12288)                645 chunks  read      36.7 us/chunk  write     116.4 us/chunk
+  (1, 6144)                1290 chunks  read      22.8 us/chunk  write      66.9 us/chunk
+  (1, 3072)                2580 chunks  read      15.7 us/chunk  write      36.8 us/chunk
+  (1, 1536)                5160 chunks  read      11.9 us/chunk  write      25.3 us/chunk
+
+cfdb per-chunk profile — streamflow (43, 183227) float32 (stored as uint32), zstd-1, warm page cache, min of 3
+source: /tmp/claude-1000/-home-mike-git-cfdb-repos-cfdb/70ccb4ba-b8ea-45c1-b2d0-d12f421c0efa/scratchpad/remote/flow_full.cfdb
+
+READ (iter_chunks) — microseconds per chunk (! = component split unreliable at >= 1000000 elements)
+ elements  chunks         keys         get  decompress  from_bytes      decode         sum        full       resid      resid%
+   24576      344         1.81        2.68       39.91        3.68       17.63       65.72       63.02       -2.70         -4%
+   12288      645         1.76        2.16       22.42        2.17        9.79       38.29       36.67       -1.62         -4%
+    6144     1290         1.78        1.84       12.45        1.36        6.13       23.57       22.79       -0.78         -3%
+    3072     2580         1.78        1.68        7.35        0.97        4.10       15.88       15.67       -0.22         -1%
+    1536     5160         1.82        1.57        4.48        0.78        3.35       12.01       11.94       -0.07         -1%
+
+WRITE (one set() per source block) — microseconds per chunk (! = component split unreliable at >= 1000000 elements)
+ elements  chunks         keys get_missing      encode    assemble    to_bytes    compress         set         sum        full       resid      resid%   per_chunk         rmw
+   24576      344         2.38        2.04       25.67        4.71        3.19      126.52       27.39      191.90      201.08        9.18          5%      234.84      265.25
+   12288      645         2.12        2.07       13.79        3.00        1.73       73.20       10.57      106.46      116.41        9.95          9%      143.54      146.55
+    6144     1290         1.97        1.97        6.84        1.86        1.00       40.61        7.11       61.36       66.89        5.53          8%       95.42       86.19
+    3072     2580         2.17        2.01        3.42        1.12        0.59       18.98        5.51       33.79       36.81        3.02          8%       66.76       49.92
+    1536     5160         1.93        2.01        1.75        0.86        0.31       10.74        5.89       23.48       25.29        1.81          7%       55.67       33.72
+  per_chunk = the same data written with one set() per target chunk; rmw = block write over existing chunks
+
+Full pipelines, ns per element — per REAL element (the variable's) / per STORED element (incl. edge padding)
+ elements stored/real            read     write (block)   write (per chunk)     write (rmw)
+    24576       1.073      2.75 /  2.56     8.78 /  8.18    10.25 /  9.56    11.58 / 10.79
+    12288       1.006      3.00 /  2.98     9.53 /  9.47    11.75 / 11.68    12.00 / 11.93
+     6144       1.006      3.73 /  3.71    10.95 / 10.89    15.62 / 15.53    14.11 / 14.03
+     3072       1.006      5.13 /  5.10    12.05 / 11.98    21.86 / 21.73    16.35 / 16.25
+     1536       1.006      7.82 /  7.77    16.57 / 16.47    36.46 / 36.24    22.09 / 21.96
+
+Per FILE after a fresh block write: 24576: Booklet sync 2.0 ms + close 16.7 ms, 12288: Booklet sync 2.1 ms + close 23.1 ms, 6144: Booklet sync 2.8 ms + close 13.2 ms, 3072: Booklet sync 3.9 ms + close 13.6 ms, 1536: Booklet sync 0.1 ms + close 13.2 ms
+Residual (full - sum) is a coarse check: mutation tests in review round cfdb-profile-1 put its detection floor at
+~5-10 us/chunk, and it cannot see errors that cancel. A positive residual is uncovered work (the Python loop).

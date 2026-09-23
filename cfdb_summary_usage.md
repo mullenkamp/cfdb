@@ -48,7 +48,8 @@ ds = open_dataset('data.cfdb', flag='c')
 ds = open_dataset('data.cfdb', flag='n', compression='zstd', compression_level=1)
 ds = open_dataset('data.cfdb', flag='n', compression='lz4')
 
-# Dataset types: 'grid' (default) or 'ts_ortho' (time series with point geometries)
+# Dataset types: 'grid' (default), 'ts_ortho' (time series with point geometries), or the
+# forecast pair 'ts_forecast' / 'grid_forecast' ((init, lead) axes instead of a time axis)
 ds = open_dataset('data.cfdb', flag='n', dataset_type='ts_ortho')
 ```
 
@@ -79,6 +80,12 @@ with open_dataset('data.cfdb', flag='n') as ds:
 
     # For ts_ortho datasets, use geometry coordinates:
     ds.create.coord.point()  # then append shapely Point objects
+
+    # For the forecast types (cfdb >= 0.9.6). The explicit step and the units attr are both
+    # load-bearing -- see the forecast-types section below.
+    ds.create.coord.forecast_reference_time(data=init_array, step=180)   # axis='T'
+    lead = ds.create.coord.forecast_period(data=np.arange(1, 73, dtype='int32'), step=1)
+    lead.attrs['units'] = 'h'   # REQUIRED -- deliberately not defaulted
 
     # Generic method (full control):
     ds.create.coord.generic(
@@ -205,18 +212,40 @@ with open_dataset('data.cfdb') as ds:
 
 ### Writing Data
 
+> **Write INCREMENTALLY. Do not assemble the whole array in RAM first.**
+>
+> This is the most common way cfdb gets misused, and it discards the main reason to use it.
+> cfdb reads and writes in **chunks** — a dataset far larger than memory is normal. Building a
+> full dense array and assigning it in one statement turns an operational database into a "hope
+> it fits" batch job, and it fails late: fine on a test subset, OOM at the end of a real run.
+>
+> Memory scales with the **dimensions**, not with how much real data you have. A sparse
+> station×time dataset — 261 stations × 565 k hourly steps, only 20 % populated — is **1.18 GB
+> per plane as float64**, and you usually have two or three planes plus encode copies live at
+> once. Measured peak for such a build: **4.5 GB**. Writing one station row at a time needs
+> **4.5 MB** — same file on disk, ~250x less RAM.
+>
+> **Rule: the write loop should mirror `chunk_shape`.** If the chunk shape is `(1, 25_000)` —
+> one row — write one row at a time. `np.full((n_rows, n_cols), np.nan)` immediately before a
+> write loop is the canonical smell: that array is the bug.
+
 ```python
 with open_dataset('data.cfdb', flag='w') as ds:
     temp = ds['temperature']
 
-    # Write all data at once:
-    temp[:] = data_array
+    # PREFERRED — incremental, chunk-aligned. Peak memory is one chunk, not one dataset.
+    for i, row in enumerate(source_iter):        # a generator, not a materialised dict
+        temp[i, :] = row                         # one row == one chunk column
 
     # Write a slice:
     temp[slice(0, 10), :, slice(0, 5)] = partial_data
 
     # Explicit set method:
     temp.set((slice(0, 10), slice(None), slice(0, 5)), partial_data)
+
+    # Whole-array assignment. ONLY when the array is genuinely small, or already in memory for
+    # another reason. `data_array` must exist in full before this line runs — that is the cost.
+    temp[:] = data_array
 
     # Append/prepend coordinate data:
     lat = ds['latitude']
@@ -459,14 +488,33 @@ with open_dataset('data.cfdb', flag='w') as ds:
     del ds['altitude']      # delete a coordinate (only if no data vars reference it)
 ```
 
-### Pruning
-
-Remove deleted data from the file to reclaim space:
+### Pruning — REQUIRED for any dataset that is updated repeatedly
 
 ```python
 with open_dataset('data.cfdb', flag='w') as ds:
     removed = ds.prune()  # returns count of removed items
 ```
+
+> ⚠️ **This is not just about deletes. The store is LOG-STRUCTURED: every chunk *overwrite*
+> appends a new block and orphans the old one.** The file grows on every update — the old bytes
+> are invisible to reads but still on disk — and `prune()` is the only thing that reclaims them.
+>
+> **This bites hardest on the append-into-a-partial-chunk pattern**, which is what almost every
+> continuously-updated dataset does: new data lands in the *tail* chunk, so that chunk is
+> rewritten in full on every run however few values arrived. At a 25,000-step time chunk on
+> hourly data, a tail chunk is rewritten ~25,000 times before it is ever full.
+>
+> Measured on a 250-station × 140,000-step dataset merging a routine 48-step window hourly:
+> 99.5 MB after build → **353 MB after one day** → back to 99.5 MB after `prune()`, in **0.3 s**.
+> ~10.6 MB of dead space per run, fully reclaimable, cheap enough to run every time.
+>
+> **`prune()` preserves each key's timestamp and the key set** (verified). That matters for
+> S3-backed `EDataset`s: the push diffs per-key timestamps against the remote index, so pruning
+> cannot inflate the next upload. It is local-only. Prefer to prune **after** publishing.
+>
+> Same design, two more costs: writing a row in two column-slices instead of one call grew a file
+> **+42 %**, and rewriting each row twice **+84 %**; and `Coordinate.truncate` leaves dead bytes
+> in boundary chunks until pruned.
 
 ### Interpolation
 
@@ -478,7 +526,41 @@ with open_dataset('data.cfdb') as ds:
     interp_obj = temp.interp()  # auto-detects x/y from CRS axis metadata
     # For grid: returns GridInterp
     # For ts_ortho: returns PointInterp
+    # For ts_forecast / grid_forecast: raises NotImplementedError -- two non-spatial dims
 ```
+
+### Forecast dataset types — `ts_forecast` / `grid_forecast` (cfdb >= 0.9.6)
+
+A forecast archive is a sequence of *runs*: each is issued at some time and predicts a series of
+future steps. These types replace the single `time` axis with a pair — `forecast_reference_time`
+(init, CF `axis='T'`) and `forecast_period` (lead, **no** axis, since CF defines only X/Y/Z/T and
+cfdb refuses two coordinates sharing an axis).
+
+| type | dimensions |
+|---|---|
+| `ts_forecast` | `(point, forecast_reference_time, forecast_period)` |
+| `grid_forecast` | `(x, y, forecast_reference_time, forecast_period)` |
+
+**Why a lead axis and not valid time:** indexing by valid time leaves the array ~97 % empty (each
+run fills only a short diagonal band); indexing by lead is dense. Valid time is `init + lead` —
+but reading *by* valid time is a diagonal gather across the two axes, which cfdb does not do for you.
+
+**Three traps, all of which fail SILENTLY:**
+
+1. **`forecast_period` is a bare integer — always read its `units` attr.** cfdb has no timedelta
+   dtype, so a lead added to a `datetime64` evaluates in the *datetime's* storage unit. Against
+   the standard `datetime64[m]`, a 96-hour lead adds 96 **minutes**. There is no default unit, on
+   purpose. Bare `'m'` is metres in CF — write `'min'`.
+2. **Declare an EXPLICIT step on `forecast_reference_time`.** It is the only thing that makes
+   recovery of a *missed* run possible: the step auto-fills the skipped slot and a later
+   `merge_into` writes into it. With no step the merge raises `NotImplementedError: In-place
+   coordinate insertions are unsupported`. `step=True` is NOT enough — it infers nothing from the
+   single-value axis the first-ever run creates.
+3. **`.interp()` raises `NotImplementedError`** on both (two non-spatial dims).
+
+`combine`, `merge_into`, `groupby`, `iter_chunks`, `rechunk`, `.loc`, `copy`, the xarray backend
+and `to_netcdf4` all work normally. No `featureType` is written for `ts_forecast` — CF's DSG
+`featureType='timeSeries'` implies one time dimension per station.
 
 ### EDataset (S3-backed remote datasets)
 
@@ -581,4 +663,11 @@ with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
 - Data variables support `__setitem__` for writing data to any position.
 - Always use context managers (`with`) to ensure proper cleanup.
 - `DataVariable.data` loads the **entire array** into memory -- use `iter_chunks()` for large data.
+- **Write in the same shape you chunked in.** The chunk shape is the write unit as well as the
+  storage unit; if your loop and your `chunk_shape` disagree, you pay in memory or in dead space.
+- **Never assemble a whole dense array to write it.** Peak memory should track one chunk, not the
+  dataset. `np.full((n_rows, n_cols), ...)` before a write loop is the canonical smell.
+- **The store is log-structured: overwriting a chunk orphans the old block.** Any repeatedly
+  updated dataset grows every run (the tail chunk is rewritten each time) and needs `prune()` to
+  reclaim it. Prune after publishing; it preserves timestamps, so it cannot inflate a push.
 - Thread-safe and multiprocessing-safe via locks.

@@ -64,6 +64,7 @@ def merge_into(
 
     # Phase 1: Open Target and Inputs
     target_ds = open_dataset(target_path, "w")
+    opened = []  # bound before _open_inputs can raise, so `finally` never masks the real error
     try:
         ds_list, opened = _open_inputs(datasets)
         
@@ -136,7 +137,9 @@ def merge_into(
                 
                 if kind == "f":
                     # For floats, np.isin can be brittle, use isclose instead
-                    insert_mask = np.array([not np.any(np.isclose(v, tgt_data)) for v in middle_vals])
+                    # dtype=bool: with no middle values the list is empty and would default to float64,
+                    # which numpy refuses as an index (every pure append along a float coordinate crashed)
+                    insert_mask = np.array([not np.any(np.isclose(v, tgt_data)) for v in middle_vals], dtype=bool)
                 else:
                     insert_mask = np.isin(middle_vals, tgt_data, invert=True)
                     

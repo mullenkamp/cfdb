@@ -1,0 +1,101 @@
+{
+ "path": "/tmp/claude-1000/-home-mike-git-cfdb-repos-cfdb/70ccb4ba-b8ea-45c1-b2d0-d12f421c0efa/scratchpad/remote/flow_full.cfdb",
+ "compression": "zstd-1",
+ "vars": {
+  "streamflow": {
+   "enc_dtype": "uint32",
+   "dec_dtype": "float32",
+   "chunk_shape": [
+    1,
+    25000
+   ],
+   "shape": [
+    141,
+    183227
+   ],
+   "precision": 4,
+   "offset": -1.0,
+   "fillvalue": 0
+  }
+ },
+ "stored": {
+  "streamflow": {
+   "raw": 107200000,
+   "stored": 32726275
+  }
+ },
+ "results": {
+  "zstd-1": {
+   "streamflow": {
+    "raw": 107200000,
+    "comp": 32726275,
+    "ct": 0.11463706009089947,
+    "dt": 0.03670145012438297,
+    "n": 1072
+   }
+  },
+  "zstd-3": {
+   "streamflow": {
+    "raw": 107200000,
+    "comp": 32199670,
+    "ct": 0.2330045138951391,
+    "dt": 0.0388230363605544,
+    "n": 1072
+   }
+  },
+  "lz4-1": {
+   "streamflow": {
+    "raw": 107200000,
+    "comp": 46881737,
+    "ct": 0.05564471706748009,
+    "dt": 0.028669426101259887,
+    "n": 1072
+   }
+  },
+  "shuffle+zstd-1": {
+   "streamflow": {
+    "raw": 107200000,
+    "comp": 23458205,
+    "ct": 0.05834112281445414,
+    "dt": 0.03270147927105427,
+    "n": 1072
+   }
+  },
+  "shuffle+zstd-3": {
+   "streamflow": {
+    "raw": 107200000,
+    "comp": 22885897,
+    "ct": 0.07563304633367807,
+    "dt": 0.032567032729275525,
+    "n": 1072
+   }
+  },
+  "shuffle+lz4-1": {
+   "streamflow": {
+    "raw": 107200000,
+    "comp": 25004617,
+    "ct": 0.03663737012539059,
+    "dt": 0.047866246895864606,
+    "n": 1072
+   }
+  },
+  "shuffle+ydelta+zstd-1": {
+   "streamflow": {
+    "raw": 107200000,
+    "comp": 23458205,
+    "ct": 0.05584812304005027,
+    "dt": 0.03230274608358741,
+    "n": 1072
+   }
+  },
+  "blosc1 shuffle zstd-1": {
+   "streamflow": {
+    "raw": 107200000,
+    "comp": 23878684,
+    "ct": 0.054499591584317386,
+    "dt": 0.01582102244719863,
+    "n": 1072
+   }
+  }
+ }
+}

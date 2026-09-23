@@ -12,7 +12,7 @@ cfdb is a pure Python database for managing labeled multi-dimensional arrays fol
 ## Key Features
 
 - **CF conventions** — coordinates, data variables, and attributes following the CF standard
-- **Chunk-based storage** — efficient compression with zstd or lz4, chunk-level read/write
+- **Chunk-based storage** — efficient compression with zstd or lz4 (byte-shuffled by default), chunk-level read/write
 - **Thread-safe and multiprocess-safe** — thread locks and file locks for concurrent access
 - **Rechunking** — on-the-fly rechunking via [rechunkit](https://github.com/mullenkamp/rechunkit) for flexible data access patterns
 - **Parallel map** — apply a function to chunks in parallel using multiprocessing

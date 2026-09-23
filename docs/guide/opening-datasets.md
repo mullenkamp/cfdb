@@ -32,22 +32,32 @@ The `flag` parameter controls how the file is opened:
 
 ## Compression
 
-All data in a cfdb file is compressed at the chunk level. Two algorithms are available:
+All data in a cfdb file is compressed at the chunk level. Four options are available:
 
-| Algorithm | Description | Default Level |
+| `compression` | Description | Default Level |
 |-----------|-------------|---------------|
-| `zstd` | Excellent compression ratio with good speed (default) | 1 |
-| `lz4` | Fastest compression/decompression, lower ratio | 1 |
+| `zstd_shuffle` | Byte-shuffled zstd: the smallest files, fast both ways (default) | 1 |
+| `zstd` | Plain zstd; readable by cfdb < 0.10 | 1 |
+| `lz4_shuffle` | Byte-shuffled lz4: smaller than `lz4`, but decodes slower than it | 1 |
+| `lz4` | Fastest decompression, largest files | 1 |
 
 ```python
-# Use lz4 for speed-critical workflows
-ds = cfdb.open_dataset('data.cfdb', flag='n', compression='lz4')
+# Default: zstd_shuffle, level 1
+ds = cfdb.open_dataset('data.cfdb', flag='n')
 
-# Use higher zstd level for better compression
-ds = cfdb.open_dataset('data.cfdb', flag='n', compression='zstd', compression_level=3)
+# Plain zstd, e.g. for a file that users of cfdb < 0.10 must read
+ds = cfdb.open_dataset('data.cfdb', flag='n', compression='zstd')
+
+# lz4 for the fastest decompression
+ds = cfdb.open_dataset('data.cfdb', flag='n', compression='lz4')
 ```
 
-Compression settings are fixed at dataset creation and apply to all variables.
+Compression settings are fixed at dataset creation, recorded in the file, and apply to all
+variables. Opening an existing file (or attaching to an existing remote with `open_edataset`)
+uses the recorded settings, whatever is passed. Files using a `*_shuffle` option need cfdb >= 0.10;
+older versions refuse to open them. See [Chunking & Storage](../concepts/chunking-storage.md#compression)
+for how the shuffle works and when plain `zstd` can be smaller, and
+[Compression Benchmarks](../concepts/compression-benchmarks.md) for the measurements behind the defaults.
 
 ## Dataset Types
 
@@ -57,6 +67,8 @@ The `dataset_type` parameter selects the coordinate structure:
 |------|-------------|
 | `'grid'` | Standard N-dimensional grid (default). Each coordinate is 1-D with a unique axis. |
 | `'ts_ortho'` | Time series with point geometries ([Orthogonal multidimensional array representation](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.12/cf-conventions.html#_orthogonal_multidimensional_array_representation_of_time_series)). |
+| `'ts_forecast'` | Forecasts at point geometries: `(point, forecast_reference_time, forecast_period)`. cfdb >= 0.9.6. |
+| `'grid_forecast'` | Gridded forecasts: `(x, y, forecast_reference_time, forecast_period)`. cfdb >= 0.9.6. |
 
 ```python
 ds = cfdb.open_dataset('stations.cfdb', flag='n', dataset_type='ts_ortho')

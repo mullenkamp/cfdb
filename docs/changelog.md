@@ -1,5 +1,143 @@
 # Changelog
 
+## 0.10.0 (2026-09-24)
+
+Requires **cfdb-models >= 0.1.2**. Existing files keep their recorded compression and chunking and
+read unchanged; only NEW datasets and variables pick up the new defaults.
+
+### Added
+
+- **Byte-shuffle compression: `zstd_shuffle` and `lz4_shuffle`, with `zstd_shuffle` the new
+  default.** Before compressing, each chunk's values are split into byte planes (all low bytes, then
+  all high bytes, ...), which zstd compresses much better. Measured on packed WRF grids and packed
+  station series: files ~0.72× the size of plain `zstd`, faster compression everywhere, faster
+  decompression for chunks above a few thousand elements; numpy only, no new dependency.
+  `lz4_shuffle` buys size, not decode speed (plain `lz4` still decodes fastest). Evidence:
+  `benchmarks/compression/README.md`. The shuffle uses each variable's stored value width
+  (e.g. 2 bytes for a float packed to uint16); only 2-, 4- and 8-byte values are shuffled — 1-byte,
+  bool, 16-byte (e.g. `float128`), string and geometry variables are stored unshuffled. Unpacked
+  full-precision `float64` with many exactly repeated values can come out up to ~13 % LARGER
+  shuffled (still faster to read and write); pass `compression='zstd'` for such data if size matters
+  more than speed.
+- **`format_version` in the file metadata** (1 for files written by this version; 0 means written
+  before the field existed). A file with a higher version is refused with an upgrade message.
+
+### Changed
+
+- **Default chunk size for data variables: 2¹⁸ elements** (a byte target of 2¹⁸ × the stored item
+  size: 512 KiB for packed uint16, 1 MiB for 4-byte, 2 MiB for 8-byte), replacing a flat 2 MiB.
+  Per-chunk read cost, rechunking under memory pressure and small-selection reads are all best at
+  roughly 10⁵–5·10⁵ elements per chunk whatever the item size. Coordinates and string/geometry
+  variables keep the 2 MiB target. Evidence: `benchmarks/RESULTS.md`.
+- `open_edataset` now defaults `compression_level` to `None` (the defaults table, 1) like
+  `open_dataset`. Attaching to an existing dataset always uses its recorded compression.
+
+### Fixed
+
+- **`Dataset.copy()` silently wrote wrong data for a variable whose coordinate had been
+  prepended.** Its fast path copied raw chunk bytes under keys aligned to the source's shifted
+  chunk grid, while the new file's coordinates start at origin 0; the copy read back as zeros and
+  misplaced fragments, with no error. It now copies raw bytes only when every coordinate origin is
+  0 and decodes/re-encodes otherwise.
+- `merge_into` with an unreadable input raised `UnboundLocalError: opened`, hiding the real error.
+- `merge_into` crashed (`IndexError: arrays used as indices must be of integer type`) on any pure
+  append along a float coordinate: the insert mask of an empty middle section defaulted to float64.
+- `combine`/`merge_into` left already-opened inputs open (and their files locked) when a later
+  input failed to open.
+- Opening a file that uses a compression this cfdb does not know now says to upgrade cfdb and
+  cfdb-models, instead of a bare `Invalid enum value`.
+
+### Compatibility
+
+- cfdb < 0.10 cannot read files written with a `*_shuffle` compression: it refuses them at open
+  (`Invalid enum value 'zstd_shuffle'`) rather than returning wrong data. To write files older
+  readers can open, pass `compression='zstd'`.
+
+## 0.9.7 (2026-08-25)
+
+### Fixed
+
+- **A stepped `datetime64` coordinate now REFUSES an append/prepend that is off its own grid.**
+  It previously accepted one silently.
+
+  `utils._generate_step_fill`'s datetime branch computed `gap = int((end - start) / dt_step)` —
+  truncating — and then asserted `np.isclose(gap, round(gap))` on the already-truncated integer,
+  which is true for every input. The check could not fail. The float branch validates *before*
+  rounding and the integer branch uses modulo; only the datetime branch — the one every time axis
+  goes through — was vacuous. It now uses modulo on the timedelta, which is exact because
+  `datetime64` differences are integral in the coordinate's own unit.
+
+  **Why this mattered more than it looks.** The failure was silent and self-concealing: the
+  off-grid value was appended and the axis went on reporting its declared step, so a coordinate
+  could hold 7 h and 1 h gaps while declaring `step=360` (6 h). Nothing downstream re-derives an
+  axis from its step, and envlib's validation does not check axis uniformity, so a coordinate that
+  lied about its own regularity would pass every gate. Reproduced on 0.9.6: appending `+7 h` to a
+  6-hourly axis produced gaps of `[420, 360, 360, 60]` minutes.
+
+  Found while designing a forecast producer, where `forecast_reference_time` carries an explicit
+  step so a missed run can be back-filled — but the exposure is general and applies to every
+  stepped datetime coordinate, `ts_ortho` time axes included.
+
+  Legitimate on-grid gaps still auto-fill exactly as before.
+
+## 0.9.6 (2026-08-25)
+
+Adds the two forecast dataset types. Requires **cfdb-models >= 0.1.1** (the `Type` enum members),
+**cfdb-vars >= 0.2.3** (the coordinate definitions) and **booklet >= 0.12.10**. All three floors are
+hard: each older version *satisfies the previous floor*, so an in-place `pip install -U cfdb` keeps
+it and the failure surfaces far from its cause.
+
+Designed and dual-blind reviewed as round `ecan-theta-1`.
+
+### New dataset types
+
+- **`ts_forecast`** — `(point, forecast_reference_time, forecast_period)` and **`grid_forecast`** —
+  `(x, y, forecast_reference_time, forecast_period)`. Both use a **lead** axis rather than a
+  valid-time axis: `(point, init, valid_time)` is ~97 % empty because each run fills only a short
+  diagonal band, whereas `(point, init, lead)` is dense. Valid time is `init + lead`.
+- New named coordinate constructors `ds.create.coord.forecast_reference_time()` and
+  `.forecast_period()` (from cfdb-vars 0.2.3). **`forecast_reference_time` carries CF `axis='T'`;
+  `forecast_period` deliberately carries no axis** — CF defines only X/Y/Z/T, and cfdb refuses two
+  coordinates sharing an axis.
+- ⚠️ **`forecast_period` is a bare integer with a CF `units` attribute; the attribute is REQUIRED,
+  is deliberately NOT defaulted, and reading it is mandatory.** cfdb has no timedelta dtype, so adding a lead to a `datetime64` evaluates in the
+  *datetime's* unit: against the standard `datetime64[m]` time dtype, `frt[-1] + lead.max()` adds
+  **minutes**, silently. Build an explicit `np.timedelta64(lead, units)`.
+- ⚠️ **Declare an explicit step on `forecast_reference_time`.** It is what makes recovery of a
+  *missed* run possible: the step auto-fills the skipped slot and a later `merge_into` writes into
+  it, whereas with no step the merge raises `NotImplementedError: In-place coordinate insertions are
+  unsupported`. Note `step=True` infers nothing from the single-value axis the first-ever run
+  creates.
+- `.interp()` raises `NotImplementedError` on both forecast types. Previously the dispatch `else`
+  handed *any* non-`ts_ortho` type a `GridInterp`, which for a 4-D layout built a transpose of the
+  wrong length and failed later, mid-iteration, rather than raising.
+- No `featureType` is written for `ts_forecast`: CF's discrete-sampling-geometry
+  `featureType='timeSeries'` implies one time dimension per station, which a `(point, init, lead)`
+  layout is not.
+
+### Fixed
+
+- **`open_dataset` no longer leaks the open store when it rejects a `dataset_type`.** It raised
+  after `booklet.open`, with no `try/except`; the leaked handle holds an OS file lock, so a
+  subsequent write-open **blocked** rather than failing. The guard now wraps dataset *construction*
+  as well as the raise, matching `open_edataset`. This is the path an older cfdb takes when it meets
+  a forecast file.
+- **netCDF export no longer overwrites an explicit `standard_name` on datetime variables.** It
+  assigned `standard_name = 'time'` unconditionally, so an exported `forecast_reference_time` told
+  CF readers it was *the* valid time. Now `setdefault`, on all three live sites (both coordinate
+  branches and the data-variable branch).
+- The geometry-dtype guard in `parse_coord_inputs` keyed on exact `dataset_type == 'grid'`, so
+  `grid_forecast` could have taken a Geometry coordinate. It now covers both grid types.
+- `TypeError` messages for an unknown `dataset_type` now name all four types and suggest upgrading
+  cfdb/cfdb-models, instead of claiming only `"grid"` or `"ts_ortho"` exist.
+
+### Known limitations
+
+- Forecast interpolation is not implemented (it raises); `grid_forecast` has two non-spatial
+  dimensions, which the current interpolators do not handle.
+- Exporting any dataset with a geometry coordinate to netCDF still fails with `'Point' object has no
+  attribute '_factor'` — pre-existing, unrelated to this release, and inherited by `ts_forecast`.
+
 ## 0.9.5 (2026-07-21)
 
 Two rounds from the 2026-07-20 rechunkit/cfdb dual-blind code review: the bug-fix round (correctness) and the performance round. Requires the matching rechunkit release (>= 0.6.0 — cfdb calls the new planner parameters and will TypeError on 0.5.1).

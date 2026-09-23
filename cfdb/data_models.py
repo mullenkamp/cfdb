@@ -49,6 +49,7 @@ class SysMeta(msgspec.Struct):
     variables: Dict[str, Union[DataVariable, CoordinateVariable]] = {}
     crs: Union[str, None] = None
     remote: bool = False
+    format_version: int = 0   # 0 = written before the field existed (cfdb < 0.10); see utils.format_version
 
 
 class PartialDataWarning(UserWarning):

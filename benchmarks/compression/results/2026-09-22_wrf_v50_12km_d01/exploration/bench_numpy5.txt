@@ -1,0 +1,3 @@
+plane-delta along time (axis 0, 24 steps)        HARD ratio= 2.15 size= 392.7 MB comp=  980 MB/s decomp= 2054 MB/s | ALL file= 397.4 MB
+plane-delta along y (axis 2, 324 steps)          HARD ratio= 2.49 size= 339.3 MB comp=  946 MB/s decomp= 1254 MB/s | ALL file= 343.3 MB
+plane-delta along x (axis 3, 277 steps)          HARD ratio= 2.47 size= 342.4 MB comp=  879 MB/s decomp=  893 MB/s | ALL file= 346.8 MB

@@ -15,7 +15,6 @@ import weakref
 import warnings
 from copy import deepcopy
 import pyproj
-import math
 
 try:
     import h5netcdf
@@ -502,14 +501,17 @@ class DatasetBase:
             new_data_var.attrs.update(data_var.attrs.data)
 
             ## Write data
-            if data_var._sel is not None:
-                # View — iter_chunks handles slicing correctly
+            coord_origins = data_var.get_coord_origins()
+            if data_var._sel is not None or any(o != 0 for o in coord_origins):
+                # Decoded path: views, and variables with a shifted coordinate (prepend). The raw
+                # path below would store source-aligned chunk bytes under keys the new file (whose
+                # coordinates start at origin 0) reads with a different alignment: wrong data.
                 for write_chunk, data in data_var.iter_chunks():
                     new_data_var.set(write_chunk, data)
             else:
-                # Full variable — raw chunk copy for speed
+                # Every origin is 0, so source and target chunk grids coincide and each stored chunk
+                # can be copied as raw bytes (same compression and dtype, so the same bytes are valid).
                 data_var.load()
-                coord_origins = data_var.get_coord_origins()
                 slices = indexers.index_combo_all(data_var._sel, coord_origins, data_var.shape)
 
                 for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, data_var.name, data_var.chunk_shape):
@@ -517,15 +519,10 @@ class DatasetBase:
                     if b1 is not None:
                         target_shape = tuple(tc.stop - tc.start for tc in target_chunk)
                         source_shape = tuple(sc.stop - sc.start for sc in source_chunk)
-
+                        if target_shape != source_shape:
+                            raise RuntimeError(f'copy: chunk grids differ for {data_var_name} at origin 0 ({blt_key}); this is a bug.')
                         new_key = utils.make_var_chunk_key(data_var_name, [tc.start for tc in target_chunk])
-
-                        if math.prod(target_shape) == math.prod(source_shape):
-                            new_data_var._blt.set(new_key, b1, ts, False)
-                        else:
-                            data = data_var.dtype.loads(data_var.compressor.decompress(b1), data_var.chunk_shape)
-                            data_b = data_var.compressor.compress(data_var.dtype.dumps(data[source_chunk]))
-                            new_data_var._blt.set(new_key, data_b, ts, False)
+                        new_data_var._blt.set(new_key, b1, ts, False)
 
         new_ds.attrs.update(self.attrs.data)
 
@@ -582,7 +579,10 @@ class DatasetBase:
                         units = utils.parse_cf_time_units(coord.dtype.dtype_decoded)
                         attrs['units'] = units
                         attrs['calendar'] = "proleptic_gregorian"
-                        attrs['standard_name'] = 'time'
+                        ## setdefault, NOT assignment: a variable carrying its own
+                        ## standard_name (forecast_reference_time above all) must keep it,
+                        ## or a CF reader decodes the init axis as the valid time.
+                        attrs.setdefault('standard_name', 'time')
                         dtype_encoded = np.dtypes.Int64DType()
                     else:
                         dtype_encoded = coord.dtype.dtype_decoded
@@ -591,7 +591,10 @@ class DatasetBase:
                         units = utils.parse_cf_time_units(coord.dtype.dtype_decoded)
                         attrs['units'] = units
                         attrs['calendar'] = "proleptic_gregorian"
-                        attrs['standard_name'] = 'time'
+                        ## setdefault, NOT assignment: a variable carrying its own
+                        ## standard_name (forecast_reference_time above all) must keep it,
+                        ## or a CF reader decodes the init axis as the valid time.
+                        attrs.setdefault('standard_name', 'time')
                         dtype_encoded = np.dtypes.Int64DType()
                     else:
                         dtype_encoded = coord.dtype.dtype_encoded
@@ -661,7 +664,10 @@ class DatasetBase:
                         units = utils.parse_cf_time_units(data_var.dtype.dtype_decoded)
                         attrs['units'] = units
                         attrs['calendar'] = "proleptic_gregorian"
-                        attrs['standard_name'] = 'time'
+                        ## setdefault, NOT assignment: a variable carrying its own
+                        ## standard_name (forecast_reference_time above all) must keep it,
+                        ## or a CF reader decodes the init axis as the valid time.
+                        attrs.setdefault('standard_name', 'time')
                         dtype_encoded = np.dtypes.Int64DType()
                     else:
                         dtype_encoded = data_var.dtype.dtype_encoded
@@ -711,11 +717,11 @@ class Dataset(DatasetBase):
         create : bool
             Whether a new file is being created.
         compression : str
-            The compression algorithm used (zstd or lz4).
+            The compression recorded in the file (one of utils.compression_options).
         compression_level : int
             The level of compression.
         dataset_type : str
-            The type of dataset structure (grid or ts_ortho).
+            The type of dataset structure (grid, ts_ortho, ts_forecast or grid_forecast).
         """
         self._blt = open_blt
         self.writable = self._blt.writable
@@ -743,21 +749,41 @@ class Dataset(DatasetBase):
             ## _sys_meta.dataset_type a str on fresh datasets but a Type enum on
             ## reopened ones - and .value readers (the dataset_type property)
             ## would crash on fresh ones. Serialized form is identical either way.
-            self._sys_meta = data_models.SysMeta(dataset_type=data_models.Type(dataset_type.lower()), compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
+            self._sys_meta = data_models.SysMeta(dataset_type=data_models.Type(dataset_type.lower()), compression=data_models.Compressor(compression), compression_level=compression_level, variables={}, format_version=utils.format_version)
             self._blt.set_metadata(msgspec.to_builtins(self._sys_meta))
 
         else:
-            self._sys_meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
+            meta = self._blt.get_metadata()
+            try:
+                self._sys_meta = msgspec.convert(meta, data_models.SysMeta)
+            except msgspec.ValidationError as err:
+                if '`$.compression`' in str(err):   # exact path: '$.compression_level' must not match
+                    raise ValueError(
+                        f'This file uses compression {meta.get("compression")!r}, which this cfdb does not know: '
+                        'it was written by a newer cfdb. Upgrade cfdb and cfdb-models to read it.'
+                    ) from err
+                raise
+            if self._sys_meta.format_version > utils.format_version:
+                raise ValueError(
+                    f'This file has format_version {self._sys_meta.format_version}; this cfdb reads up to '
+                    f'{utils.format_version}. It was written by a newer cfdb: upgrade cfdb and cfdb-models to read it.'
+                )
 
         self.compression = self._sys_meta.compression.value
         self.compression_level = self._sys_meta.compression_level
+        # dataset-level compressor (no item size) plus one per item size, bound to variables
         self._compressor = sc.Compressor(self.compression, self.compression_level)
+        self._compressors = {}
 
         ## Single source of truth for all attributes: var_name -> attrs dict. Every Attributes instance aliases a dict in here; sync()/close() flush it exactly once.
         self._attrs_cache = {}
         self._finalizers = [weakref.finalize(self, utils.dataset_finalizer, self._blt, self._sys_meta, self._attrs_cache, self.writable)]
 
         self.attrs = sc.Attributes(self._blt, '_', self.writable, self._attrs_cache)
+        ## Deliberately exact 'ts_ortho' and NOT extended to ts_forecast: CF's discrete-
+        ## sampling-geometry featureType='timeSeries' implies ONE time dimension per station,
+        ## and (point, forecast_reference_time, forecast_period) is not a valid DSG. Emitting
+        ## no featureType is the CF-correct choice for the forecast types.
         if create and dataset_type == 'ts_ortho':
             self.attrs['featureType'] = 'timeSeries'
 
@@ -770,6 +796,15 @@ class Dataset(DatasetBase):
 
         if self.writable:
             self.create = creation.Creator(self)
+
+
+    def _compressor_for(self, itemsize):
+        """The dataset's compressor bound to one value width (see support_classes.shuffle_itemsize)."""
+        comp = self._compressors.get(itemsize)
+        if comp is None:
+            comp = sc.Compressor(self.compression, self.compression_level, itemsize)
+            self._compressors[itemsize] = comp
+        return comp
 
 
     def get(self, var_name):
@@ -982,6 +1017,16 @@ class TimeSeriesOrtho(Dataset):
 
     """
 
+class TimeSeriesForecast(Dataset):
+    """
+    (point, forecast_reference_time, forecast_period) station forecasts.
+    """
+
+class GridForecast(Dataset):
+    """
+    (x, y, forecast_reference_time, forecast_period) gridded forecasts.
+    """
+
 #######################################################
 ### Open functions
 
@@ -989,7 +1034,7 @@ class TimeSeriesOrtho(Dataset):
 def open_dataset(file_path: Union[str, pathlib.Path],
                  flag: str = "r",
                  dataset_type: str='grid',
-                 compression: str='zstd',
+                 compression: str=utils.default_compression,
                  compression_level: int=None,
                  allow_partial: bool=False,
                  **kwargs):
@@ -1013,9 +1058,9 @@ def open_dataset(file_path: Union[str, pathlib.Path],
         - ``'grid'`` -- The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
         - ``'ts_ortho'`` -- A special time series coordinate structure representing the orthogonal multidimensional array representation of time series. Designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The z axis is currently optional.
     compression : str
-        The compression algorithm used for compressing all data. Must be either ``'zstd'`` or ``'lz4'``. zstd has a good balance of compression ratio to speed, while lz4 emphasises speed. Default is ``'zstd'``.
+        The compression for all chunks, set when the dataset is CREATED (an existing dataset keeps what it recorded). One of ``'zstd_shuffle'`` (default), ``'zstd'``, ``'lz4_shuffle'`` or ``'lz4'``. The ``*_shuffle`` values split each value into byte planes before compressing, which makes packed and float data markedly smaller and zstd faster, with no extra dependency; ``lz4_shuffle`` buys size, not decode speed. Measurements: ``benchmarks/compression/README.md``. Files using a ``*_shuffle`` value need cfdb >= 0.10 to read.
     compression_level : int or None
-        The compression level used by the compression algorithm. Setting this to None will use the defaults, which is currently 1 for both compression options.
+        The compression level used by the compression algorithm. Setting this to None will use the defaults, which is currently 1 for every compression option.
     **kwargs
         Any kwargs that can be passed to ``booklet.open``.
 
@@ -1035,22 +1080,40 @@ def open_dataset(file_path: Union[str, pathlib.Path],
     else:
         create = False
 
-    ## The class follows the STORED dataset_type for existing files; the
-    ## dataset_type parameter only applies at creation. (meta is None on a
-    ## corrupt/empty file - fall through to the param so Dataset.__init__
-    ## raises its clear msgspec ValidationError instead of a NoneType error.)
-    if create:
-        dt = dataset_type.lower()
-    else:
-        meta = open_blt.get_metadata()
-        dt = dataset_type.lower() if meta is None else meta['dataset_type']
+    ## The try/except must wrap everything after booklet.open: a leaked handle holds an OS
+    ## file lock, so a later write-reopen BLOCKS rather than failing. That includes resolving
+    ## dt -- `dataset_type.lower()` raises AttributeError on None and `meta['dataset_type']`
+    ## raises KeyError on a file whose metadata lacks the key, both after the store is open --
+    ## and Dataset.__init__ itself, which raises on a stored dataset_type this cfdb-models does
+    ## not know. Mirrors open_edataset, which resolves dt inside its try.
+    try:
+        ## The class follows the STORED dataset_type for existing files; the
+        ## dataset_type parameter only applies at creation. (meta is None on a
+        ## corrupt/empty file - fall through to the param so Dataset.__init__
+        ## raises its clear msgspec ValidationError instead of a NoneType error.)
+        if create:
+            dt = dataset_type.lower()
+        else:
+            meta = open_blt.get_metadata()
+            dt = dataset_type.lower() if meta is None else meta['dataset_type']
 
-    if dt == 'grid':
-        ds = Grid(fp, open_blt, create, compression, compression_level, 'grid')
-    elif dt == 'ts_ortho':
-        ds = TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
-    else:
-        raise TypeError('dataset_type must be either "grid" or "ts_ortho".')
+        if dt == 'grid':
+            ds = Grid(fp, open_blt, create, compression, compression_level, 'grid')
+        elif dt == 'ts_ortho':
+            ds = TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
+        elif dt == 'ts_forecast':
+            ds = TimeSeriesForecast(fp, open_blt, create, compression, compression_level, 'ts_forecast')
+        elif dt == 'grid_forecast':
+            ds = GridForecast(fp, open_blt, create, compression, compression_level, 'grid_forecast')
+        else:
+            raise TypeError(
+                f'dataset_type must be one of "grid", "ts_ortho", "ts_forecast" or '
+                f'"grid_forecast"; got {dt!r}. If this file was written by a newer cfdb, '
+                f'upgrade cfdb and cfdb-models.'
+            )
+    except BaseException:
+        open_blt.close()
+        raise
 
     if not allow_partial and not create and ds._sys_meta.remote:
         warnings.warn(

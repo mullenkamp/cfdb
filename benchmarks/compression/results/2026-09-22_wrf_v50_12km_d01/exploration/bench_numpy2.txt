@@ -1,0 +1,4 @@
+shuffle, delta all planes, cumsum u1                 HARD ratio= 2.47 size= 342.2 MB comp=  950 MB/s decomp=  532 MB/s | ALL file= 346.4 MB
+shuffle, delta all planes, cumsum i8->u1             HARD ratio= 2.47 size= 342.2 MB comp=  931 MB/s decomp=  695 MB/s | ALL file= 346.4 MB
+shuffle, delta planes>=1 (skip low byte)             HARD ratio= 2.18 size= 387.1 MB comp= 1150 MB/s decomp=  843 MB/s | ALL file= 391.8 MB
+shuffle, delta top plane only (u16: byte1; u32: byte3) HARD ratio= 2.14 size= 394.8 MB comp= 1189 MB/s decomp= 1081 MB/s | ALL file= 399.5 MB
