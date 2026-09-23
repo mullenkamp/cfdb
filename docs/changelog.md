@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.10.0 (unreleased)
+
+Requires **cfdb-models >= 0.1.2**. Existing files keep their recorded compression and chunking and
+read unchanged; only NEW datasets and variables pick up the new defaults.
+
+### Added
+
+- **Byte-shuffle compression: `zstd_shuffle` and `lz4_shuffle`, with `zstd_shuffle` the new
+  default.** Before compressing, each chunk's values are split into byte planes (all low bytes, then
+  all high bytes, ...), which zstd compresses much better. Measured on packed WRF grids and packed
+  station series: files ~0.72× the size of plain `zstd`, faster compression everywhere, faster
+  decompression for chunks above a few thousand elements; numpy only, no new dependency.
+  `lz4_shuffle` buys size, not decode speed (plain `lz4` still decodes fastest). Evidence:
+  `benchmarks/compression/README.md`. The shuffle uses each variable's stored value width
+  (e.g. 2 bytes for a float packed to uint16); only 2-, 4- and 8-byte values are shuffled — 1-byte,
+  bool, 16-byte (e.g. `float128`), string and geometry variables are stored unshuffled. Unpacked
+  full-precision `float64` with many exactly repeated values can come out up to ~13 % LARGER
+  shuffled (still faster to read and write); pass `compression='zstd'` for such data if size matters
+  more than speed.
+- **`format_version` in the file metadata** (1 for files written by this version; 0 means written
+  before the field existed). A file with a higher version is refused with an upgrade message.
+
+### Changed
+
+- **Default chunk size for data variables: 2¹⁸ elements** (a byte target of 2¹⁸ × the stored item
+  size: 512 KiB for packed uint16, 1 MiB for 4-byte, 2 MiB for 8-byte), replacing a flat 2 MiB.
+  Per-chunk read cost, rechunking under memory pressure and small-selection reads are all best at
+  roughly 10⁵–5·10⁵ elements per chunk whatever the item size. Coordinates and string/geometry
+  variables keep the 2 MiB target. Evidence: `benchmarks/RESULTS.md`.
+- `open_edataset` now defaults `compression_level` to `None` (the defaults table, 1) like
+  `open_dataset`. Attaching to an existing dataset always uses its recorded compression.
+
+### Fixed
+
+- **`Dataset.copy()` silently wrote wrong data for a variable whose coordinate had been
+  prepended.** Its fast path copied raw chunk bytes under keys aligned to the source's shifted
+  chunk grid, while the new file's coordinates start at origin 0; the copy read back as zeros and
+  misplaced fragments, with no error. It now copies raw bytes only when every coordinate origin is
+  0 and decodes/re-encodes otherwise.
+- `merge_into` with an unreadable input raised `UnboundLocalError: opened`, hiding the real error.
+- `merge_into` crashed (`IndexError: arrays used as indices must be of integer type`) on any pure
+  append along a float coordinate: the insert mask of an empty middle section defaulted to float64.
+- `combine`/`merge_into` left already-opened inputs open (and their files locked) when a later
+  input failed to open.
+- Opening a file that uses a compression this cfdb does not know now says to upgrade cfdb and
+  cfdb-models, instead of a bare `Invalid enum value`.
+
+### Compatibility
+
+- cfdb < 0.10 cannot read files written with a `*_shuffle` compression: it refuses them at open
+  (`Invalid enum value 'zstd_shuffle'`) rather than returning wrong data. To write files older
+  readers can open, pass `compression='zstd'`.
+
 ## 0.9.7 (2026-08-25)
 
 ### Fixed

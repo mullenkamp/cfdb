@@ -1,0 +1,21 @@
+
+### SST daily grid (16650,1000,1600) u16, 53 GB
+  target:   256 KiB          (360, 12, 24)  0.21MB |   512 KiB          (360, 12, 60)  0.52MB |  1024 KiB          (360, 12, 60)  0.52MB |  2048 KiB          (360, 48, 60)  2.07MB |  4096 KiB          (840, 48, 60)  4.84MB
+  one point, all 45 years                 47 reads     0.01 GB   292.7x |        47 reads     0.02 GB   731.7x |        47 reads     0.02 GB   731.7x |        47 reads     0.10 GB  2926.7x |        20 reads     0.10 GB  2905.9x
+  one day, full grid                    5628 reads     1.17 GB   364.7x |      2268 reads     1.18 GB   367.4x |      2268 reads     1.18 GB   367.4x |       567 reads     1.18 GB   367.4x |       567 reads     2.74 GB   857.3x
+  100x100 region, all years             2115 reads     0.44 GB     1.3x |      1269 reads     0.66 GB     2.0x |      1269 reads     0.66 GB     2.0x |       423 reads     0.88 GB     2.6x |       180 reads     0.87 GB     2.6x
+  whole array -> daily grids          821688 reads   170.39 GB     3.2x |    331128 reads   171.66 GB     3.2x |    331128 reads   171.66 GB     3.2x |     82782 reads   171.66 GB     3.2x |     68040 reads   329.20 GB     6.2x
+  whole array -> monthly groups       832944 reads   172.72 GB     3.2x |    335664 reads   174.01 GB     3.3x |    335664 reads   174.01 GB     3.3x |     83916 reads   174.01 GB     3.3x |     72009 reads   348.41 GB     6.5x
+  whole array -> pixel series         527857 reads   109.46 GB     2.1x |    215072 reads   111.49 GB     2.1x |    215072 reads   111.49 GB     2.1x |    147204 reads   305.24 GB     5.7x |     63300 reads   306.27 GB     5.7x
+
+### forecast (29,49,14,165,221) u16
+  target:   256 KiB      (4, 4, 2, 60, 60)  0.23MB |   512 KiB      (4, 4, 6, 60, 60)  0.69MB |  1024 KiB      (4, 4, 6, 60, 60)  0.69MB |  2048 KiB     (4, 12, 6, 60, 60)  2.07MB |  4096 KiB    (12, 12, 6, 60, 60)  6.22MB
+  one point, all runs/leads/levels       728 reads     0.17 GB  4215.6x |       312 reads     0.22 GB  5420.1x |       312 reads     0.22 GB  5420.1x |       120 reads     0.25 GB  6253.9x |        45 reads     0.28 GB  7035.7x
+  latest run, all fields                1092 reads     0.25 GB     5.0x |       468 reads     0.32 GB     6.5x |       468 reads     0.32 GB     6.5x |       180 reads     0.37 GB     7.5x |       180 reads     1.12 GB    22.4x
+  whole -> per lead time grids          9408 reads     2.17 GB     1.5x |      4032 reads     2.79 GB     1.9x |      4032 reads     2.79 GB     1.9x |      1728 reads     3.58 GB     2.5x |       756 reads     4.70 GB     3.2x
+
+### stations ts_ortho (141,183227) u32
+  target:   256 KiB             (6, 10080)  0.24MB |   512 KiB             (6, 27720)  0.67MB |  1024 KiB             (6, 27720)  0.67MB |  2048 KiB            (24, 27720)  2.66MB |  4096 KiB            (24, 27720)  2.66MB
+  one station, full history               19 reads     0.00 GB     6.3x |         7 reads     0.00 GB     6.4x |         7 reads     0.00 GB     6.4x |         7 reads     0.02 GB    25.4x |         7 reads     0.02 GB    25.4x
+  latest week, all stations               24 reads     0.01 GB    61.3x |        24 reads     0.02 GB   168.5x |        24 reads     0.02 GB   168.5x |         6 reads     0.02 GB   168.5x |         6 reads     0.02 GB   168.5x
+  whole -> annual blocks                 456 reads     0.11 GB     1.1x |       168 reads     0.11 GB     1.1x |       168 reads     0.11 GB     1.1x |        42 reads     0.11 GB     1.1x |        42 reads     0.11 GB     1.1x

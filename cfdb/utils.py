@@ -25,7 +25,19 @@ from . import data_models, dtypes
 
 # CHUNK_BASE = 32*1024    # Multiplier by which chunks are adjusted
 # CHUNK_MIN = 32*1024      # Soft lower limit (32k)
-chunk_max = 2**21   # Hard upper limit (2M)
+# Default chunk sizes when chunk_shape is not given (both go through rechunkit.guess_chunk_shape,
+# which targets BYTES and may exceed the target by up to 1.5x):
+# - coordinates: 2 MiB. They are read whole and held in memory, so fewer, larger chunks suit them.
+# - data variables: 2**18 ELEMENTS, i.e. a byte target of 2**18 x the stored item size (512 KiB for
+#   packed uint16, 1 MiB for 4-byte, 2 MiB for 8-byte). Per-chunk read cost, rechunking under
+#   memory pressure and subset read amplification are all best around 1e5-5e5 elements whatever
+#   the item size; a single byte target gave 8-byte types ~30 K elements. Evidence:
+#   benchmarks/RESULTS.md ("Per-chunk costs vs chunk size", "Rechunking vs chunk size").
+# - variable-length data variables (str, geometry) keep the 2 MiB byte target: their item size is
+#   only an estimate and the element evidence covers fixed-width numeric types only.
+coord_chunk_max = 2**21
+data_var_chunk_elements = 2**18
+var_length_chunk_max = 2**21
 
 time_str_conversion = {'days': 'datetime64[D]',
                        'hours': 'datetime64[h]',
@@ -65,8 +77,12 @@ time_units_dict = {
     'ns': 'nanoseconds',
     }
 
-compression_options = ('zstd', 'lz4')
-default_compression_levels = {'zstd': 1, 'lz4': 1}
+compression_options = ('zstd', 'lz4', 'zstd_shuffle', 'lz4_shuffle')
+default_compression = 'zstd_shuffle'   # evidence: benchmarks/compression/README.md
+default_compression_levels = {'zstd': 1, 'lz4': 1, 'zstd_shuffle': 1, 'lz4_shuffle': 1}
+# On-disk format version written by this cfdb. Files without the field predate it (0); a file
+# with a higher version was written by a newer cfdb and is refused with an upgrade message.
+format_version = 1
 default_n_buckets = 144013
 
 
@@ -657,7 +673,7 @@ def parse_coord_inputs(dataset_type: str, name: str, data: np.ndarray | None = N
         else:
             itemsize = dtype.dtype_encoded.itemsize
 
-        chunk_shape = rechunkit.guess_chunk_shape((1000000,), itemsize, chunk_max)
+        chunk_shape = rechunkit.guess_chunk_shape((1000000,), itemsize, coord_chunk_max)
     else:
         raise TypeError('chunk_shape must be either a tuple of ints or None.')
 
@@ -729,7 +745,11 @@ def parse_var_inputs(sys_meta: data_models.SysMeta, name: str, coords: Tuple[str
                     itemsize = 60
         else:
             itemsize = dtype.dtype_encoded.itemsize
-        chunk_shape = rechunkit.guess_chunk_shape(shape, itemsize, chunk_max)
+        if dtype.kind in ('b', 'i', 'u', 'f', 'M'):
+            target = data_var_chunk_elements * itemsize
+        else:
+            target = var_length_chunk_max
+        chunk_shape = rechunkit.guess_chunk_shape(shape, itemsize, target)
     else:
         raise TypeError('chunk_shape must be either a tuple of ints or None.')
 

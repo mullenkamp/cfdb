@@ -1,0 +1,46 @@
+var                pipeline                                         bytes/elem comp MB/s(raw f32)  decomp MB/s
+air_temperature    uint16 packed + zstd-1 (current)                      1.459               1059         3194
+air_temperature    uint16 packed + blosc2 zstd-1 shuffle+bytedelta       0.779               2272         3943
+air_temperature    uint16 packed + pcodec L8 (default)                   0.697                410         1996
+air_temperature    float32 direct + zstd-1 (current)                     1.891                381         1406
+air_temperature    float32 direct + blosc2 zstd-1 shuffle+bytedelta      1.500               1417         2352
+air_temperature    float32 direct + pcodec L8 (default)                  0.915                354         2152
+air_temperature    float32 direct + zfp lossless                         2.172                355          466
+air_temperature    float32 direct + fpzip lossless (f32 only)            1.596                160          179
+
+surface_pressure   uint16 packed + zstd-1 (current)                      2.340                428         1547
+surface_pressure   uint16 packed + blosc2 zstd-1 shuffle+bytedelta       1.219               1364         2489
+surface_pressure   uint16 packed + pcodec L8 (default)                   0.937                354         1958
+surface_pressure   float32 direct + zstd-1 (current)                     2.587                603         1987
+surface_pressure   float32 direct + blosc2 zstd-1 shuffle+bytedelta      1.194                987         2265
+surface_pressure   float32 direct + pcodec L8 (default)                  1.228                294         1967
+surface_pressure   float32 direct + zfp lossless                         1.878                350          515
+surface_pressure   float32 direct + fpzip lossless (f32 only)            1.317                170          176
+
+wind_speed         uint16 packed + zstd-1 (current)                      1.536               2354         3703
+wind_speed         uint16 packed + blosc2 zstd-1 shuffle+bytedelta       0.978               1742         2954
+wind_speed         uint16 packed + pcodec L8 (default)                   0.824                395         2004
+wind_speed         float32 direct + zstd-1 (current)                     2.659                520         1698
+wind_speed         float32 direct + blosc2 zstd-1 shuffle+bytedelta      2.123               1048         2085
+wind_speed         float32 direct + pcodec L8 (default)                  0.962                219         1064
+wind_speed         float32 direct + zfp lossless                         3.000                340          362
+wind_speed         float32 direct + fpzip lossless (f32 only)            2.522                137          150
+
+mixing_ratio       uint16 packed + zstd-1 (current)                      1.812               2507         3762
+mixing_ratio       uint16 packed + blosc2 zstd-1 shuffle+bytedelta       1.247               1517         3581
+mixing_ratio       uint16 packed + pcodec L8 (default)                   1.082                340         2006
+mixing_ratio       float32 direct + zstd-1 (current)                     3.391               1121         2190
+mixing_ratio       float32 direct + blosc2 zstd-1 shuffle+bytedelta      2.342                952         2381
+mixing_ratio       float32 direct + pcodec L8 (default)                  2.180                271         1978
+mixing_ratio       float32 direct + zfp lossless                         2.745                344          386
+mixing_ratio       float32 direct + fpzip lossless (f32 only)            2.273                148          164
+
+pwat               uint16 packed + zstd-1 (current)                      1.101                950         3052
+pwat               uint16 packed + blosc2 zstd-1 shuffle+bytedelta       0.583               1646         4237
+pwat               uint16 packed + pcodec L8 (default)                   0.482                479         2008
+pwat               float32 direct + zstd-1 (current)                     1.288                444         1606
+pwat               float32 direct + blosc2 zstd-1 shuffle+bytedelta      1.285                556         1701
+pwat               float32 direct + pcodec L8 (default)                  0.586                253         1161
+pwat               float32 direct + zfp lossless                         2.876                346          382
+pwat               float32 direct + fpzip lossless (f32 only)            2.059                151          166
+

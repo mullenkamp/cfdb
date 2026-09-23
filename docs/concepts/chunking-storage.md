@@ -22,12 +22,26 @@ For example, chunk `(200, 400)` of variable `temperature` is stored with key `te
 
 Every chunk is compressed before storage. The algorithm is set at dataset creation:
 
-| Algorithm | Library | Characteristics |
+| `compression` | Library | Characteristics |
 |-----------|---------|----------------|
-| `zstd` | zstandard | Best compression ratio at reasonable speed (default) |
-| `lz4` | lz4 | Fastest compression/decompression |
+| `zstd_shuffle` | zstandard | **Default.** Byte-shuffled zstd: the smallest files and faster than plain zstd both ways for chunks above a few thousand elements |
+| `zstd` | zstandard | Plain zstd; readable by cfdb < 0.10 |
+| `lz4_shuffle` | lz4 | Byte-shuffled lz4: smaller than `lz4`, but decodes slower than it |
+| `lz4` | lz4 | Fastest decompression, largest files |
 
-Compression level defaults to 1 for both algorithms. Higher levels improve ratio but slow down writes.
+The `*_shuffle` values split each chunk's values into byte planes before compressing (all low
+bytes, then all high bytes, ...). Packed values keep smooth, compressible high bytes and noisy low
+bytes; separating them lets the codec compress each well. The split uses the width of the values as
+stored (e.g. 2 bytes for a float packed to uint16); only 2-, 4- and 8-byte values are shuffled —
+1-byte, bool, 16-byte, string and geometry variables are stored unshuffled. The size win is largest
+for packed values; unpacked full-precision `float64` gains little and, where many values repeat
+exactly, can come out up to ~13 % larger shuffled (while still reading and writing faster), so use
+`compression='zstd'` for such data if size matters most. Measurements behind these choices:
+`benchmarks/compression/README.md` and the review record `benchmarks/results/review-cfdb-shuffle-code-1.md`.
+
+Compression level defaults to 1 for every option; with the shuffle in front, higher zstd levels gain
+~1.5 % in size for ~1.3–1.4× slower writes. The compression is recorded in the file and used for
+every later read and write; files using a `*_shuffle` value need cfdb >= 0.10.
 
 ## Automatic Chunk Shape
 
@@ -39,9 +53,28 @@ When `chunk_shape=None` is passed during variable creation, cfdb uses `rechunkit
 
 The algorithm prefers **composite numbers** for chunk dimensions. This is important because rechunking between two chunk shapes is most efficient when the least common multiple (LCM) of corresponding dimensions is small — and composite numbers tend to have lower LCMs than primes. 
 
-The trade off is that a larger chunk would have a higher compression ratio, but a larger chunk would slow downs reads do to having to decompress a large amount of data for a small slicing request.
+For data variables the default target is **2¹⁸ elements per chunk** (passed to rechunkit as a byte
+target of 2¹⁸ × the stored item size: 512 KiB for packed uint16, 1 MiB for 4-byte, 2 MiB for 8-byte
+values; the guess may exceed it by up to 1.5×). Coordinates and string/geometry variables use a
+2 MiB byte target.
 
-The default chunk byte size is a maximum of ~2 MB. Both compression algorithms used in cfdb tend to max out the compression ratio between 1-2 MB of raw data. A chunk byte size greater than 2 MB would not significantly improve the compression and would slow down reads. If anything, the user should reduce the default chunk byte size rather than increase it.
+Why elements rather than bytes: what a chunk costs depends mostly on how many values it holds.
+Measured on real data (`benchmarks/RESULTS.md`):
+
+- **Compression ratio** is essentially flat from multi-MB chunks down to a few thousand elements, so
+  large chunks buy almost no extra compression.
+- **Reads** are cheapest per value at roughly 10⁵–5·10⁵ elements per chunk. Much smaller chunks pay
+  a fixed cost of ~10 µs per chunk (lookup, decode, loop); multi-MB chunks are slower per value
+  because every chunk decodes into freshly allocated memory.
+- **Rechunking** (`iter_chunks(chunk_shape=...)`, `groupby`) on data larger than its memory budget
+  is fastest at ~3·10⁵ elements per chunk and several times slower with multi-MB chunks.
+- **Small selections** (one point's time series, one time step) decompress whole chunks, so smaller
+  chunks read less.
+
+A single byte target cannot keep every item size in that range: at 512 KiB, 8-byte values got only
+~30 K elements per chunk. If you choose chunk shapes yourself, keep them at **≥ ~32 K elements**
+(below that, reads and writes get markedly slower per value) and avoid multi-MB chunks unless your
+workload is whole-array scans.
 
 ## Choosing Chunk Shapes
 

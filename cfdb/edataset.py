@@ -84,8 +84,8 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
                   file_path: Union[str, pathlib.Path],
                   flag: str = "r",
                   dataset_type: str='grid',
-                  compression: str='zstd',
-                  compression_level: int=1,
+                  compression: str=utils.default_compression,
+                  compression_level: int=None,
                   num_groups: int = None,
                   lock_timeout: int = 300,
                   force_lock: bool = False,
@@ -116,9 +116,9 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
         - ``'grid'`` -- The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
         - ``'ts_ortho'`` -- A special time series coordinate structure representing the orthogonal multidimensional array representation of time series. Designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The z axis is currently optional.
     compression : str
-        The compression algorithm used for compressing all data. Must be either ``'zstd'`` or ``'lz4'``. zstd has a good balance of compression ratio to speed, while lz4 emphasises speed. Default is ``'zstd'``.
+        The compression for all chunks, used only when a NEW dataset is created: attaching to an existing local or remote dataset always uses the compression it recorded, whatever is passed here. One of ``'zstd_shuffle'`` (default), ``'zstd'``, ``'lz4_shuffle'`` or ``'lz4'``; see ``open_dataset``.
     compression_level : int or None
-        The compression level used by the compression algorithm. Setting this to None will use the defaults, which is 1 for both compression options.
+        The compression level. None uses the defaults, which is 1 for every compression option.
     num_groups : int or None
         The number of groups for grouped S3 object storage. Required when creating a new database (flag='n'). For existing databases, this value is read from S3 metadata and the user-provided value is ignored.
         Guidance: aim for groups of 10-100MB each. A reasonable starting point is max(10, total_expected_keys // 50). Too few groups means large S3 objects and slow partial updates; too many means more API calls per push. Each group's data is limited to 4GB due to offset encoding.

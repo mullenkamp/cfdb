@@ -1,0 +1,79 @@
+air_temperature                              30.2 MB raw, stored ratio     1.37
+surface_pressure                             60.3 MB raw, stored ratio     1.72
+mixing_ratio                                 30.2 MB raw, stored ratio     1.11
+specific_humidity                            30.2 MB raw, stored ratio     1.11
+relative_humidity                            30.2 MB raw, stored ratio    17.29
+dew_point_temperature                        30.2 MB raw, stored ratio     1.33
+precipitation                                30.2 MB raw, stored ratio     3.13
+wind_speed                                   30.2 MB raw, stored ratio     1.31
+wind_direction                               30.2 MB raw, stored ratio     1.23
+soil_temperature                             30.2 MB raw, stored ratio     1.36
+shortwave_radiation                          30.2 MB raw, stored ratio     2.05
+longwave_radiation                           30.2 MB raw, stored ratio     1.31
+snow_depth                                   30.2 MB raw, stored ratio 10551.20
+sensible_heat_flux                           30.2 MB raw, stored ratio     1.44
+moisture_flux                                30.2 MB raw, stored ratio     2.57
+albedo                                       30.2 MB raw, stored ratio    58.67
+emissivity                                   30.2 MB raw, stored ratio  1100.08
+land_use_modis                               15.1 MB raw, stored ratio  1214.86
+terrain_height                               30.2 MB raw, stored ratio   711.58
+potential_temperature                        30.2 MB raw, stored ratio     1.36
+equivalent_potential_temperature             30.2 MB raw, stored ratio     1.19
+u_wind                                       30.2 MB raw, stored ratio     1.27
+v_wind                                       30.2 MB raw, stored ratio     1.27
+vorticity                                    30.2 MB raw, stored ratio     4.11
+mslp                                         60.3 MB raw, stored ratio     1.73
+land_sea_mask                                15.1 MB raw, stored ratio  1680.15
+sea_ice                                      30.2 MB raw, stored ratio 10584.53
+sea_surface_temp                             30.2 MB raw, stored ratio     7.89
+snow_water_equiv                             30.2 MB raw, stored ratio 10551.20
+pwat                                         30.2 MB raw, stored ratio     1.77
+vimf_u                                       60.3 MB raw, stored ratio     2.07
+vimf_v                                       60.3 MB raw, stored ratio     2.04
+ivt                                          60.3 MB raw, stored ratio     1.13
+
+Dataset: /home/mike/data/wrf/sst/v50_12km_wvt_8_regions/cfdb_cache/d01.cfdb  (stored as zstd-1)
+33 vars, raw 1115.7 MB, stored 556.3 MB (ratio 2.01)
+HARD = the 23 vars whose STORED ratio is < 5.0 (a fixed set chosen from the file as stored, so every codec is scored on the same population; ALL is the whole-file number): air_temperature, surface_pressure, mixing_ratio, specific_humidity, dew_point_temperature, precipitation, wind_speed, wind_direction, soil_temperature, shortwave_radiation, longwave_radiation, sensible_heat_flux, moisture_flux, potential_temperature, equivalent_potential_temperature, u_wind, v_wind, vorticity, mslp, pwat, vimf_u, vimf_v, ivt
+codec                                ALL ratio   ALL MB vs stored | HARD ratio  comp MB/s  decomp MB/s
+------------------------------------------------------------------------------------------------------
+shuffle+zstd-1                            2.78    400.6      0.72 |       2.13       1296         3057
+shuffle+lz4-1                             2.39    466.5      0.84 |       1.91       1744         4177
+zstd-1                                    1.98    564.7      1.02 |       1.51        737         1842
+lz4-1                                     1.49    746.3      1.34 |       1.19       1187         7116
+
+Per-variable ratio:
+var                                      dtype      stored           zstd-1   shuffle+zstd-1            lz4-1    shuffle+lz4-1
+air_temperature                          uint16        1.4             1.31             1.88             1.10             1.76
+surface_pressure                         uint32        1.7             1.72             3.16             1.20             2.82
+mixing_ratio                             uint16        1.1             1.08             1.53             1.00             1.35
+specific_humidity                        uint16        1.1             1.08             1.53             1.00             1.35
+relative_humidity                        uint16       17.3            17.29            19.98             6.96             8.78
+dew_point_temperature                    uint16        1.3             1.29             1.87             1.05             1.71
+precipitation                            uint16        3.1             3.13             3.84             2.23             2.96
+wind_speed                               uint16        1.3             1.31             1.80             1.00             1.60
+wind_direction                           uint16        1.2             1.21             1.77             1.00             1.58
+soil_temperature                         uint16        1.4             1.30             1.87             1.08             1.73
+shortwave_radiation                      uint16        2.0             2.03             2.55             1.79             2.23
+longwave_radiation                       uint16        1.3             1.29             1.70             1.02             1.50
+snow_depth                               uint16    10551.2         10551.20         26131.13           242.37           242.32
+sensible_heat_flux                       uint16        1.4             1.43             1.83             1.08             1.68
+moisture_flux                            uint16        2.6             2.57             2.48             1.81             2.18
+albedo                                   uint16       58.7            58.67            77.85            28.01            33.77
+emissivity                               uint16     1100.1          1100.08          1505.88            32.73            38.89
+land_use_modis                           uint8      1214.9          1214.86          1214.86            28.32            28.32
+terrain_height                           uint16      711.6           711.58           735.76            25.10            25.02
+potential_temperature                    uint16        1.4             1.30             1.89             1.09             1.76
+equivalent_potential_temperature         uint16        1.2             1.15             1.75             1.00             1.55
+u_wind                                   uint16        1.3             1.25             1.80             1.00             1.60
+v_wind                                   uint16        1.3             1.26             1.79             1.00             1.59
+vorticity                                uint16        4.1             4.11             5.16             2.30             3.20
+mslp                                     uint32        1.7             1.73             3.21             1.20             2.87
+land_sea_mask                            uint8      1680.1          1680.15          1680.15            32.07            32.07
+sea_ice                                  uint16    10584.5         10584.53         26428.86           242.38           242.33
+sea_surface_temp                         uint16        7.9             7.47            11.39             1.13             1.75
+snow_water_equiv                         uint16    10551.2         10551.20         26131.13           242.37           242.32
+pwat                                     uint16        1.8             1.75             1.96             1.36             1.87
+vimf_u                                   uint32        2.1             2.07             3.30             1.40             2.90
+vimf_v                                   uint32        2.0             2.04             3.27             1.37             2.86
+ivt                                      float32       1.1             1.13             1.32             1.00             1.29

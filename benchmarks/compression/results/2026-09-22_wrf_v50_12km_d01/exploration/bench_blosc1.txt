@@ -1,0 +1,2 @@
+blosc1 zstd-1 shuffle (python-blosc, numpy-free dep)    HARD ratio= 2.08 size= 406.8 MB comp=  977 MB/s decomp= 3420 MB/s
+blosc1 zstd-1 bitshuffle                                HARD ratio= 2.07 size= 408.3 MB comp= 1054 MB/s decomp= 1925 MB/s

@@ -41,16 +41,22 @@ def _open_inputs(datasets):
     """
     opened = []
     ds_list = []
-    for ds in datasets:
-        if isinstance(ds, str | pathlib.Path):
-            d = open_dataset(ds, "r")
-            opened.append(d)
-            ds_list.append(d)
-        elif isinstance(ds, Dataset | DatasetView):
-            ds_list.append(ds)
-        else:
-            msg = f"datasets must contain file paths or Dataset objects, got {type(ds)}"
-            raise TypeError(msg)
+    try:
+        for ds in datasets:
+            if isinstance(ds, str | pathlib.Path):
+                d = open_dataset(ds, "r")
+                opened.append(d)
+                ds_list.append(d)
+            elif isinstance(ds, Dataset | DatasetView):
+                ds_list.append(ds)
+            else:
+                msg = f"datasets must contain file paths or Dataset objects, got {type(ds)}"
+                raise TypeError(msg)
+    except BaseException:
+        # a later input failed: close the ones already opened, or their files stay locked
+        for d in opened:
+            d.close()
+        raise
     return ds_list, opened
 
 
@@ -434,7 +440,7 @@ def combine(
         - 'first': first dataset wins (skip if data already written)
         - 'error': raise ValueError on overlap
     compression : str or None
-        Compression algorithm ('zstd' or 'lz4'). Inherited from first dataset if None.
+        Compression for the output (one of utils.compression_options). Inherited from the first dataset if None.
     compression_level : int or None
         Compression level. Inherited from first dataset if None.
     include_data_vars : list or None

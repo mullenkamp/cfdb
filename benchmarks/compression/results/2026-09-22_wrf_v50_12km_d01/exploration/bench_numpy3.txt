@@ -1,0 +1,4 @@
+numpy bitop-shuffle + zstd-1                     HARD ratio= 2.13 size= 396.0 MB comp= 1221 MB/s decomp= 2871 MB/s | ALL file= 400.6 MB
+numpy elem-delta(y) + bitop-shuffle + zstd-1     HARD ratio= 2.29 size= 367.9 MB comp=  796 MB/s decomp=  795 MB/s | ALL file= 373.1 MB
+numpy bitop-shuffle + plane-delta(y) + zstd-1    HARD ratio= 2.49 size= 339.3 MB comp=  950 MB/s decomp=  497 MB/s | ALL file= 343.3 MB
+blosc2 zstd-1 shuffle+bytedelta (ref)            HARD ratio= 2.47 size= 342.1 MB comp= 1026 MB/s decomp= 2010 MB/s | ALL file= 358.4 MB

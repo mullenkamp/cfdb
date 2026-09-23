@@ -15,7 +15,6 @@ import weakref
 import warnings
 from copy import deepcopy
 import pyproj
-import math
 
 try:
     import h5netcdf
@@ -502,14 +501,17 @@ class DatasetBase:
             new_data_var.attrs.update(data_var.attrs.data)
 
             ## Write data
-            if data_var._sel is not None:
-                # View — iter_chunks handles slicing correctly
+            coord_origins = data_var.get_coord_origins()
+            if data_var._sel is not None or any(o != 0 for o in coord_origins):
+                # Decoded path: views, and variables with a shifted coordinate (prepend). The raw
+                # path below would store source-aligned chunk bytes under keys the new file (whose
+                # coordinates start at origin 0) reads with a different alignment: wrong data.
                 for write_chunk, data in data_var.iter_chunks():
                     new_data_var.set(write_chunk, data)
             else:
-                # Full variable — raw chunk copy for speed
+                # Every origin is 0, so source and target chunk grids coincide and each stored chunk
+                # can be copied as raw bytes (same compression and dtype, so the same bytes are valid).
                 data_var.load()
-                coord_origins = data_var.get_coord_origins()
                 slices = indexers.index_combo_all(data_var._sel, coord_origins, data_var.shape)
 
                 for target_chunk, source_chunk, blt_key in indexers.slices_to_chunks_keys(slices, data_var.name, data_var.chunk_shape):
@@ -517,15 +519,10 @@ class DatasetBase:
                     if b1 is not None:
                         target_shape = tuple(tc.stop - tc.start for tc in target_chunk)
                         source_shape = tuple(sc.stop - sc.start for sc in source_chunk)
-
+                        if target_shape != source_shape:
+                            raise RuntimeError(f'copy: chunk grids differ for {data_var_name} at origin 0 ({blt_key}); this is a bug.')
                         new_key = utils.make_var_chunk_key(data_var_name, [tc.start for tc in target_chunk])
-
-                        if math.prod(target_shape) == math.prod(source_shape):
-                            new_data_var._blt.set(new_key, b1, ts, False)
-                        else:
-                            data = data_var.dtype.loads(data_var.compressor.decompress(b1), data_var.chunk_shape)
-                            data_b = data_var.compressor.compress(data_var.dtype.dumps(data[source_chunk]))
-                            new_data_var._blt.set(new_key, data_b, ts, False)
+                        new_data_var._blt.set(new_key, b1, ts, False)
 
         new_ds.attrs.update(self.attrs.data)
 
@@ -752,15 +749,31 @@ class Dataset(DatasetBase):
             ## _sys_meta.dataset_type a str on fresh datasets but a Type enum on
             ## reopened ones - and .value readers (the dataset_type property)
             ## would crash on fresh ones. Serialized form is identical either way.
-            self._sys_meta = data_models.SysMeta(dataset_type=data_models.Type(dataset_type.lower()), compression=data_models.Compressor(compression), compression_level=compression_level, variables={})
+            self._sys_meta = data_models.SysMeta(dataset_type=data_models.Type(dataset_type.lower()), compression=data_models.Compressor(compression), compression_level=compression_level, variables={}, format_version=utils.format_version)
             self._blt.set_metadata(msgspec.to_builtins(self._sys_meta))
 
         else:
-            self._sys_meta = msgspec.convert(self._blt.get_metadata(), data_models.SysMeta)
+            meta = self._blt.get_metadata()
+            try:
+                self._sys_meta = msgspec.convert(meta, data_models.SysMeta)
+            except msgspec.ValidationError as err:
+                if '`$.compression`' in str(err):   # exact path: '$.compression_level' must not match
+                    raise ValueError(
+                        f'This file uses compression {meta.get("compression")!r}, which this cfdb does not know: '
+                        'it was written by a newer cfdb. Upgrade cfdb and cfdb-models to read it.'
+                    ) from err
+                raise
+            if self._sys_meta.format_version > utils.format_version:
+                raise ValueError(
+                    f'This file has format_version {self._sys_meta.format_version}; this cfdb reads up to '
+                    f'{utils.format_version}. It was written by a newer cfdb: upgrade cfdb and cfdb-models to read it.'
+                )
 
         self.compression = self._sys_meta.compression.value
         self.compression_level = self._sys_meta.compression_level
+        # dataset-level compressor (no item size) plus one per item size, bound to variables
         self._compressor = sc.Compressor(self.compression, self.compression_level)
+        self._compressors = {}
 
         ## Single source of truth for all attributes: var_name -> attrs dict. Every Attributes instance aliases a dict in here; sync()/close() flush it exactly once.
         self._attrs_cache = {}
@@ -783,6 +796,15 @@ class Dataset(DatasetBase):
 
         if self.writable:
             self.create = creation.Creator(self)
+
+
+    def _compressor_for(self, itemsize):
+        """The dataset's compressor bound to one value width (see support_classes.shuffle_itemsize)."""
+        comp = self._compressors.get(itemsize)
+        if comp is None:
+            comp = sc.Compressor(self.compression, self.compression_level, itemsize)
+            self._compressors[itemsize] = comp
+        return comp
 
 
     def get(self, var_name):
@@ -1012,7 +1034,7 @@ class GridForecast(Dataset):
 def open_dataset(file_path: Union[str, pathlib.Path],
                  flag: str = "r",
                  dataset_type: str='grid',
-                 compression: str='zstd',
+                 compression: str=utils.default_compression,
                  compression_level: int=None,
                  allow_partial: bool=False,
                  **kwargs):
@@ -1036,9 +1058,9 @@ def open_dataset(file_path: Union[str, pathlib.Path],
         - ``'grid'`` -- The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
         - ``'ts_ortho'`` -- A special time series coordinate structure representing the orthogonal multidimensional array representation of time series. Designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The z axis is currently optional.
     compression : str
-        The compression algorithm used for compressing all data. Must be either ``'zstd'`` or ``'lz4'``. zstd has a good balance of compression ratio to speed, while lz4 emphasises speed. Default is ``'zstd'``.
+        The compression for all chunks, set when the dataset is CREATED (an existing dataset keeps what it recorded). One of ``'zstd_shuffle'`` (default), ``'zstd'``, ``'lz4_shuffle'`` or ``'lz4'``. The ``*_shuffle`` values split each value into byte planes before compressing, which makes packed and float data markedly smaller and zstd faster, with no extra dependency; ``lz4_shuffle`` buys size, not decode speed. Measurements: ``benchmarks/compression/README.md``. Files using a ``*_shuffle`` value need cfdb >= 0.10 to read.
     compression_level : int or None
-        The compression level used by the compression algorithm. Setting this to None will use the defaults, which is currently 1 for both compression options.
+        The compression level used by the compression algorithm. Setting this to None will use the defaults, which is currently 1 for every compression option.
     **kwargs
         Any kwargs that can be passed to ``booklet.open``.
 

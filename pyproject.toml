@@ -24,12 +24,13 @@ dependencies = [
   # far from its cause:
   #   booklet <0.12.10  -- calls portalocker.lock(f, LOCK_UN), which portalocker 4.x rejects,
   #                        so the finalizer dies and an OS file lock is never released.
-  #   cfdb-models <0.1.1 -- Type enum lacks ts_forecast/grid_forecast; reading such a file
-  #                        dies with a bare `Invalid enum value` naming no remedy.
+  #   cfdb-models <0.1.2 -- Compressor enum lacks zstd_shuffle/lz4_shuffle (0.1.1 also lacks
+  #                        the forecast types before it): creating a dataset with the new
+  #                        default compression, or reading a shuffled file, fails.
   #   cfdb-vars <0.2.3   -- no forecast coord defs, so ds.create.coord.forecast_reference_time
   #                        simply does not exist (constructors are generated at import).
   'booklet>=0.12.10',
-  'cfdb-models>=0.1.1',
+  'cfdb-models>=0.1.2',
   'cfdb-vars>=0.2.3',
   'rechunkit>=0.6.0',
   'numpy>2',

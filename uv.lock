@@ -533,7 +533,7 @@ wheels = [
 
 [[package]]
 name = "ebooklet"
-version = "0.10.4"
+version = "0.10.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "booklet" },
@@ -542,9 +542,9 @@ dependencies = [
     { name = "s3func" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6d/68/68b7c433de3791d94ee86e8f0803fdbdd6eca8945693ef5bf21d70cf7a79/ebooklet-0.10.4.tar.gz", hash = "sha256:35a87dd8707882d0d7312e5882192c4f6aeafeaae377229156cd911ab10e95ca", size = 65168, upload-time = "2026-08-08T19:43:28.88Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/33/f41536b10d853994bd1c74539f4234640e4d92bd7558ac3d8f54b33ffcfa/ebooklet-0.10.5.tar.gz", hash = "sha256:d66c287e5f56da8accaca7c8d17e54dc4a04a874ab501aad03aa4b7236ec77ed", size = 68481, upload-time = "2026-09-08T04:19:00.127Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/a1/cbefd3c6284911957bcfc67ae1840786ba0bdcb434cf9569844b6e53534a/ebooklet-0.10.4-py3-none-any.whl", hash = "sha256:7ba4f857e59a712064e95df579f3522f1a24825bfd428516276d38b180209d66", size = 68503, upload-time = "2026-08-08T19:43:27.267Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/32/11be14fa6a229e61053760d5126046574b967db82cbe5b0e60ba7171cff3/ebooklet-0.10.5-py3-none-any.whl", hash = "sha256:8cb7d814225d8985fc8b4e076cc62352ae4695036f1a93b98ab3d03a1983314f", size = 71925, upload-time = "2026-09-08T04:18:58.466Z" },
 ]
 
 [[package]]

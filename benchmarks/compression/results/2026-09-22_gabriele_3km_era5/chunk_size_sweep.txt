@@ -1,0 +1,40 @@
+mslp                                     13 block shapes: (97, 74, 89) -> (6, 4, 5)
+pwat                                     13 block shapes: (97, 74, 89) -> (6, 4, 5)
+vimf_u                                   13 block shapes: (97, 74, 89) -> (6, 4, 5)
+vimf_v                                   13 block shapes: (97, 74, 89) -> (6, 4, 5)
+
+=== zstd-1: per-variable ratio vs block size (elements per block; "-" = no rung within 1.5x) ===
+var                                      dtype       638842    316128    156288     78144     39072     19536      9504      4752      2376      1188       594       270       120
+mslp                                     float32        1.5       1.5       1.5       1.6       1.7       1.6       1.7       1.7       1.7       1.6       1.6       1.5       1.4
+pwat                                     float32        3.0       3.0       3.1       3.2       3.2       3.1       3.2       3.0       2.9       2.8       2.6       2.2       1.8
+vimf_u                                   float32        1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.0
+vimf_v                                   float32        1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.1       1.0
+WHOLE FILE projected ratio                             1.41      1.41      1.42      1.44      1.46      1.46      1.47      1.47      1.46      1.45      1.41      1.34      1.22
+WHOLE FILE projected MB                                 7.3       7.3       7.2       7.1       7.0       7.0       6.9       7.0       7.0       7.1       7.3       7.6       8.4
+
+=== shuffle+zstd-1: per-variable ratio vs block size (elements per block; "-" = no rung within 1.5x) ===
+var                                      dtype       638842    316128    156288     78144     39072     19536      9504      4752      2376      1188       594       270       120
+mslp                                     float32        2.5       2.5       2.4       2.3       2.2       2.2       2.2       2.2       2.2       2.2       2.1       2.0       1.8
+pwat                                     float32        2.5       2.5       2.5       2.5       2.4       2.3       2.3       2.3       2.4       2.3       2.2       2.1       1.9
+vimf_u                                   float32        1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.2       1.2       1.2
+vimf_v                                   float32        1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.2       1.2       1.2       1.2       1.2
+WHOLE FILE projected ratio                             1.70      1.69      1.68      1.66      1.64      1.63      1.63      1.62      1.62      1.61      1.58      1.52      1.44
+WHOLE FILE projected MB                                 6.0       6.1       6.1       6.2       6.2       6.3       6.3       6.3       6.3       6.4       6.5       6.7       7.1
+
+=== blosc1 shuffle zstd-1: per-variable ratio vs block size (elements per block; "-" = no rung within 1.5x) ===
+var                                      dtype       638842    316128    156288     78144     39072     19536      9504      4752      2376      1188       594       270       120
+mslp                                     float32        2.3       2.3       2.2       2.2       2.2       2.2       2.2       2.2       2.2       2.2       2.1       1.9       1.6
+pwat                                     float32        2.1       2.1       2.2       2.2       2.2       2.3       2.3       2.3       2.3       2.3       2.2       2.0       1.7
+vimf_u                                   float32        1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.2       1.2       1.1
+vimf_v                                   float32        1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.3       1.2       1.2       1.2       1.2       1.1
+WHOLE FILE projected ratio                             1.60      1.60      1.61      1.61      1.62      1.62      1.62      1.62      1.61      1.59      1.55      1.47      1.35
+WHOLE FILE projected MB                                 6.4       6.4       6.4       6.3       6.3       6.3       6.3       6.3       6.3       6.4       6.6       7.0       7.6
+
+Throughput MB/s (pooled over vars, nearest rung) by block size:
+                                                     638842    316128    156288     78144     39072     19536      9504      4752      2376      1188       594       270       120
+zstd-1 compress                                         580       745       766       746       658       660       617       540       497       419       312       206       117
+zstd-1 decompress                                      1923      1895      1868      1811      1585      1556      1413      1220       965       718       473       259       148
+shuffle+zstd-1 compress                                 555      1149      1093      1064       876       786       621       575       448       328       221       127        67
+shuffle+zstd-1 decompress                              1527      2581      2499      2275      1786      1713      1352      1064       709       442       255       134        65
+blosc1 shuffle zstd-1 compress                          695       877       884       861       846       806       754       698       543       420       294       175        94
+blosc1 shuffle zstd-1 decompress                       2661      2703      2686      2658      2562      2390      2085      1845      1322       905       562       308       155
