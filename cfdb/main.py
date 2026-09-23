@@ -717,11 +717,11 @@ class Dataset(DatasetBase):
         create : bool
             Whether a new file is being created.
         compression : str
-            The compression algorithm used (zstd or lz4).
+            The compression recorded in the file (one of utils.compression_options).
         compression_level : int
             The level of compression.
         dataset_type : str
-            The type of dataset structure (grid or ts_ortho).
+            The type of dataset structure (grid, ts_ortho, ts_forecast or grid_forecast).
         """
         self._blt = open_blt
         self.writable = self._blt.writable

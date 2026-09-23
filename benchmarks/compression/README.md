@@ -28,6 +28,9 @@ uv run python -m benchmarks.compression.chunk_size_sweep PATH.cfdb --shrink-axis
 
 # decompress / compress / whole-file tables (markdown, identical columns) from a sweep JSON
 uv run python -m benchmarks.compression.sweep_tables sweep.json --elements 2153952,268272,66240,4080
+
+# redraw the figures on the docs page docs/concepts/compression-benchmarks.md from results/
+uv run --with matplotlib python -m benchmarks.compression.plot_docs
 ```
 
 The core codecs need only cfdb's own dependencies. Optional codecs register themselves when

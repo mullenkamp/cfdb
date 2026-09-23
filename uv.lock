@@ -165,7 +165,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "booklet", specifier = ">=0.12.10" },
-    { name = "cfdb-models", specifier = ">=0.1.1" },
+    { name = "cfdb-models", specifier = ">=0.1.2" },
     { name = "cfdb-vars", specifier = ">=0.2.3" },
     { name = "ebooklet", marker = "extra == 'ebooklet'", specifier = ">=0.10.0" },
     { name = "geointerp", specifier = ">=0.1.1" },
@@ -202,11 +202,11 @@ docs = [
 
 [[package]]
 name = "cfdb-models"
-version = "0.1.1"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/64/78/956bd06091b147dde8d622b11a5b967ad7147ef5f7d23b4f9707f83eda6a/cfdb_models-0.1.1.tar.gz", hash = "sha256:d058dcf57efcb23f4cc5bc497f0970526655a33f4c8b1ce5f372f92ff0c62543", size = 4673, upload-time = "2026-08-25T01:41:53.677Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/82/ca6fdcd438260a4ccf272ac40844dd2e1ed91da1d046165c50c36f83c171/cfdb_models-0.1.2.tar.gz", hash = "sha256:78f1cc2f01509849e52cfed3c927172970f63e563102f19886ed724330286ba9", size = 4858, upload-time = "2026-09-23T04:30:38.033Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/9e/04a26bfe094b1d9c8061a819985319b67b6485a6db9c4618ae4a313d5653/cfdb_models-0.1.1-py3-none-any.whl", hash = "sha256:98a046ef02a66f88c64f10f74e40e4701013a852094c43413d22ff790f748db9", size = 4206, upload-time = "2026-08-25T01:41:52.574Z" },
+    { url = "https://files.pythonhosted.org/packages/48/11/6aea6d3a0378807a99e68ed774a2c6869525056dca8b85fef6dadbd5f3c8/cfdb_models-0.1.2-py3-none-any.whl", hash = "sha256:4d845b38755b81646954a9f9e7e00af8b6640db36d3b0f01a74a6d8655885660", size = 4392, upload-time = "2026-09-23T04:30:36.876Z" },
 ]
 
 [[package]]

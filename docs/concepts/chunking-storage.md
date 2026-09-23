@@ -36,8 +36,8 @@ stored (e.g. 2 bytes for a float packed to uint16); only 2-, 4- and 8-byte value
 1-byte, bool, 16-byte, string and geometry variables are stored unshuffled. The size win is largest
 for packed values; unpacked full-precision `float64` gains little and, where many values repeat
 exactly, can come out up to ~13 % larger shuffled (while still reading and writing faster), so use
-`compression='zstd'` for such data if size matters most. Measurements behind these choices:
-`benchmarks/compression/README.md` and the review record `benchmarks/results/review-cfdb-shuffle-code-1.md`.
+`compression='zstd'` for such data if size matters most. The measurements behind these choices,
+with plots, are on the [Compression Benchmarks](compression-benchmarks.md) page.
 
 Compression level defaults to 1 for every option; with the shuffle in front, higher zstd levels gain
 ~1.5 % in size for ~1.3–1.4× slower writes. The compression is recorded in the file and used for

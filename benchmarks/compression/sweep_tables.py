@@ -30,7 +30,10 @@ def fmt_elems(e):
     return str(e)
 
 
-def tables(res, elements=None):
+def table_values(res, elements=None):
+    """The numbers behind ``tables``: ``(grid, raw_mb, values)``, where ``grid`` is the block sizes in
+    elements (largest first) and ``values[what][codec]`` is a list over ``grid``; ``what`` is
+    ``'dt'`` (decompress MB/s), ``'ct'`` (compress MB/s) or ``'size'`` (whole-file MB)."""
     vs = res['vars']
     codecs = res['codecs']
     grid = sorted({int(np.prod(ast.literal_eval(s))) for r in vs.values() for s in r['shapes']}, reverse=True)
@@ -48,15 +51,21 @@ def tables(res, elements=None):
             return proj / 1e6
         return raw / max(t, 1e-12) / 1e6
 
+    values = {what: {c: [cell(c, e, what) for e in grid] for c in codecs} for what in ('dt', 'ct', 'size')}
+    return grid, total_raw / 1e6, values
+
+
+def tables(res, elements=None):
+    grid, raw_mb, values = table_values(res, elements)
     head = '| pipeline | ' + ' | '.join(fmt_elems(e) for e in grid) + ' |'
     rule = '|---|' + '---|' * len(grid)
     out = {}
     for what, title in (('dt', 'decompress MB/s'), ('ct', 'compress MB/s'), ('size', 'whole-file MB')):
         rows = [head, rule]
-        for c in codecs:
-            rows.append(f'| {c} | ' + ' | '.join(f'{cell(c, e, what):.0f}' for e in grid) + ' |')
+        for c, vals in values[what].items():
+            rows.append(f'| {c} | ' + ' | '.join(f'{v:.0f}' for v in vals) + ' |')
         out[title] = '\n'.join(rows)
-    out['raw_mb'] = total_raw / 1e6
+    out['raw_mb'] = raw_mb
     return out
 
 

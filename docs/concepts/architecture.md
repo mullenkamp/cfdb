@@ -22,7 +22,7 @@ open_dataset() / open_edataset()
         │
         └── Variable objects (Coordinate / DataVariable)
               ├── DataType (encoding/decoding)
-              ├── Compressor (zstd/lz4)
+              ├── Compressor (zstd/lz4, optionally byte-shuffled; one per stored item size)
               └── Rechunker (single-variable rechunkit wrapper)
 ```
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0 (unreleased)
+## 0.10.0 (2026-09-24)
 
 Requires **cfdb-models >= 0.1.2**. Existing files keep their recorded compression and chunking and
 read unchanged; only NEW datasets and variables pick up the new defaults.

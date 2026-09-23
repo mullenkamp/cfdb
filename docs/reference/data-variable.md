@@ -50,7 +50,7 @@ temp[10:20, :]      # slice
 temp[5, 0:100]      # mixed
 ```
 
-### iter_chunks(chunk_shape=None, max_mem=2\*\*27, decoded=True)
+### iter_chunks(chunk_shape=None, max_mem=2\*\*29, decoded=True)
 
 Iterate through chunks of the variable. Always yields `(slices, data)` tuples.
 
@@ -132,7 +132,7 @@ for slices, data in temp.groupby({'time': 'D', 'latitude': 50}):
 
 ## Parallel Map
 
-### map(func, chunk_shape=None, n_workers=None, max_mem=2\*\*27)
+### map(func, chunk_shape=None, n_workers=None, max_mem=2\*\*29)
 
 Apply a function to each chunk in parallel using multiprocessing. Yields `(target_chunk, result)` tuples as workers complete.
 

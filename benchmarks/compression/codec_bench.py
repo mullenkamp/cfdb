@@ -70,28 +70,42 @@ def bench_dataset(path, codec_names, var_names=None, max_bytes=None, reps=3):
         ds.close()
 
 
-def summarise(res, hard_threshold=5.0):
+def summary_rows(res, hard_threshold=5.0):
+    """Per-codec whole-file numbers, as printed by ``summarise``.
+
+    Returns ``(hard, raw_all, st_all, rows)``; each row is ``(codec, HARD ratio, HARD compress MB/s,
+    HARD decompress MB/s, ALL ratio, ALL MB, ALL MB / stored MB)``. Speeds are pooled over the HARD
+    variables (stored ratio < ``hard_threshold``), so the near-constant fields don't dominate them.
+    """
     stored, results = res['stored'], res['results']
     all_vars = list(stored)
     hard = [v for v in all_vars if stored[v]['raw'] / max(stored[v]['stored'], 1) < hard_threshold]
     raw_all = sum(stored[v]['raw'] for v in all_vars); st_all = sum(stored[v]['stored'] for v in all_vars)
-    print(f'\nDataset: {res["path"]}  (stored as {res["compression"]})')
-    print(f'{len(all_vars)} vars, raw {raw_all/1e6:.1f} MB, stored {st_all/1e6:.1f} MB (ratio {raw_all/max(st_all,1):.2f})')
-    print(f'HARD = the {len(hard)} vars whose STORED ratio is < {hard_threshold} (a fixed set chosen from the file as stored, so every codec '
-          f'is scored on the same population; ALL is the whole-file number): {", ".join(hard)}')
 
     def agg(c, vs):
         rr = results[c]
         return (sum(rr[v]['raw'] for v in vs), sum(rr[v]['comp'] for v in vs),
                 sum(rr[v]['ct'] for v in vs), sum(rr[v]['dt'] for v in vs))
 
-    hdr = f'{"codec":36s} {"ALL ratio":>9s} {"ALL MB":>8s} {"vs stored":>9s} | {"HARD ratio":>10s} {"comp MB/s":>10s} {"decomp MB/s":>12s}'
-    print(hdr); print('-' * len(hdr))
     rows = []
     for c in results:
         rh, ch, cth, dth = agg(c, hard) if hard else (0, 1, 1, 1)
         ra, ca, _, _ = agg(c, all_vars)
         rows.append((c, rh / max(ch, 1), rh / max(cth, 1e-12) / 1e6, rh / max(dth, 1e-12) / 1e6, ra / max(ca, 1), ca / 1e6, ca / max(st_all, 1)))
+    return hard, raw_all, st_all, rows
+
+
+def summarise(res, hard_threshold=5.0):
+    stored, results = res['stored'], res['results']
+    all_vars = list(stored)
+    hard, raw_all, st_all, rows = summary_rows(res, hard_threshold)
+    print(f'\nDataset: {res["path"]}  (stored as {res["compression"]})')
+    print(f'{len(all_vars)} vars, raw {raw_all/1e6:.1f} MB, stored {st_all/1e6:.1f} MB (ratio {raw_all/max(st_all,1):.2f})')
+    print(f'HARD = the {len(hard)} vars whose STORED ratio is < {hard_threshold} (a fixed set chosen from the file as stored, so every codec '
+          f'is scored on the same population; ALL is the whole-file number): {", ".join(hard)}')
+
+    hdr = f'{"codec":36s} {"ALL ratio":>9s} {"ALL MB":>8s} {"vs stored":>9s} | {"HARD ratio":>10s} {"comp MB/s":>10s} {"decomp MB/s":>12s}'
+    print(hdr); print('-' * len(hdr))
     for c, ratio, cs, dsp, ra, mb, rel in sorted(rows, key=lambda x: -x[4]):
         print(f'{c:36s} {ra:9.2f} {mb:8.1f} {rel:9.2f} | {ratio:10.2f} {cs:10.0f} {dsp:12.0f}')
 
