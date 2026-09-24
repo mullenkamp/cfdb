@@ -25,9 +25,7 @@ Every chunk is compressed before storage. The algorithm is set at dataset creati
 | `compression` | Library | Characteristics |
 |-----------|---------|----------------|
 | `zstd_shuffle` | zstandard | **Default.** Byte-shuffled zstd: the smallest files and faster than plain zstd both ways for chunks above a few thousand elements |
-| `zstd` | zstandard | Plain zstd; readable by cfdb < 0.10 |
 | `lz4_shuffle` | lz4 | Byte-shuffled lz4: smaller than `lz4`, but decodes slower than it |
-| `lz4` | lz4 | Fastest decompression, largest files |
 
 The `*_shuffle` values split each chunk's values into byte planes before compressing (all low
 bytes, then all high bytes, ...). Packed values keep smooth, compressible high bytes and noisy low
@@ -89,6 +87,9 @@ The optimal chunk shape depends on your access pattern:
 | Spatial snapshot at one time | `(Y, X, 1)` — wide spatially, thin temporally |
 
 In practice, the auto-estimated chunk shape is a reasonable starting point. Use the [Rechunker](../guide/rechunking.md) when you need a different access pattern.
+
+For datasets published to S3, especially ungrouped remotes that keep growing, request costs change
+the answer: see [Chunk sizes for remote datasets](../guide/s3-remote.md#chunk-sizes-for-remote-datasets).
 
 ## Coordinate Chunk Storage
 
