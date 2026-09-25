@@ -13,7 +13,7 @@ remote = S3Connection(
     access_key_id='KEY',
     access_key='SECRET',
     bucket='bucket',
-    object_key='data.cfdb',
+    db_key='data.cfdb',
 )
 
 with cfdb.open_edataset(remote, 'local.cfdb') as ds:

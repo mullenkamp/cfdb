@@ -19,7 +19,7 @@ remote_conn = S3Connection(
     access_key_id='YOUR_KEY',
     access_key='YOUR_SECRET',
     bucket='my-bucket',
-    object_key='datasets/example.cfdb',
+    db_key='datasets/example.cfdb',
 )
 
 with cfdb.open_edataset(remote_conn, 'local_cache.cfdb', flag='r') as ds:
@@ -203,7 +203,7 @@ new_remote = S3Connection(
     access_key_id='YOUR_KEY',
     access_key='YOUR_SECRET',
     bucket='backup-bucket',
-    object_key='datasets/copy.cfdb',
+    db_key='datasets/copy.cfdb',
 )
 
 with cfdb.open_edataset(remote_conn, 'local.cfdb') as ds:

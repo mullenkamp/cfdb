@@ -1,4 +1,4 @@
-<!-- Approved by Mike 2026-09-23 after review round cfdb-shuffle-plan-1b; implemented in the 0.10.0 working tree. This replaces the earlier unreviewed draft of the same name. -->
+<!-- Approved by Mike 2026-09-23 after review round cfdb-shuffle-plan-1b; implemented and released as cfdb 0.10.0 + cfdb-models 0.1.2 (PyPI, 2026-09-24). This replaces the earlier unreviewed draft of the same name. -->
 
 # Plan — byte-shuffle compression and a smaller default chunk size for cfdb (revised after review `cfdb-shuffle-plan-1b`)
 
