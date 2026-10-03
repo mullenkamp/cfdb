@@ -516,6 +516,43 @@ with open_dataset('data.cfdb', flag='w') as ds:
 > **+42 %**, and rewriting each row twice **+84 %**; and `Coordinate.truncate` leaves dead bytes
 > in boundary chunks until pruned.
 
+#### Prove the writes are chunk-aligned — measure at the development stage
+
+A `prune()` at the end of a build is right for production: appends and prepends into partly filled
+chunks legitimately rewrite them. But it also **hides a bad write strategy**, because every rewritten
+chunk is reclaimed and the only symptom left is a slower build. "The write loop mirrors `chunk_shape`" is
+a design claim, so **measure it while developing a new write path** (or after changing one):
+
+1. **Measure what prune reclaims on a FRESH build:** the answer must be ~0, only the re-written
+   attributes. Measured 2026-10-03 on four WRF write paths (single-source, derived, two-source rotated,
+   4-layer soil): 2–3 kB reclaimed on 21–342 MB files. (Logging it on every build is cheap and optional;
+   envlib-ingest-wrf-3k's `build.py` does, and warns above ~1 %.)
+   ```python
+   size0 = os.path.getsize(path)
+   with open_dataset(path, flag='w') as ds:
+       ds.prune()
+   freed = size0 - os.path.getsize(path)   # > ~1 % of size0 on a fresh build = rewrites
+   ```
+2. **Count writes per chunk** — the exact test. Spy on booklet's `set` (chunk keys contain `'!'`, e.g.
+   `'temperature!0.0.24'`); every count must be 1:
+   ```python
+   import collections, booklet
+   counts, orig = collections.Counter(), booklet.main.VariableLengthValue.set
+   def spy(self, key, value, *a, **k):
+       if isinstance(key, str) and '!' in key:
+           counts[key] += 1
+       return orig(self, key, value, *a, **k)
+   booklet.main.VariableLengthValue.set = spy      # (monkeypatch in tests)
+   # ... build ...
+   assert counts and set(counts.values()) == {1}, counts
+   ```
+3. **Make the detector fire once on purpose:** re-run a range that is already stored and confirm the
+   reclaim jumps (measured: 143 MB, 49.8 % of the file, for one re-written 840-h band).
+
+**Reclaim is legitimate** after re-running stored ranges, extending into a partly filled chunk (the
+tail-chunk pattern above, and any append or prepend that meets one), or a truncate — not on a fresh
+build. So keep the automatic `prune()`; the measurement is what proves the strategy, once, up front.
+
 ### Interpolation
 
 Requires the `geointerp` package and a CRS set on the dataset:
@@ -670,4 +707,7 @@ with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
 - **The store is log-structured: overwriting a chunk orphans the old block.** Any repeatedly
   updated dataset grows every run (the tail chunk is rewritten each time) and needs `prune()` to
   reclaim it. Prune after publishing; it preserves timestamps, so it cannot inflate a push.
+- **Prove chunk-aligned writes by measurement when developing a write path** (see *Pruning*): what
+  `prune()` reclaims on a fresh build (≈0), or a per-key write count. Keep the automatic prune in
+  production; it would otherwise hide write amplification, which is why it is measured up front.
 - Thread-safe and multiprocessing-safe via locks.
