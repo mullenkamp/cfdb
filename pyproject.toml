@@ -44,7 +44,7 @@ dependencies = [
 
 [project.optional-dependencies]
 netcdf4 = ['h5netcdf']
-ebooklet = ['ebooklet>=0.10.0']
+ebooklet = ['ebooklet>=0.11.0']
 xarray = ['xarray']
 
 [project.entry-points."xarray.backends"]
@@ -60,13 +60,13 @@ dev = [
   "pytest-cov",
   'h5netcdf',
   'h5py>=3.6.0',
-  'ebooklet>=0.10.0',
+  'ebooklet>=0.11.0',
   'xarray',
 ]
 docs = [
   "mkdocs-material>=9.0",
   "mkdocstrings[python]>=0.24",
-  "ebooklet>=0.10.0",
+  "ebooklet>=0.11.0",
 ]
 
 [tool.hatch]

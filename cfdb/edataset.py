@@ -14,6 +14,11 @@ import pathlib
 from . import utils
 from .main import Dataset
 
+## "Argument not given" for open_edataset's storage-mode arguments: only given
+## arguments are forwarded, so ebooklet's own defaults (inherit the remote's
+## mode and recorded group_bytes; grouped for a new dataset) apply otherwise.
+_NOT_GIVEN = object()
+
 
 class EDataset(Dataset):
     """
@@ -86,9 +91,11 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
                   dataset_type: str='grid',
                   compression: str=utils.default_compression,
                   compression_level: int=None,
-                  num_groups: int = None,
+                  *,
+                  group_bytes=_NOT_GIVEN,
                   lock_timeout: int = 300,
                   force_lock: bool = False,
+                  num_groups=_NOT_GIVEN,
                   **kwargs):
     """
     Open a cfdb that is linked with a remote S3 database.
@@ -119,13 +126,15 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
         The compression for all chunks, used only when a NEW dataset is created: attaching to an existing local or remote dataset always uses the compression it recorded, whatever is passed here. One of ``'zstd_shuffle'`` (default), ``'zstd'``, ``'lz4_shuffle'`` or ``'lz4'``; see ``open_dataset``.
     compression_level : int or None
         The compression level. None uses the defaults, which is 1 for every compression option.
-    num_groups : int or None
-        The number of groups for grouped S3 object storage. Required when creating a new database (flag='n'). For existing databases, this value is read from S3 metadata and the user-provided value is ignored.
-        Guidance: aim for groups of 10-100MB each. A reasonable starting point is max(10, total_expected_keys // 50). Too few groups means large S3 objects and slow partial updates; too many means more API calls per push. Each group's data is limited to 4GB due to offset encoding.
+    group_bytes : int, None, or omitted
+        The remote storage mode (ebooklet >= 0.11). An int: grouped storage - at each push the chunks new to the remote are packed, in the order they were written, into group objects of up to group_bytes bytes, so appending to a dataset uploads only the new chunks (plus at most one partly filled group). None: per-key storage, one remote object per chunk.
+        Omitted: an existing remote keeps its mode and the group_bytes it records (whatever its last push packed with); a NEW dataset is grouped at ebooklet.DEFAULT_GROUP_BYTES (32 MiB). Passing another int packs new chunks to it from then on and is recorded in place of the old value. Writing chunks in the order they will usually be read together (e.g. time band by time band) keeps them in the same groups. See ebooklet's "Grouped Storage".
     lock_timeout : int
         Maximum time in seconds to wait for the write lock when opening for write. Default is 300 (5 minutes). Only applies when flag is not ``'r'``. Raises ``TimeoutError`` if the lock cannot be acquired within the timeout.
     force_lock : bool
         If True, break any existing write locks before acquiring. Use this to recover from stale locks left by crashed processes. Default is False.
+    num_groups : None
+        Removed (hash grouping, ebooklet < 0.11). Forwarded to ebooklet for one release: an explicit num_groups=None keeps its old meaning, per-key storage; an int raises ValueError - use group_bytes.
     **kwargs
         Any kwargs that can be passed to ``ebooklet.open_ebooklet``.
 
@@ -135,9 +144,16 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
     """
     if 'n_buckets' not in kwargs:
         kwargs['n_buckets'] = utils.default_n_buckets
+    ## Forward the storage-mode arguments only when given: omitted, ebooklet
+    ## inherits an existing remote's mode and recorded group_bytes (and
+    ## defaults a new one to grouped).
+    if group_bytes is not _NOT_GIVEN:
+        kwargs['group_bytes'] = group_bytes
+    if num_groups is not _NOT_GIVEN:
+        kwargs['num_groups'] = num_groups
 
     fp = pathlib.Path(file_path)
-    open_blt = ebooklet.open_ebooklet(remote_conn, file_path, flag, num_groups=num_groups, lock_timeout=lock_timeout, force_lock=force_lock, **kwargs)
+    open_blt = ebooklet.open_ebooklet(remote_conn, file_path, flag, lock_timeout=lock_timeout, force_lock=force_lock, **kwargs)
 
     try:
         # Create only when no dataset exists anywhere: get_metadata() transparently checks the remote as well as the local file, so a fresh local file attaches to an existing remote dataset instead of silently creating a new (empty) one over it. flag 'n' always creates new.

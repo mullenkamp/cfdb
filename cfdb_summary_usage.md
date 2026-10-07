@@ -616,13 +616,13 @@ remote_conn = S3Connection(
     db_url='https://s3.example.com/my-bucket/my_data.cfdb',  # optional, for read-only http access
 )
 
-# Create new remote-linked cfdb (num_groups required for new databases):
-with open_edataset(remote_conn, 'data.cfdb', flag='n', num_groups=100) as ds:
+# Create new remote-linked cfdb (grouped storage by default; group_bytes=None for one object per chunk):
+with open_edataset(remote_conn, 'data.cfdb', flag='n') as ds:
     ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
     # ... create coords, data vars, write data as normal ...
 
 # Open existing local cfdb linked to remote (read/write):
-with open_edataset(remote_conn, 'data.cfdb', flag='w', num_groups=100) as ds:
+with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
     # ... read/write data as normal ...
     pass
 
@@ -631,13 +631,17 @@ with open_edataset(remote_conn, 'data.cfdb') as ds:
     data = ds['temperature'].data
 ```
 
-**Choosing `num_groups`:** chunks are hashed into `num_groups` remote objects, so each object bundles many
-chunks — an S3-remote concern, independent of `chunk_shape`. Bundling avoids thousands of tiny objects (a
-compressed chunk may be ~100 KB) whose per-object request latency would dominate. Trade-off: fewer/larger
-groups cut read latency but make each *update* re-upload a bigger object; more/smaller groups make updates
-cheap but add object overhead. So rarely-changing / append-mostly data (e.g. SST appended a year at a time)
-→ **fewer groups** (larger objects); frequently-updated data → **more groups**. Set once at creation (stored
-in the remote metadata); changing it needs a re-push to a fresh `db_key`.
+**Grouped storage (`group_bytes`, ebooklet ≥ 0.11):** at each push the chunks new to the remote are packed,
+in the order they were written, into group objects of up to `group_bytes` bytes (default 32 MiB) — an
+S3-remote concern, independent of `chunk_shape`. Bundling avoids thousands of tiny objects whose per-object
+request latency would dominate, and because groups follow write order, appending to a dataset uploads only
+the new chunks (plus at most the partly filled last group); updating existing chunks re-uploads only their
+groups. Write chunks in the order they are usually read together (e.g. time band by time band).
+`group_bytes=None` stores one object per chunk — for datasets pushed very often in tiny increments.
+Omitted, an existing remote keeps its mode and the `group_bytes` it records (the value its last push
+packed with). (Hash-grouped remotes made with `num_groups` before ebooklet
+0.11 must be moved to the current format: hydrate with `load_items()` under the old ebooklet,
+`delete_remote()`, re-push.)
 
 **IMPORTANT flag behavior:**
 - `flag='n'` destroys both the local file and the remote database, then creates new empty ones. Never use on an existing file you want to keep.
@@ -654,7 +658,7 @@ with open_dataset('data.cfdb', flag='n') as ds:
     # ... create coords, data vars, write data ...
 
 # Open with flag='w' to preserve existing local data and push to remote
-with open_edataset(remote_conn, 'data.cfdb', flag='w', num_groups=100) as ds:
+with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
     result = ds.push()
     # Returns: True (success), False (no changes), or dict (partial failure with failed keys)
     # Use ds.push(force_push=True) to retry after partial failure

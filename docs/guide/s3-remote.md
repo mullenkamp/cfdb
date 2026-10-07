@@ -43,7 +43,7 @@ The `remote_conn` parameter accepts:
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `remote_conn` | S3Connection, str, or dict | Remote connection |
-| `num_groups` | int or None | How chunks are stored as S3 objects, fixed when the remote is created: `None` stores one object per chunk (ungrouped); an int hashes chunks into that many group objects. Ignored for an existing remote. See [Chunk sizes for remote datasets](#chunk-sizes-for-remote-datasets). |
+| `group_bytes` | int, None, or omitted | How chunks are stored as S3 objects (ebooklet ≥ 0.11). An int: grouped - chunks new to the remote are packed, in the order they were written, into group objects of up to that many bytes. `None`: ungrouped, one object per chunk. Omitted: an existing remote keeps its mode and the `group_bytes` it records (whatever its last push packed with); a new dataset is grouped at 32 MiB. Another int packs new chunks to it from then on and replaces the recorded value. See [Chunk sizes for remote datasets](#chunk-sizes-for-remote-datasets). |
 
 ## Reading Remote Data
 
@@ -122,15 +122,19 @@ differences between chunk sizes, so pick the chunk shape for a remote with reque
 
 ### Grouped or ungrouped
 
-| | Grouped (`num_groups=<int>`) | Ungrouped (`num_groups=None`) |
+| | Grouped (`group_bytes=<int>`, the default) | Ungrouped (`group_bytes=None`) |
 |---|---|---|
-| Storage | chunks hashed into `num_groups` objects | one object per chunk |
-| Requests per read | at most one per group touched, so at most `num_groups` | one per chunk touched |
-| An update re-uploads | every group containing a changed chunk | only the changed chunks |
-| Suits | datasets written once or rarely (archives, reanalyses) | datasets that keep growing (telemetry, forecasts) |
+| Storage | chunks packed in write order into objects of up to `group_bytes` | one object per chunk |
+| Requests per read | one per group touched | one per chunk touched |
+| An append uploads | the new chunks, plus at most the partly filled last group | only the new chunks |
+| An update of existing chunks re-uploads | each group holding a changed chunk | only the changed chunks |
+| Suits | most datasets, including ones that grow by appending | datasets pushed very often in small increments (each push would re-upload the last group) |
 
-A dataset that grows forever should be ungrouped. Each append changes chunks spread across the
-hashed groups, so a grouped remote would re-upload large group objects on every update.
+Grouping follows **write order**: chunks written together share groups. A dataset built and extended
+time band by time band keeps each band in its own groups, so an append touches only new groups, and
+a read of one band's chunks needs few requests. (Before ebooklet 0.11 groups were assigned by hashing
+the chunk key, which scattered every append over nearly all groups; such remotes must be moved to the
+current format - see ebooklet's changelog.)
 
 ### Ungrouped remotes: make chunks at least ~1.5–2 MB compressed
 
@@ -164,7 +168,7 @@ all stations" is. The (141, 2 190) shape is ~310 K elements, inside cfdb's best 
 ```python
 # Growing station dataset on an ungrouped remote, read mostly as "latest data, all stations":
 # all stations x one quarter (2 190 hours) per chunk
-with cfdb.open_edataset(remote_conn, 'flow.cfdb', flag='n', dataset_type='ts_ortho', num_groups=None) as ds:
+with cfdb.open_edataset(remote_conn, 'flow.cfdb', flag='n', dataset_type='ts_ortho', group_bytes=None) as ds:
     ...  # create the point and time coordinates
     ds.create.data_var.generic('streamflow', ('point', 'time'), dtype=flow_dtype,
                                chunk_shape=(n_stations, 2190))
@@ -172,12 +176,13 @@ with cfdb.open_edataset(remote_conn, 'flow.cfdb', flag='n', dataset_type='ts_ort
 
 ### Grouped remotes: chunk shape decides the bytes
 
-Grouping caps the number of requests, so smaller chunks cost little extra. The cost that remains is
-bytes downloaded: a read fetches whole chunks, and one request per group spans from the first to the
-last chunk needed in that group. On a grouped SST archive with chunks 120 days deep, reading one day
-downloaded all 120 days, and one point's 45-year series downloaded 24× the data it needed. Shape the
-chunks for the queries you expect, and aim for groups of 10–100 MB (see `open_edataset`'s
-`num_groups` docstring).
+Grouping bundles chunks into fewer requests, so smaller chunks cost little extra. The cost that
+remains is bytes downloaded: a read fetches whole chunks, and one request per group spans from the
+first to the last chunk needed in that group. On a (hash-grouped, pre-0.11) SST archive with chunks
+120 days deep and 134 MB groups, reading one day downloaded all 120 days, and one point's 45-year
+series downloaded 24× the data it needed. Shape the chunks for the queries you expect. Write-order
+groups of the default 32 MiB bound that span to one group; a smaller `group_bytes` lowers it further
+at the cost of more objects (the default has not yet been benchmarked against alternatives).
 
 The measurements behind this section are in the repository's `benchmarks/RESULTS.md`, sections
 "Remote (EDataset) reads vs chunk size" and "Station (ts_ortho) data".

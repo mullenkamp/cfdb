@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.0 (unreleased)
+
+Requires **ebooklet >= 0.11.0**.
+
+### Changed
+
+- **`open_edataset(group_bytes=...)` replaces `num_groups`** (ebooklet 0.11's write-order groups).
+  An int packs the chunks new to the remote, in the order they were written, into group objects of
+  up to that many bytes, so appending to a dataset uploads only the new chunks; `None` stores one
+  object per chunk. Omitted, an existing remote keeps its mode and its recorded `group_bytes`, and a NEW dataset is grouped
+  (ebooklet's default, 32 MiB) - previously an omitted `num_groups` meant one object per chunk.
+  `num_groups` is forwarded for one release: an explicit `num_groups=None` still means one object per
+  chunk; an int raises. Hash-grouped remotes from ebooklet < 0.11 must be moved to the current format
+  (see ebooklet's changelog).
+- **`group_bytes` and the arguments after it are keyword-only** in `open_edataset`. `group_bytes`
+  sits where `num_groups` was, so a positional 0.10 call now raises `TypeError` instead of passing
+  a group count as a byte target.
+
 ## 0.10.0 (2026-09-24)
 
 Requires **cfdb-models >= 0.1.2**. Existing files keep their recorded compression and chunking and

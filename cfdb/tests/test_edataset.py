@@ -22,7 +22,7 @@ file_path = script_path.joinpath('test_remote.cfdb')
 name = 'air_temp'
 coords = ('latitude', 'longitude', 'time')
 chunk_shape = (20, 30, 10)
-num_groups = 10
+group_bytes = 2**16   # small groups, so a test dataset spans several
 
 sel = (slice(1, 4), slice(None, None), slice(2, 5))
 loc_sel = (slice(0.4, 0.7), slice(None, None), slice('1970-01-04', '1970-01-10'))
@@ -113,7 +113,7 @@ def pushed_dataset(remote_conn):
         data_var = ds.create.data_var.generic(name, coords, data_dtype, chunk_shape=chunk_shape)
         data_var[:] = data_var_data
 
-    with open_edataset(remote_conn, file_path, flag='w', num_groups=num_groups) as ds:
+    with open_edataset(remote_conn, file_path, flag='w', group_bytes=group_bytes) as ds:
         changes = ds.changes()
         assert changes.push()
 
@@ -339,7 +339,7 @@ def test_edataset_midsession_push(fg1_conn):
     """
     _clean_fg_local()
 
-    with open_edataset(fg1_conn, fg1_file_path, flag='n', num_groups=num_groups) as ds:
+    with open_edataset(fg1_conn, fg1_file_path, flag='n', group_bytes=group_bytes) as ds:
         ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
         ds.attrs['project'] = 'footgun-test'
         ds['latitude'].attrs['note'] = 'mid-session'
@@ -373,14 +373,14 @@ def fg2_pushed(fg2_conn):
     """Create + push + close a small dataset for the attach regressions."""
     _clean_fg_local()
 
-    with open_edataset(fg2_conn, fg2_file_path, flag='n', num_groups=num_groups) as ds:
+    with open_edataset(fg2_conn, fg2_file_path, flag='n', group_bytes=group_bytes) as ds:
         ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
         dv = ds.create.data_var.generic('temp', ('latitude',), dtypes.dtype('float32'), chunk_shape=(20,))
         dv[:] = lat_data
         ds.attrs['origin'] = 'fg2'
 
-    # num_groups must be re-passed here: the remote doesn't exist yet, so it can't be read from S3 metadata (same pattern as pushed_dataset above)
-    with open_edataset(fg2_conn, fg2_file_path, flag='w', num_groups=num_groups) as ds:
+    # group_bytes re-passed: the remote doesn't exist yet (the journal records the grouped mode; the byte target is a writer setting)
+    with open_edataset(fg2_conn, fg2_file_path, flag='w', group_bytes=group_bytes) as ds:
         assert ds.push()
 
     _clean_fg_local()
@@ -489,7 +489,7 @@ def test_edataset_ts_ortho_e2e(ts1_conn, fg2_pushed):
     geo_data = [shapely.Point(x, y) for x, y in zip(np.linspace(-5, 4.9, 20), np.linspace(0, 9.9, 20))]
     ts_values = np.linspace(0, 199.9, 200, dtype='float32').reshape(20, 10)
 
-    with open_edataset(ts1_conn, ts1_file_path, flag='n', dataset_type='ts_ortho', num_groups=num_groups) as ds:
+    with open_edataset(ts1_conn, ts1_file_path, flag='n', dataset_type='ts_ortho', group_bytes=group_bytes) as ds:
         assert type(ds).__name__ == 'ETimeSeriesOrtho'
         assert ds.dataset_type == 'ts_ortho'
         geo_coord = ds.create.coord.point()
@@ -498,8 +498,8 @@ def test_edataset_ts_ortho_e2e(ts1_conn, fg2_pushed):
         dv = ds.create.data_var.generic('temp', ('point', 'time'), dtypes.dtype('float32'), chunk_shape=(10, 10))
         dv[:] = ts_values
 
-    # num_groups must be re-passed: the remote doesn't exist yet (same pattern as fg2_pushed)
-    with open_edataset(ts1_conn, ts1_file_path, flag='w', num_groups=num_groups) as ds:
+    # group_bytes re-passed: the remote doesn't exist yet (same pattern as fg2_pushed)
+    with open_edataset(ts1_conn, ts1_file_path, flag='w', group_bytes=group_bytes) as ds:
         assert type(ds).__name__ == 'ETimeSeriesOrtho'
         assert ds.push()
 
