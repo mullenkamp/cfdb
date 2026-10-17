@@ -225,8 +225,10 @@ with open_dataset('data.cfdb') as ds:
 > once. Measured peak for such a build: **4.5 GB**. Writing one station row at a time needs
 > **4.5 MB** — same file on disk, ~250x less RAM.
 >
-> **Rule: the write loop should mirror `chunk_shape`.** If the chunk shape is `(1, 25_000)` —
-> one row — write one row at a time. `np.full((n_rows, n_cols), np.nan)` immediately before a
+> **Rule: the write loop should mirror `chunk_shape`.** If the chunk shape is `(1, 2520)` — one
+> station, one time block — write one chunk at a time. On a grouped remote the ORDER matters too:
+> groups pack chunks in write order, so write the chunks that are later updated together (block by
+> block across stations, as envlib-ingest-base's ts_ortho build does since 0.6.0). `np.full((n_rows, n_cols), np.nan)` immediately before a
 > write loop is the canonical smell: that array is the bug.
 
 ```python
@@ -501,8 +503,9 @@ with open_dataset('data.cfdb', flag='w') as ds:
 >
 > **This bites hardest on the append-into-a-partial-chunk pattern**, which is what almost every
 > continuously-updated dataset does: new data lands in the *tail* chunk, so that chunk is
-> rewritten in full on every run however few values arrived. At a 25,000-step time chunk on
-> hourly data, a tail chunk is rewritten ~25,000 times before it is ever full.
+> rewritten in full on every run however few values arrived. At a 2520-step time chunk on hourly
+> data, a tail chunk is rewritten ~2,520 times before it is ever full (~25,000 times at the 25,000-step
+> chunk these measurements were taken with).
 >
 > Measured on a 250-station × 140,000-step dataset merging a routine 48-step window hourly:
 > 99.5 MB after build → **353 MB after one day** → back to 99.5 MB after `prune()`, in **0.3 s**.

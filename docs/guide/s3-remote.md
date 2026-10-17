@@ -128,13 +128,19 @@ differences between chunk sizes, so pick the chunk shape for a remote with reque
 | Requests per read | one per group touched | one per chunk touched |
 | An append uploads | the new chunks, plus at most the partly filled last group | only the new chunks |
 | An update of existing chunks re-uploads | each group holding a changed chunk | only the changed chunks |
-| Suits | most datasets, including ones that grow by appending | datasets pushed very often in small increments (each push would re-upload the last group) |
+| Suits | most datasets, including ones that grow by appending, and (with small groups) continuously updated station data | small or rarely updated datasets where one object per chunk is simplest |
 
 Grouping follows **write order**: chunks written together share groups. A dataset built and extended
 time band by time band keeps each band in its own groups, so an append touches only new groups, and
 a read of one band's chunks needs few requests. (Before ebooklet 0.11 groups were assigned by hashing
 the chunk key, which scattered every append over nearly all groups; such remotes must be moved to the
 current format - see ebooklet's changelog.)
+
+**Continuously updated station data** (an hourly feed rewriting every station's latest chunk) is best
+grouped too, with small groups: one station × ~2520 steps per chunk, written block by block across
+stations, and `group_bytes` at most half of one block (all stations × one time chunk). An hourly
+update then uploads a few groups instead of one object per station. envlib-ingest-base's ts_ortho
+builder does this by default since 0.6.0.
 
 ### Ungrouped remotes: make chunks at least ~1.5–2 MB compressed
 
