@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.11.0 (unreleased)
+## 0.11.0 (2026-10-07)
 
 Requires **ebooklet >= 0.11.0**.
 
@@ -13,7 +13,12 @@ Requires **ebooklet >= 0.11.0**.
   (ebooklet's default, 32 MiB) - previously an omitted `num_groups` meant one object per chunk.
   `num_groups` is forwarded for one release: an explicit `num_groups=None` still means one object per
   chunk; an int raises. Hash-grouped remotes from ebooklet < 0.11 must be moved to the current format
-  (see ebooklet's changelog).
+  (see ebooklet's changelog). Until then they cannot be opened at all, not even with `flag='r'`:
+  ebooklet raises `UnsupportedFormatError`, whose message gives the steps (`flag='n'`, a full
+  replacement, is the one open it allows).
+- **The storage mode (grouped or one object per chunk) is fixed per remote.** Against an existing
+  remote, a `group_bytes` that asks for the other mode is ignored with a `UserWarning`, and with
+  `flag='n'` it raises `ValueError`; call `delete_remote()` first to change the mode.
 - **`group_bytes` and the arguments after it are keyword-only** in `open_edataset`. `group_bytes`
   sits where `num_groups` was, so a positional 0.10 call now raises `TypeError` instead of passing
   a group count as a byte target.

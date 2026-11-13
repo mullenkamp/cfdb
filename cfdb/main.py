@@ -1057,6 +1057,8 @@ def open_dataset(file_path: Union[str, pathlib.Path],
 
         - ``'grid'`` -- The standard CF conventions dimensions/coordinates. Each coordinate must be unique and increasing in ascending order. Each coordinate represents a single axis (i.e. x, y, z, t). The z axis is currently optional.
         - ``'ts_ortho'`` -- A special time series coordinate structure representing the orthogonal multidimensional array representation of time series. Designed for time series data with sparse geometries (e.g. station time series data). The Geometry dtype must represent the xy axis. The z axis is currently optional.
+        - ``'ts_forecast'`` -- Forecasts at stations or points: the ts_ortho layout with the time axis replaced by ``forecast_reference_time`` (when the run was issued) and ``forecast_period`` (the lead), dims ``(point, forecast_reference_time, forecast_period)``.
+        - ``'grid_forecast'`` -- Gridded forecasts: the grid layout with the time axis replaced by ``forecast_reference_time`` and ``forecast_period``, dims ``(x, y, forecast_reference_time, forecast_period)``.
     compression : str
         The compression for all chunks, set when the dataset is CREATED (an existing dataset keeps what it recorded). One of ``'zstd_shuffle'`` (default), ``'zstd'``, ``'lz4_shuffle'`` or ``'lz4'``. The ``*_shuffle`` values split each value into byte planes before compressing, which makes packed and float data markedly smaller and zstd faster, with no extra dependency; ``lz4_shuffle`` buys size, not decode speed. Measurements: ``benchmarks/compression/README.md``. Files using a ``*_shuffle`` value need cfdb >= 0.10 to read.
     compression_level : int or None

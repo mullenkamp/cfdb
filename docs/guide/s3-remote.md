@@ -38,12 +38,16 @@ The `remote_conn` parameter accepts:
 
 ### Parameters
 
-`open_edataset()` accepts the same parameters as `open_dataset()` plus:
+`open_edataset()` accepts the same parameters as `open_dataset()` plus the ones below. Everything from
+`group_bytes` on is keyword-only, and any other keyword argument (for example `offline=`) is passed to
+`ebooklet.open_ebooklet`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `remote_conn` | S3Connection, str, or dict | Remote connection |
-| `group_bytes` | int, None, or omitted | How chunks are stored as S3 objects (ebooklet ≥ 0.11). An int: grouped - chunks new to the remote are packed, in the order they were written, into group objects of up to that many bytes. `None`: ungrouped, one object per chunk. Omitted: an existing remote keeps its mode and the `group_bytes` it records (whatever its last push packed with); a new dataset is grouped at 32 MiB. Another int packs new chunks to it from then on and replaces the recorded value. See [Chunk sizes for remote datasets](#chunk-sizes-for-remote-datasets). |
+| `group_bytes` | int, None, or omitted | How chunks are stored as S3 objects (ebooklet ≥ 0.11). An int: grouped - chunks new to the remote are packed, in the order they were written, into group objects of up to that many bytes. `None`: ungrouped, one object per chunk. Omitted: an existing remote keeps its mode and the `group_bytes` it records (whatever its last push packed with); a new dataset is grouped at 32 MiB. Another int packs new chunks to it from then on and replaces the recorded value. The mode itself is fixed per remote: against an existing remote, a request for the other mode is ignored with a warning, and with `flag='n'` it raises; call `delete_remote()` first to change it. See [Chunk sizes for remote datasets](#chunk-sizes-for-remote-datasets). |
+| `lock_timeout` | int | Seconds to wait for the write lock when opening for write (default 300); raises `TimeoutError` after that. |
+| `force_lock` | bool | Break stale write locks before acquiring, to recover from a crashed writer (default `False`). Age-gated: only lock tickets older than 2 hours are broken, so a live writer is protected. |
 
 ## Reading Remote Data
 
@@ -103,8 +107,8 @@ locally nor remotely (or with `flag='n'`, which always creates new).
 
 ### Dataset Types
 
-Both dataset types work as remotes: pass `dataset_type='ts_ortho'` when
-*creating* a station-time-series remote (as of 0.9.1 — earlier versions raised).
+All four dataset types work as remotes: pass `dataset_type` (for example `'ts_ortho'`) when
+*creating* the remote (`ts_ortho` as of 0.9.1 — earlier versions raised).
 Existing remotes always open with their stored type and the matching class;
 check it via the `dataset_type` property:
 
@@ -134,7 +138,8 @@ Grouping follows **write order**: chunks written together share groups. A datase
 time band by time band keeps each band in its own groups, so an append touches only new groups, and
 a read of one band's chunks needs few requests. (Before ebooklet 0.11 groups were assigned by hashing
 the chunk key, which scattered every append over nearly all groups; such remotes must be moved to the
-current format - see ebooklet's changelog.)
+current format - see ebooklet's changelog. Until then ebooklet >= 0.11 refuses to open them, even
+read-only, with `UnsupportedFormatError`.)
 
 **Continuously updated station data** (an hourly feed rewriting every station's latest chunk) is best
 grouped too, with small groups: one station × ~2520 steps per chunk, written block by block across
@@ -173,7 +178,9 @@ all stations" is. The (141, 2 190) shape is ~310 K elements, inside cfdb's best 
 
 ```python
 # Growing station dataset on an ungrouped remote, read mostly as "latest data, all stations":
-# all stations x one quarter (2 190 hours) per chunk
+# all stations x one quarter (2 190 hours) per chunk. (This layout predates write-order groups; for a
+# continuously updated feed, small groups are now the better choice, as above. flag='n' with
+# group_bytes=None raises if the remote already exists grouped: delete_remote() it first.)
 with cfdb.open_edataset(remote_conn, 'flow.cfdb', flag='n', dataset_type='ts_ortho', group_bytes=None) as ds:
     ...  # create the point and time coordinates
     ds.create.data_var.generic('streamflow', ('point', 'time'), dtype=flow_dtype,
