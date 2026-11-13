@@ -225,8 +225,10 @@ with open_dataset('data.cfdb') as ds:
 > once. Measured peak for such a build: **4.5 GB**. Writing one station row at a time needs
 > **4.5 MB** — same file on disk, ~250x less RAM.
 >
-> **Rule: the write loop should mirror `chunk_shape`.** If the chunk shape is `(1, 25_000)` —
-> one row — write one row at a time. `np.full((n_rows, n_cols), np.nan)` immediately before a
+> **Rule: the write loop should mirror `chunk_shape`.** If the chunk shape is `(1, 2520)` — one
+> station, one time block — write one chunk at a time. On a grouped remote the ORDER matters too:
+> groups pack chunks in write order, so write the chunks that are later updated together (block by
+> block across stations, as envlib-ingest-base's ts_ortho build does since 0.6.0). `np.full((n_rows, n_cols), np.nan)` immediately before a
 > write loop is the canonical smell: that array is the bug.
 
 ```python
@@ -501,8 +503,9 @@ with open_dataset('data.cfdb', flag='w') as ds:
 >
 > **This bites hardest on the append-into-a-partial-chunk pattern**, which is what almost every
 > continuously-updated dataset does: new data lands in the *tail* chunk, so that chunk is
-> rewritten in full on every run however few values arrived. At a 25,000-step time chunk on
-> hourly data, a tail chunk is rewritten ~25,000 times before it is ever full.
+> rewritten in full on every run however few values arrived. At a 2520-step time chunk on hourly
+> data, a tail chunk is rewritten ~2,520 times before it is ever full (~25,000 times at the 25,000-step
+> chunk these measurements were taken with).
 >
 > Measured on a 250-station × 140,000-step dataset merging a routine 48-step window hourly:
 > 99.5 MB after build → **353 MB after one day** → back to 99.5 MB after `prune()`, in **0.3 s**.
@@ -515,6 +518,43 @@ with open_dataset('data.cfdb', flag='w') as ds:
 > Same design, two more costs: writing a row in two column-slices instead of one call grew a file
 > **+42 %**, and rewriting each row twice **+84 %**; and `Coordinate.truncate` leaves dead bytes
 > in boundary chunks until pruned.
+
+#### Prove the writes are chunk-aligned — measure at the development stage
+
+A `prune()` at the end of a build is right for production: appends and prepends into partly filled
+chunks legitimately rewrite them. But it also **hides a bad write strategy**, because every rewritten
+chunk is reclaimed and the only symptom left is a slower build. "The write loop mirrors `chunk_shape`" is
+a design claim, so **measure it while developing a new write path** (or after changing one):
+
+1. **Measure what prune reclaims on a FRESH build:** the answer must be ~0, only the re-written
+   attributes. Measured 2026-10-03 on four WRF write paths (single-source, derived, two-source rotated,
+   4-layer soil): 2–3 kB reclaimed on 21–342 MB files. (Logging it on every build is cheap and optional;
+   envlib-ingest-wrf-3k's `build.py` does, and warns above ~1 %.)
+   ```python
+   size0 = os.path.getsize(path)
+   with open_dataset(path, flag='w') as ds:
+       ds.prune()
+   freed = size0 - os.path.getsize(path)   # > ~1 % of size0 on a fresh build = rewrites
+   ```
+2. **Count writes per chunk** — the exact test. Spy on booklet's `set` (chunk keys contain `'!'`, e.g.
+   `'temperature!0.0.24'`); every count must be 1:
+   ```python
+   import collections, booklet
+   counts, orig = collections.Counter(), booklet.main.VariableLengthValue.set
+   def spy(self, key, value, *a, **k):
+       if isinstance(key, str) and '!' in key:
+           counts[key] += 1
+       return orig(self, key, value, *a, **k)
+   booklet.main.VariableLengthValue.set = spy      # (monkeypatch in tests)
+   # ... build ...
+   assert counts and set(counts.values()) == {1}, counts
+   ```
+3. **Make the detector fire once on purpose:** re-run a range that is already stored and confirm the
+   reclaim jumps (measured: 143 MB, 49.8 % of the file, for one re-written 840-h band).
+
+**Reclaim is legitimate** after re-running stored ranges, extending into a partly filled chunk (the
+tail-chunk pattern above, and any append or prepend that meets one), or a truncate — not on a fresh
+build. So keep the automatic `prune()`; the measurement is what proves the strategy, once, up front.
 
 ### Interpolation
 
@@ -579,13 +619,13 @@ remote_conn = S3Connection(
     db_url='https://s3.example.com/my-bucket/my_data.cfdb',  # optional, for read-only http access
 )
 
-# Create new remote-linked cfdb (num_groups required for new databases):
-with open_edataset(remote_conn, 'data.cfdb', flag='n', num_groups=100) as ds:
+# Create new remote-linked cfdb (grouped storage by default; group_bytes=None for one object per chunk):
+with open_edataset(remote_conn, 'data.cfdb', flag='n') as ds:
     ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
     # ... create coords, data vars, write data as normal ...
 
 # Open existing local cfdb linked to remote (read/write):
-with open_edataset(remote_conn, 'data.cfdb', flag='w', num_groups=100) as ds:
+with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
     # ... read/write data as normal ...
     pass
 
@@ -594,13 +634,17 @@ with open_edataset(remote_conn, 'data.cfdb') as ds:
     data = ds['temperature'].data
 ```
 
-**Choosing `num_groups`:** chunks are hashed into `num_groups` remote objects, so each object bundles many
-chunks — an S3-remote concern, independent of `chunk_shape`. Bundling avoids thousands of tiny objects (a
-compressed chunk may be ~100 KB) whose per-object request latency would dominate. Trade-off: fewer/larger
-groups cut read latency but make each *update* re-upload a bigger object; more/smaller groups make updates
-cheap but add object overhead. So rarely-changing / append-mostly data (e.g. SST appended a year at a time)
-→ **fewer groups** (larger objects); frequently-updated data → **more groups**. Set once at creation (stored
-in the remote metadata); changing it needs a re-push to a fresh `db_key`.
+**Grouped storage (`group_bytes`, ebooklet ≥ 0.11):** at each push the chunks new to the remote are packed,
+in the order they were written, into group objects of up to `group_bytes` bytes (default 32 MiB) — an
+S3-remote concern, independent of `chunk_shape`. Bundling avoids thousands of tiny objects whose per-object
+request latency would dominate, and because groups follow write order, appending to a dataset uploads only
+the new chunks (plus at most the partly filled last group); updating existing chunks re-uploads only their
+groups. Write chunks in the order they are usually read together (e.g. time band by time band).
+`group_bytes=None` stores one object per chunk — for datasets pushed very often in tiny increments.
+Omitted, an existing remote keeps its mode and the `group_bytes` it records (the value its last push
+packed with). (Hash-grouped remotes made with `num_groups` before ebooklet
+0.11 must be moved to the current format: hydrate with `load_items()` under the old ebooklet,
+`delete_remote()`, re-push.)
 
 **IMPORTANT flag behavior:**
 - `flag='n'` destroys both the local file and the remote database, then creates new empty ones. Never use on an existing file you want to keep.
@@ -617,7 +661,7 @@ with open_dataset('data.cfdb', flag='n') as ds:
     # ... create coords, data vars, write data ...
 
 # Open with flag='w' to preserve existing local data and push to remote
-with open_edataset(remote_conn, 'data.cfdb', flag='w', num_groups=100) as ds:
+with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
     result = ds.push()
     # Returns: True (success), False (no changes), or dict (partial failure with failed keys)
     # Use ds.push(force_push=True) to retry after partial failure
@@ -670,4 +714,7 @@ with open_edataset(remote_conn, 'data.cfdb', flag='w') as ds:
 - **The store is log-structured: overwriting a chunk orphans the old block.** Any repeatedly
   updated dataset grows every run (the tail chunk is rewritten each time) and needs `prune()` to
   reclaim it. Prune after publishing; it preserves timestamps, so it cannot inflate a push.
+- **Prove chunk-aligned writes by measurement when developing a write path** (see *Pruning*): what
+  `prune()` reclaims on a fresh build (≈0), or a per-key write count. Keep the automatic prune in
+  production; it would otherwise hide write amplification, which is why it is measured up front.
 - Thread-safe and multiprocessing-safe via locks.

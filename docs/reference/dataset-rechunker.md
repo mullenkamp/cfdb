@@ -1,6 +1,6 @@
 # DatasetRechunker
 
-Assistant class for rechunking multiple variables in a dataset simultaneously. Created via [`ds.rechunker()`](dataset.md#rechunker).
+Assistant class for rechunking multiple variables in a dataset simultaneously. Created via [`ds.rechunker()`](dataset.md#rechunkerdata_varsnone).
 
 All variables in a batch must share the same coordinates and shapes to ensure synchronized iteration. Storage chunks can differ.
 

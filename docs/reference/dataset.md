@@ -90,7 +90,7 @@ Parameters:
 - `max_mem` (int): Total memory budget in bytes for the entire batch. Default 512 MB.
 - `include_data` (bool): If False, yields only `{coord_name: slice}` dicts without loading data. Default True.
 
-### groupby(coord_names, data_vars=None, max_mem=2\*\*27)
+### groupby(coord_names, data_vars=None, max_mem=2\*\*29)
 
 Group by one or more coordinates across all data variables. Accepts a string, list of strings, or dict. Dict values can be `int` (chunk size) or `str` (time period like `'D'`, `'M'`, `'Y'`, `'6h'`).
 
@@ -104,7 +104,7 @@ for target_chunk, var_data in ds.groupby({'time': 'M'}, data_vars=['temperature'
     print(target_chunk, {k: v.shape for k, v in var_data.items()})
 ```
 
-### map(func, chunk_shape, data_vars=None, max_mem=2\*\*27, n_workers=None)
+### map(func, chunk_shape, data_vars=None, max_mem=2\*\*29, n_workers=None)
 
 Apply a function to aligned chunks in parallel. The function receives `(target_chunk, var_data)` — same as `iter_chunks`.
 
@@ -112,7 +112,7 @@ Apply a function to aligned chunks in parallel. The function receives `(target_c
 
 Close the database and flush metadata to disk.
 
-### prune(timestamp=None, reindex=False)
+### prune(timestamp=None)
 
 Prune deleted data from the file. Returns the number of removed items.
 

@@ -74,9 +74,9 @@ ds['time'].truncate(start='2023-02-01', stop='2023-02-28')
 ds['latitude'].truncate(start=-45.0)
 ```
 
-### iter_chunks(include_data=False, decoded=True)
+### iter_chunks(include_data=True, decoded=True)
 
-Iterate through chunks. If `include_data=False` (default), yields tuples of slices. If `include_data=True`, yields `(slices, data)` tuples.
+Iterate through chunks. If `include_data=True` (default), yields `(slices, data)` tuples. If `include_data=False`, yields tuples of slices.
 
 !!! note
     Coordinates use the base `Variable.iter_chunks` signature. Data variables have a different, unified `iter_chunks(chunk_shape=None)` signature — see [DataVariable](data-variable.md).
