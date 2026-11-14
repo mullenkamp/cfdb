@@ -17,7 +17,14 @@ When you only need to process a single variable at a time, you can rechunk it di
 
 The simplest way to rechunk is to pass a `chunk_shape` dict to `iter_chunks()`. Coordinates not listed use their full length:
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_global_grid
+file_path = make_global_grid('rechunk.cfdb', ('temperature', 'u_wind', 'v_wind'), dims=('latitude', 'longitude'), chunk_shape=(100, 100))
+-->
+
 ```python
+import cfdb
+
 with cfdb.open_dataset(file_path) as ds:
     temp = ds['temperature']
 
@@ -113,6 +120,8 @@ When performing calculations that involve multiple variables (e.g., computing wi
 The `iter_chunks` method at the dataset level ensures that all variables are read using the same rechunking plan. It yields a dictionary of data blocks:
 
 ```python
+import numpy as np
+
 with cfdb.open_dataset(file_path) as ds:
     # Synchronized iteration over u and v
     for target_chunk, var_data in ds.iter_chunks({'latitude': 50, 'longitude': 50}):

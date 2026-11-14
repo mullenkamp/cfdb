@@ -5,6 +5,14 @@ site_url: https://mullenkamp.github.io/cfdb/
 repo_url: https://github.com/mullenkamp/cfdb
 repo_name: mullenkamp/cfdb
 
+# Under `mkdocs build --strict` a warning aborts the build, so these make broken anchors and
+# unrecognised or absolute links fail it (by default they are only INFO).
+validation:
+    links:
+        anchors: warn
+        unrecognized_links: warn
+        absolute_links: warn
+
 theme:
     name: material
     icon:

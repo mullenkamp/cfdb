@@ -12,7 +12,14 @@
 
 Copy a dataset to a new cfdb file. See [Dataset](dataset.md) for the full class reference.
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_time_grid
+make_time_grid('source.cfdb')
+-->
+
 ```python
+import cfdb
+
 with cfdb.open_dataset('source.cfdb') as ds:
     new_ds = ds.copy('destination.cfdb')
     print(new_ds)

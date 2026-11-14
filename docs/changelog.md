@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- Every code example in the README and the docs now runs as a test, and the shown values are checked. Fixes
+  from that: pages import and define what they use and close every dataset; examples on closed or never-opened
+  datasets are fixed; the chunk-key format is `{var_name}!{start0}.{start1}...` (it showed commas); the
+  dataset-level `iter_chunks`/`groupby`/`map` need the iterated variables to share coordinates; and a known
+  issue is flagged: `combine(overlap='first'/'error')` treats disjoint inputs that share an output chunk as
+  overlapping.
+
 ## 0.11.0 (2026-10-07)
 
 Requires **ebooklet >= 0.11.0**.

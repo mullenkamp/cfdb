@@ -17,6 +17,8 @@ All types inherit from `DataType` and provide `dumps()`/`loads()` for serializat
 Floating-point data with optional integer encoding:
 
 ```python
+import cfdb
+
 cfdb.dtypes.dtype('float32')                                    # no encoding
 cfdb.dtypes.dtype('float64', precision=2)                       # rounds to 2 decimals
 cfdb.dtypes.dtype('float64', precision=2, min_value=-50, max_value=100)  # integer encoding

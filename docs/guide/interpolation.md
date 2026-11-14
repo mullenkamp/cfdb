@@ -14,7 +14,17 @@ The `interp()` method automatically selects the right interpolation backend base
 
 ## Getting an Interpolation Object
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_nz_grid_with_gaps, make_nztm_grid, make_levels_grid, make_stations
+from cfdb.tests.docs_support import make_nz_grid
+file_path = source_path = make_nz_grid_with_gaps('nz_grid.cfdb')
+ts_path = points_target_path = make_stations('stations.cfdb')
+grid_target_path = make_nz_grid('coarse_grid.cfdb', step=0.5)
+-->
+
 ```python
+import cfdb
+
 with cfdb.open_dataset(file_path) as ds:
     gi = ds['temperature'].interp()
 ```
@@ -23,10 +33,12 @@ Coordinate names are auto-detected from axis metadata. Pass them explicitly when
 
 ```python
 # Grid datasets
-gi = ds['temperature'].interp(x='longitude', y='latitude', iter_dim='time')
+with cfdb.open_dataset(file_path) as ds:
+    gi = ds['temperature'].interp(x='longitude', y='latitude', iter_dim='time')
 
 # ts_ortho datasets
-pi = ds['temperature'].interp(xy='point', iter_dim='time')
+with cfdb.open_dataset(ts_path) as ds:
+    pi = ds['temperature'].interp(xy='point', iter_dim='time')
 ```
 
 ## Dimension Iteration
@@ -91,6 +103,10 @@ with cfdb.open_dataset(source_path) as src, \
 
 Regrid data from one coordinate reference system to another using the `to_crs` parameter. For example, reproject from NZGD2000 (EPSG:2193) to WGS 84 (EPSG:4326):
 
+<!-- invisible-code-block: python
+file_path = make_nztm_grid('nztm_grid.cfdb')
+-->
+
 ```python
 with cfdb.open_dataset(file_path) as ds:
     for time_val, grid in ds['temperature'].interp().to_grid(grid_res=0.01, to_crs=4326):
@@ -102,6 +118,10 @@ The source CRS is read from the dataset, and the output grid is produced in the 
 ## Sampling at Point Locations
 
 Extract values at specific coordinates:
+
+<!-- invisible-code-block: python
+file_path = source_path
+-->
 
 ```python
 import numpy as np
@@ -156,6 +176,10 @@ Parameters:
 ## Regridding Vertical Levels
 
 For data on terrain-following coordinates where actual level heights vary at each grid point, interpolate onto fixed target levels (grid datasets only):
+
+<!-- invisible-code-block: python
+file_path = make_levels_grid('levels.cfdb')
+-->
 
 ```python
 import numpy as np

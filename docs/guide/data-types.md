@@ -129,11 +129,11 @@ The helper `cfdb.compute_scale_and_offset` computes a CF-style `scale_factor` an
 spread a value range over the whole of an integer dtype (one value is kept for the fill value):
 
 ```python
-from cfdb import compute_scale_and_offset
-
-# Spread -50 .. 100 over uint16
-scale, offset = compute_scale_and_offset(min_value=-50.0, max_value=100.0, dtype='uint16')
-# (0.00228888..., -50.00228888...)
+>>> from cfdb import compute_scale_and_offset
+>>> # Spread -50 .. 100 over uint16
+>>> scale, offset = compute_scale_and_offset(min_value=-50.0, max_value=100.0, dtype='uint16')
+>>> scale, offset
+(0.0022888882106997894, -50.0022888882107)
 ```
 
 It is a standalone helper. A cfdb dtype with `precision` and a range

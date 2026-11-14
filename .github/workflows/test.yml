@@ -47,4 +47,28 @@ jobs:
         timeout-minutes: 5
         run: uv run pytest
 
+  docs:
+    name: Docs examples and site build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --python 3.12 --group docs
+
+      # Offline: S3 examples run against a local moto server, and any other network use fails.
+      - name: Run the docs examples
+        timeout-minutes: 10
+        run: uv run --python 3.12 pytest README.md docs -p no:cacheprovider -rs
+
+      - name: Build the site (strict)
+        run: uv run --python 3.12 mkdocs build --strict

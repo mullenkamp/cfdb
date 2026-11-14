@@ -6,7 +6,14 @@ cfdb supports basic numpy-style indexing and location-based selection.
 
 Use integers and slices to select by position, just like numpy basic indexing:
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_lat_time
+file_path = make_lat_time('indexing.cfdb')
+-->
+
 ```python
+import cfdb
+
 with cfdb.open_dataset(file_path) as ds:
     temp = ds['temperature']
 
@@ -22,14 +29,28 @@ with cfdb.open_dataset(file_path) as ds:
 
 Bounds behavior follows numpy semantics:
 
-```python
-with cfdb.open_dataset(file_path) as ds:
-    temp = ds['temperature']       # shape (40, 100)
+<!-- invisible-code-block: python
+small_path = make_lat_time('indexing_small.cfdb', n_lat=40, n_time=100)
+-->
 
-    temp[-1]                       # negative ints wrap: the last row
-    temp[35:60, :]                 # slice bounds clamp: rows 35-39 (5 rows)
-    temp[40]                       # IndexError: out of bounds
-    temp[45:60, :]                 # ValueError: empty selection
+```python
+>>> ds = cfdb.open_dataset(small_path)    # a smaller (40, 100) dataset
+>>> temp = ds['temperature']
+>>> temp.shape
+(40, 100)
+>>> temp[-1].shape                 # negative ints wrap: the last row (an int index keeps its dim)
+(1, 100)
+>>> temp[35:60, :].shape           # slice bounds clamp: rows 35-39 (5 rows)
+(5, 100)
+>>> temp[40]                       # out of bounds
+Traceback (most recent call last):
+    ...
+IndexError: index 40 is out of bounds for axis 0 with size 40
+>>> temp[45:60, :]                 # empty selection
+Traceback (most recent call last):
+    ...
+ValueError: The start and stop for the slice is the same, which will produce 0 output.
+>>> ds.close()
 ```
 
 Out-of-range integer indexes raise `IndexError`; slices clamp to the variable extent

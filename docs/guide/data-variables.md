@@ -6,6 +6,12 @@ Data variables store N-dimensional data referenced by coordinates. Unlike coordi
 
 Data variables require existing coordinates:
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_dv_guide_coords, make_multi_var
+file_path = 'data_vars.cfdb'
+make_dv_guide_coords(file_path)
+-->
+
 ```python
 import cfdb
 import numpy as np
@@ -264,6 +270,12 @@ The methods above operate on a single data variable. The dataset also provides `
 
 Yields `(target_chunk, var_data)` where `target_chunk` is a `{coord_name: slice}` dict and `var_data` is a `{var_name: ndarray}` dict:
 
+The variables iterated together must share the same coordinates (otherwise a `ValueError`); select them with `data_vars` if the dataset holds others. The examples below use a dataset whose `temperature` and `wind_speed` are both on `(latitude, longitude, time)`.
+
+<!-- invisible-code-block: python
+file_path = make_multi_var('multi_var.cfdb')
+-->
+
 ```python
 with cfdb.open_dataset(file_path) as ds:
     for target_chunk, var_data in ds.iter_chunks({'latitude': 25, 'longitude': 25}):
@@ -275,17 +287,23 @@ with cfdb.open_dataset(file_path) as ds:
 Use `data_vars` to limit which variables are included:
 
 ```python
-with cfdb.open_dataset(file_path) as ds:
-    for target_chunk, var_data in ds.iter_chunks({'latitude': 50}, data_vars=['temperature']):
-        print(var_data.keys())  # dict_keys(['temperature'])
+>>> with cfdb.open_dataset(file_path) as ds:
+...     for target_chunk, var_data in ds.iter_chunks({'latitude': 50}, data_vars=['temperature']):
+...         print(var_data.keys())
+dict_keys(['temperature'])
+dict_keys(['temperature'])
 ```
 
 Pass `include_data=False` for position-only iteration (no data loading):
 
 ```python
-with cfdb.open_dataset(file_path) as ds:
-    for chunk in ds.iter_chunks({'latitude': 25, 'longitude': 25}, include_data=False):
-        print(chunk)  # {'latitude': slice(0, 25), 'longitude': slice(0, 25), 'time': slice(0, ...)}
+>>> with cfdb.open_dataset(file_path) as ds:
+...     for chunk in ds.iter_chunks({'latitude': 25, 'longitude': 25}, include_data=False):
+...         print(chunk)   # doctest: +ELLIPSIS
+{'latitude': slice(0, 25, None), 'longitude': slice(0, 25, None), 'time': slice(0, 48, None)}
+{'latitude': slice(0, 25, None), 'longitude': slice(25, 50, None), 'time': slice(0, 48, None)}
+...
+{'latitude': slice(75, 100, None), 'longitude': slice(75, 100, None), 'time': slice(0, 48, None)}
 ```
 
 ### groupby

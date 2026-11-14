@@ -4,6 +4,11 @@ All work in cfdb starts with `open_dataset()`, which returns a `Dataset` object 
 
 ## Basic Usage
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_global_grid
+make_global_grid('data.cfdb')
+-->
+
 ```python
 import cfdb
 
@@ -74,7 +79,8 @@ The `dataset_type` parameter selects the coordinate structure:
 | `'grid_forecast'` | Gridded forecasts: `(x, y, forecast_reference_time, forecast_period)`. cfdb >= 0.9.6. |
 
 ```python
-ds = cfdb.open_dataset('stations.cfdb', flag='n', dataset_type='ts_ortho')
+with cfdb.open_dataset('stations.cfdb', flag='n', dataset_type='ts_ortho') as ds:
+    ...
 ```
 
 See [Dataset Types](dataset-types.md) for details.

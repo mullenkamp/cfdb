@@ -22,11 +22,17 @@ Install cfdb with the xarray extra:
 
 After installing the extra, use `engine="cfdb"`:
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_xr_example
+make_xr_example('my_data.cfdb')
+-->
+
 ```python
 import xarray as xr
 
 ds = xr.open_dataset("my_data.cfdb", engine="cfdb")
 print(ds)
+ds.close()
 ```
 
 The backend maps cfdb coordinates to xarray coordinates and cfdb data variables to xarray data variables. Global attributes, variable attributes, units, and CRS (as `crs_wkt`) are all preserved.
@@ -37,6 +43,7 @@ You can also pass the backend class directly without relying on the entry point:
 from cfdb.xarray_backend import CfdbBackendEntrypoint
 
 ds = xr.open_dataset("my_data.cfdb", engine=CfdbBackendEntrypoint)
+ds.close()
 ```
 
 ## Lazy Loading
@@ -52,6 +59,7 @@ temp = ds["temperature"]
 # Only reads chunks covering this slice
 subset = temp.isel(latitude=slice(0, 10), time=0)
 values = subset.values  # data read here
+ds.close()
 ```
 
 ## Chunk Information
@@ -59,9 +67,10 @@ values = subset.values  # data read here
 Each variable's encoding includes `preferred_chunks`, which reflects the cfdb storage chunk shape:
 
 ```python
-ds = xr.open_dataset("my_data.cfdb", engine="cfdb")
-print(ds["temperature"].encoding["preferred_chunks"])
-# {'latitude': 50, 'longitude': 100, 'time': 10}
+>>> ds = xr.open_dataset("my_data.cfdb", engine="cfdb")
+>>> ds["temperature"].encoding["preferred_chunks"]
+{'latitude': 50, 'longitude': 100, 'time': 10}
+>>> ds.close()
 ```
 
 ## Dropping Variables
@@ -74,6 +83,7 @@ ds = xr.open_dataset(
     engine="cfdb",
     drop_variables=["humidity"],
 )
+ds.close()
 ```
 
 ## Context Manager

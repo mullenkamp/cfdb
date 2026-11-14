@@ -8,7 +8,14 @@ Requires `h5netcdf` (`pip install cfdb[netcdf4]`).
 
 ### From a Dataset Object
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_global_grid
+file_path = make_global_grid('input.cfdb')
+-->
+
 ```python
+import cfdb
+
 with cfdb.open_dataset(file_path) as ds:
     ds.to_netcdf4('output.nc')
 ```
