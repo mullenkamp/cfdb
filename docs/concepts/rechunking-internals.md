@@ -195,7 +195,7 @@ Step 2 — Compute chunk origin (align to grid):
   → starts_chunk = (100, 200)
 
 Step 3 — Build Booklet key:
-  → "temperature!100,200"
+  → "temperature!100.200"
 
 Step 4 — Compute slice within the chunk:
   → source_chunk = (slice(0, 50), slice(0, 100))
@@ -210,7 +210,7 @@ When a request spans multiple chunks, steps 2-5 repeat for each overlapping chun
 
 **Why not just use `get_chunk()` as the source function?**
 
-`get_chunk()` reads from exactly one storage chunk — it finds which chunk a selection starts in, clips to that chunk's boundary, and returns. rechunkit guarantees that read requests are aligned to `source_chunk_shape` in 0-based index space, which would make `get_chunk()` sufficient for datasets with zero coordinate origins. However, when coordinates have been prepended (non-zero origins), the storage chunk grid is offset from the 0-based grid. A 0-based-aligned read can still span two storage chunks in this case. The multi-chunk source function handles this transparently, with a fast path that avoids extra allocations when the read does map to a single chunk.
+`get_chunk()` reads from exactly one storage chunk — it finds which chunk a selection starts in, clips to that chunk's boundary, and returns. rechunkit guarantees that read requests are aligned to `source_chunk_shape` in 0-based index space, which would make `get_chunk()` sufficient for datasets with zero coordinate origins. Prepends shift the storage grid off the 0-based grid; the storage-space declaration (above) folds that offset into rechunkit's phase, so each read still maps to exactly one storage chunk, and the multi-chunk source function remains only as a defensive fallback (with a fast path when the read maps to a single chunk).
 
 **Why pass the full shape to rechunkit instead of the view shape?**
 

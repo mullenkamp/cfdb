@@ -105,7 +105,7 @@ Data variable templates set standard names and dtypes. They accept `coords` and 
 Template signature:
 
 ```python
-ds.create.data_var.air_temperature(coords, **kwargs) -> DataVariable
+ds.create.data_var.air_temp(coords, **kwargs) -> DataVariable   # creates 'air_temperature'
 ```
 
 To see all available templates:

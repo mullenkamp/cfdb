@@ -75,13 +75,15 @@ ts_ortho dataset parameters:
 Both `to_grid` and `to_points` accept a DataVariable from another open dataset as the first argument. The method derives the target parameters (coordinates, CRS, bbox) from the destination variable — it never writes to it:
 
 ```python
-with cfdb.open_dataset(source_path) as src, cfdb.open_dataset(target_path) as dst:
-    # Interpolate grid data onto another grid's coordinates
-    for time_val, grid in src['temperature'].interp().to_grid(dst['temperature']):
+with cfdb.open_dataset(source_path) as src, \
+     cfdb.open_dataset(grid_target_path) as grid_dst, \
+     cfdb.open_dataset(points_target_path) as points_dst:
+    # Interpolate grid data onto another grid's coordinates (grid_dst is a grid dataset)
+    for time_val, grid in src['temperature'].interp().to_grid(grid_dst['temperature']):
         print(time_val, grid.shape)
 
-    # Interpolate grid data onto point locations from a ts_ortho dataset
-    for time_val, values in src['temperature'].interp().to_points(dst['temperature']):
+    # Interpolate grid data onto point locations (points_dst is a ts_ortho dataset)
+    for time_val, values in src['temperature'].interp().to_points(points_dst['temperature']):
         print(time_val, values.shape)
 ```
 

@@ -11,9 +11,11 @@ import numpy as np
 file_path = 'quickstart.cfdb'
 
 ds = cfdb.open_dataset(file_path, flag='n')
+...  # work with ds
+ds.close()
 ```
 
-The `flag='n'` creates a new empty file (replacing any existing one). Always close the dataset when done, or use a context manager:
+The `flag='n'` creates a new empty file (replacing any existing one). Always close the dataset when done: an open dataset holds a lock on its file, so a second open of the same file (even in the same process) waits until the first is closed. A context manager closes it for you:
 
 ```python
 with cfdb.open_dataset(file_path, flag='n') as ds:
@@ -33,7 +35,7 @@ with cfdb.open_dataset(file_path, flag='n') as ds:
 
     # Time with template method
     time_data = np.arange('2020-01-01', '2020-07-19', dtype='datetime64[D]')
-    time = ds.create.coord.time(data=time_data, dtype_decoded=time_data.dtype)
+    time = ds.create.coord.time(data=time_data, dtype=time_data.dtype)
 
     print(lat)
     print(time)

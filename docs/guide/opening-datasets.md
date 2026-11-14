@@ -43,13 +43,16 @@ All data in a cfdb file is compressed at the chunk level. Four options are avail
 
 ```python
 # Default: zstd_shuffle, level 1
-ds = cfdb.open_dataset('data.cfdb', flag='n')
+with cfdb.open_dataset('data.cfdb', flag='n') as ds:
+    ...
 
 # Plain zstd, e.g. for a file that users of cfdb < 0.10 must read
-ds = cfdb.open_dataset('data.cfdb', flag='n', compression='zstd')
+with cfdb.open_dataset('data.cfdb', flag='n', compression='zstd') as ds:
+    ...
 
 # lz4 for the fastest decompression
-ds = cfdb.open_dataset('data.cfdb', flag='n', compression='lz4')
+with cfdb.open_dataset('data.cfdb', flag='n', compression='lz4') as ds:
+    ...
 ```
 
 Compression settings are fixed at dataset creation, recorded in the file, and apply to all

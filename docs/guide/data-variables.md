@@ -24,7 +24,7 @@ Like coordinates, common data variable types have template methods:
 
 ```python
 with cfdb.open_dataset(file_path, flag='w') as ds:
-    temp = ds.create.data_var.air_temperature(('latitude', 'longitude', 'time'))
+    temp = ds.create.data_var.air_temp(('latitude', 'longitude', 'time'))   # creates 'air_temperature'
 ```
 
 Templates set standard names, dtypes, and attributes. Any parameter accepted by `generic()` can be overridden via `**kwargs`.
@@ -188,8 +188,10 @@ Dict values can also be integers (chunk sizes), which can be mixed with period s
 
 ```python
 # Group by day on time, chunk size 50 on latitude
-for slices, data in temp.groupby({'time': 'D', 'latitude': 50}):
-    print(slices, data.shape)
+with cfdb.open_dataset(file_path) as ds:
+    temp = ds['temperature']
+    for slices, data in temp.groupby({'time': 'D', 'latitude': 50}):
+        print(slices, data.shape)
 ```
 
 **Performance:** When the period maps to a fixed number of time steps (e.g. daily on hourly data = 24 steps) AND the first coordinate value sits on the period boundary, cfdb uses the efficient rechunker path. For irregular periods (monthly, yearly) or boundary-misaligned data, it falls back to a slice-based iteration that reads each group separately — the groups are identical either way; only the speed differs.
@@ -256,7 +258,7 @@ with cfdb.open_dataset(file_path) as ds:
 
 ## Dataset-Level Iteration
 
-The methods above operate on a single data variable. The dataset also provides `iter_chunks`, `groupby`, and `map` that iterate over **multiple data variables in lockstep**. All data variables must share the same coordinates.
+The methods above operate on a single data variable. The dataset also provides `iter_chunks`, `groupby`, and `map` that iterate over **multiple data variables in lockstep**. All data variables must share the same coordinates. The examples in this section assume a dataset with `temperature` and `wind_speed`, both on `('latitude', 'longitude', 'time')`.
 
 ### iter_chunks
 
@@ -273,8 +275,9 @@ with cfdb.open_dataset(file_path) as ds:
 Use `data_vars` to limit which variables are included:
 
 ```python
-for target_chunk, var_data in ds.iter_chunks({'latitude': 50}, data_vars=['temperature']):
-    print(var_data.keys())  # {'temperature'}
+with cfdb.open_dataset(file_path) as ds:
+    for target_chunk, var_data in ds.iter_chunks({'latitude': 50}, data_vars=['temperature']):
+        print(var_data.keys())  # dict_keys(['temperature'])
 ```
 
 Pass `include_data=False` for position-only iteration (no data loading):
@@ -282,7 +285,7 @@ Pass `include_data=False` for position-only iteration (no data loading):
 ```python
 with cfdb.open_dataset(file_path) as ds:
     for chunk in ds.iter_chunks({'latitude': 25, 'longitude': 25}, include_data=False):
-        print(chunk)  # {'latitude': slice(0, 25), 'longitude': slice(0, 25)}
+        print(chunk)  # {'latitude': slice(0, 25), 'longitude': slice(0, 25), 'time': slice(0, ...)}
 ```
 
 ### groupby

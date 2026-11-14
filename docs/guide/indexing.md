@@ -55,6 +55,12 @@ with cfdb.open_dataset(file_path) as ds:
     subset = temp.loc[40.0:50.0, '2020-01-01':'2020-06-30']
 ```
 
+!!! warning "Float coordinates: exact labels, exclusive stop"
+    For float coordinates, `.loc` labels (scalars and slice bounds) must equal an existing coordinate
+    value (compared with `np.isclose`); a value between grid points raises `IndexError`. The slice stop
+    is also exclusive for float coordinates (`loc[40.0:50.0]` ends at the value before 50.0), whereas
+    it is inclusive for integer and datetime coordinates (`'2020-01-01':'2020-06-30'` includes 30 June).
+
 `.loc` works with any coordinate data type, including datetime:
 
 ```python
@@ -120,7 +126,7 @@ Selections can be chained — call `select()` or `select_loc()` on a `DatasetVie
 with cfdb.open_dataset(file_path) as ds:
     # Position-based chaining: second selection is relative to the first
     view = ds.select({'latitude': slice(20, 60)})
-    narrower = view.select({'latitude': slice(5, 15)})  # positions 25-35 in the full dataset
+    narrower = view.select({'latitude': slice(5, 15)})  # positions 25-34 (slice(25, 35)) in the full dataset
 
     # Location-based chaining: narrows by coordinate values within the view
     view = ds.select({'latitude': slice(0, 50)})
