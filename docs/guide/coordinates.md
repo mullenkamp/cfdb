@@ -17,6 +17,10 @@ Coordinates in cfdb follow rules closer to the [COARDS conventions](https://ferr
 cfdb provides template methods for common coordinate types. These set standard names, dtypes, and attributes automatically:
 
 ```python
+lat_data = np.linspace(0, 19.9, 200, dtype='float32')
+lon_data = np.linspace(0, 35.9, 360, dtype='float32')
+time_data = np.arange('2020-01-01', '2020-07-19', dtype='datetime64[D]')
+
 with cfdb.open_dataset(file_path, flag='n') as ds:
     lat = ds.create.coord.lat(data=lat_data, chunk_shape=(20,))
     lon = ds.create.coord.lon(data=lon_data, chunk_shape=(36,))
@@ -38,7 +42,7 @@ All template methods accept:
 For coordinates not covered by templates:
 
 ```python
-with cfdb.open_dataset(file_path, flag='n') as ds:
+with cfdb.open_dataset('depth_example.cfdb', flag='n') as ds:
     depth = ds.create.coord.generic(
         'depth',
         data=np.array([0, 10, 50, 100, 500], dtype='float32'),
@@ -76,7 +80,7 @@ with cfdb.open_dataset(file_path, flag='n') as ds:
 
 ## Append and Prepend
 
-Coordinates can only grow — values cannot be removed or modified.
+Values cannot be modified in place; a coordinate can grow (append, prepend) or shrink from its ends (truncate).
 
 ```python
 with cfdb.open_dataset(file_path, flag='w') as ds:
@@ -91,8 +95,8 @@ with cfdb.open_dataset(file_path, flag='w') as ds:
     # Remove values from start/end (keeps [start, stop] inclusive)
     coord.truncate(start=0.0, stop=19.0)
 
-    # For datetime coordinates, strings are accepted
-    ds['time'].truncate(start='2023-02-01', stop='2023-02-28')
+    # For datetime coordinates, strings are accepted (on a dataset with a time coordinate):
+    # ds['time'].truncate(start='2023-02-01', stop='2023-02-28')
 ```
 
 New values from append/prepend must maintain uniqueness and ascending order. When a coordinate grows, the associated data variables expand automatically (filled with NaN/fillvalue). When a coordinate is truncated, orphaned data variable chunks are deleted.
@@ -104,7 +108,7 @@ DateTime coordinates use numpy's `datetime64` type. Specify the precision in bra
 ```python
 time_data = np.arange('2020-01-01', '2020-07-19', dtype='datetime64[D]')
 
-with cfdb.open_dataset(file_path, flag='n') as ds:
+with cfdb.open_dataset('time_example.cfdb', flag='n') as ds:
     time = ds.create.coord.time(data=time_data)
 ```
 
@@ -122,17 +126,18 @@ import shapely
 
 points = shapely.points([175.0, 172.5], [-41.0, -43.5])
 
-with cfdb.open_dataset(file_path, flag='n', dataset_type='ts_ortho') as ds:
+with cfdb.open_dataset('stations.cfdb', flag='n', dataset_type='ts_ortho') as ds:
     stations = ds.create.coord.generic(
         'station',
         data=points,
-        dtype='point',
+        dtype=cfdb.dtypes.dtype('point', precision=6),
         chunk_shape=(10,),
         axis='xy',
     )
 ```
 
-Geometry types (`point`, `linestring`, `polygon`) require a `precision` parameter for WKT rounding.
+Geometry types (`point`, `linestring`, `polygon`) require a `precision` for WKT rounding, so pass them as
+`cfdb.dtypes.dtype('point', precision=6)` rather than as a bare string.
 
 ## Step (Regular Spacing)
 
@@ -145,7 +150,7 @@ The `step` parameter enforces regular spacing on a coordinate:
 When a step is set, `append()` and `prepend()` will validate that new data maintains regular spacing. If there is a gap between the existing data and the new data, cfdb will automatically fill in the missing intermediate values — as long as the gap is a valid multiple of the step. If the gap is not a valid multiple, a `ValueError` is raised.
 
 ```python
-with cfdb.open_dataset(file_path, flag='n') as ds:
+with cfdb.open_dataset('time_example.cfdb', flag='n') as ds:
     time = ds.create.coord.time(
         data=np.array(['2023-01-01', '2023-01-02', '2023-01-03'], dtype='datetime64[D]'),
     )

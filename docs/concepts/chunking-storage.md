@@ -16,7 +16,7 @@ Chunk keys follow the pattern:
 {var_name}!{dim0_start},{dim1_start},...
 ```
 
-For example, chunk `(200, 400)` of variable `temperature` is stored with key `temperature!200,400`.
+For example, chunk `(200, 400)` of variable `temperature` is stored with key `temperature!200.400`.
 
 ## Compression
 

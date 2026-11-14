@@ -24,7 +24,7 @@ The function accepts file paths or open `Dataset` objects.
 
 ### Subsetting with `sel`
 
-You can apply a location-based selection to each input dataset before combining. This filters the data so only the selected region ends up in the output:
+You can apply a location-based selection to each input dataset before combining. This filters the data so only the selected region ends up in the output. The bounds follow the `.loc` rules (see [Indexing](indexing.md#location-based-selection-loc)): on float coordinates they must be existing coordinate values, and the stop is exclusive:
 
 ```python
 result = cfdb.combine(
@@ -50,6 +50,7 @@ result = cfdb.combine(
     include_data_vars=['temperature'],
     # exclude_data_vars=['humidity'],
 )
+result.close()
 ```
 
 ---
@@ -89,15 +90,16 @@ To protect against accidental database corruption and massive performance penalt
 Both `combine` and `merge_into` support an `overlap` parameter that controls what happens when multiple datasets contain data for the exact same coordinate values:
 
 ```python
+# Both return an open Dataset: close it (here with .close()) before the same file is opened again
 # Last dataset wins (default, most performant — overwrites existing data)
-cfdb.combine(datasets, 'out.cfdb', overlap='last')
-cfdb.merge_into(datasets, 'target.cfdb', overlap='last')
+cfdb.combine(datasets, 'out.cfdb', overlap='last').close()
+cfdb.merge_into(datasets, 'target.cfdb', overlap='last').close()
 
 # First dataset wins (skips writing if data already exists in the target)
-cfdb.combine(datasets, 'out.cfdb', overlap='first')
+cfdb.combine(datasets, 'out.cfdb', overlap='first').close()
 
 # Raise an error if any overlap is detected
-cfdb.combine(datasets, 'out.cfdb', overlap='error')
+cfdb.combine(datasets, 'out.cfdb', overlap='error').close()
 ```
 
 !!! note

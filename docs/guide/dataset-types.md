@@ -47,7 +47,7 @@ with cfdb.open_dataset('stations.cfdb', flag='n', dataset_type='ts_ortho') as ds
     # Station locations as Point geometries
     points = shapely.points([175.0, 172.5, 174.8], [-41.0, -43.5, -36.9])
     stations = ds.create.coord.generic(
-        'station', data=points, dtype='point', chunk_shape=(3,), axis='xy'
+        'station', data=points, dtype=cfdb.dtypes.dtype('point', precision=6), chunk_shape=(3,), axis='xy'
     )
 
     # Time coordinate
@@ -121,12 +121,13 @@ cfdb has no timedelta dtype, so adding a lead to a `datetime64` evaluates in the
 storage unit. Against the standard `datetime64[m]` time dtype, this silently adds **minutes**:
 
 ```python
-lead = ds['forecast_period'].data
-frt = ds['forecast_reference_time'].data
+with cfdb.open_dataset('forecast.cfdb') as ds:
+    lead = ds['forecast_period'].data
+    frt = ds['forecast_reference_time'].data
+    units = ds['forecast_period'].attrs['units']
 
-frt[-1] + lead.max()                                          # WRONG -- adds minutes
-frt[-1] + np.timedelta64(int(lead.max()),
-                         ds['forecast_period'].attrs['units'])  # correct
+frt[-1] + lead.max()                                # WRONG -- adds minutes
+frt[-1] + np.timedelta64(int(lead.max()), units)    # correct
 ```
 
 There is no default unit, on purpose: a 15-minute producer who simply forgot would otherwise be

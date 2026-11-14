@@ -60,7 +60,7 @@ Stores integer data. Can optionally encode to a smaller integer:
 ```python
 dt = cfdb.dtypes.dtype('int32')
 
-# int64 will be encoded to int16
+# int64 will be encoded to uint16
 dt = cfdb.dtypes.dtype('int64', min_value=0, max_value=1000)
 ```
 
@@ -118,18 +118,25 @@ dt = cfdb.dtypes.dtype('polygon', precision=4)
 
 Each dtype handles two transformations:
 
-1. **encode/decode** — convert between the decoded numpy dtype and the encoded dtype (e.g., float64 → uint2 using scale and offset)
+1. **encode/decode** — convert between the decoded numpy dtype and the encoded dtype (e.g., float64 → uint16 using scale and offset)
 2. **dumps/loads** — convert between numpy arrays and raw bytes for storage
 
 When no encoding is configured, `dumps`/`loads` use `tobytes()`/`frombuffer()` directly.
 
 ## Using with compute_scale_and_offset
 
-The helper function `cfdb.compute_scale_and_offset` can pre-calculate encoding parameters:
+The helper `cfdb.compute_scale_and_offset` computes a CF-style `scale_factor` and `add_offset` that
+spread a value range over the whole of an integer dtype (one value is kept for the fill value):
 
 ```python
 from cfdb import compute_scale_and_offset
 
-# Determine scale and offset for a data range
-scale, offset = compute_scale_and_offset(min_val=-50.0, max_val=100.0, precision=2)
+# Spread -50 .. 100 over uint16
+scale, offset = compute_scale_and_offset(min_value=-50.0, max_value=100.0, dtype='uint16')
+# (0.00228888..., -50.00228888...)
 ```
+
+It is a standalone helper. A cfdb dtype with `precision` and a range
+(`cfdb.dtypes.dtype('float32', precision=2, min_value=-50, max_value=100)`) chooses its own encoding
+instead: a step of `10**-precision`, an offset of `min_value - 1`, and the smallest unsigned integer
+dtype that holds the resulting codes (code 0 is the fill value).

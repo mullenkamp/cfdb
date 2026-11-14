@@ -35,6 +35,8 @@ with cfdb.open_dataset('example.cfdb', flag='n') as ds:
     lon = ds.create.coord.lon(data=np.linspace(-180, 180, 361, dtype='float32'))
     temp = ds.create.data_var.generic('temperature', ('latitude', 'longitude'), dtype='float32')
     temp[:] = np.random.rand(181, 361).astype('float32') * 40 - 10
+    pres = ds.create.data_var.generic('pressure', ('latitude', 'longitude'), dtype='float32')
+    pres[:] = np.random.rand(181, 361).astype('float32') * 50 + 980
 
 with cfdb.open_dataset('example.cfdb') as ds:
     for slices, data in ds['temperature'].iter_chunks(include_data=True):
@@ -47,7 +49,7 @@ with cfdb.open_dataset('example.cfdb') as ds:
 Efficiently iterate over multiple variables with synchronized chunks:
 
 ```python
-with cfdb.open_dataset('data.cfdb') as ds:
+with cfdb.open_dataset('example.cfdb') as ds:
     # Synchronized iteration over temperature and pressure
     for target_chunk, var_data in ds.iter_chunks({'latitude': 50, 'longitude': 50}):
         temp = var_data['temperature']

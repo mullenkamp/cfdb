@@ -113,7 +113,7 @@ Existing remotes always open with their stored type and the matching class;
 check it via the `dataset_type` property:
 
 ```python
-with cfdb.open_edataset(remote, 'stations.cfdb') as ds:
+with cfdb.open_edataset(remote_conn, 'stations.cfdb') as ds:
     print(ds.dataset_type)   # 'grid', 'ts_ortho', 'ts_forecast' or 'grid_forecast'
 ```
 
@@ -202,15 +202,6 @@ The measurements behind this section are in the repository's `benchmarks/RESULTS
 
 ## Remote Management
 
-### Delete Remote
-
-Remove the remote dataset while keeping the local file:
-
-```python
-with cfdb.open_edataset(remote_conn, 'local.cfdb', flag='w') as ds:
-    ds.delete_remote()
-```
-
 ### Copy Remote
 
 Copy the entire remote dataset to another S3 location:
@@ -224,8 +215,17 @@ new_remote = S3Connection(
     db_key='datasets/copy.cfdb',
 )
 
-with cfdb.open_edataset(remote_conn, 'local.cfdb') as ds:
+with cfdb.open_edataset(remote_conn, 'local.cfdb', flag='w') as ds:   # copy_remote needs a writable handle
     ds.copy_remote(new_remote)
+```
+
+### Delete Remote
+
+Remove the remote dataset while keeping the local file:
+
+```python
+with cfdb.open_edataset(remote_conn, 'local.cfdb', flag='w') as ds:
+    ds.delete_remote()
 ```
 
 ## Thread and Multiprocess Safety

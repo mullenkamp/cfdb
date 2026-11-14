@@ -45,9 +45,10 @@ with cfdb.open_dataset(file_path) as ds:
 Estimate a chunk shape that fits within a target byte budget:
 
 ```python
-rechunker = temp.rechunker()
-chunk_shape = rechunker.guess_chunk_shape(target_chunk_size=2**8)  # 256 bytes
-print(chunk_shape)
+with cfdb.open_dataset(file_path) as ds:
+    rechunker = ds['temperature'].rechunker()
+    chunk_shape = rechunker.guess_chunk_shape(target_chunk_size=2**8)  # 256 bytes
+    print(chunk_shape)
 ```
 
 The algorithm uses composite numbers to maximize compatibility when rechunking between different layouts. This is performed automatically when creating a variable when the chunk_shape is not defined.
@@ -71,8 +72,10 @@ with cfdb.open_dataset(file_path) as ds:
 The `max_mem` parameter (default 512 MB) controls the memory budget:
 
 ```python
-for slices, data in rechunker.rechunk(new_chunk_shape, max_mem=2**29):
-    print(data.shape)
+with cfdb.open_dataset(file_path) as ds:
+    rechunker = ds['temperature'].rechunker()
+    for slices, data in rechunker.rechunk(new_chunk_shape, max_mem=2**29):
+        print(data.shape)
 ```
 
 Larger budgets generally reduce the number of read operations but use more memory; the budget genuinely bounds the rechunker's allocation (buffer, reorder copies, and batch buffers), up to the documented floors — see [Rechunking Internals](../concepts/rechunking-internals.md) and the [rechunkit](https://github.com/mullenkamp/rechunkit) package for details.
@@ -82,22 +85,23 @@ Larger budgets generally reduce the number of read operations but use more memor
 Estimate the cost of a rechunk before doing it:
 
 ```python
-rechunker = temp.rechunker()
+with cfdb.open_dataset(file_path) as ds:
+    rechunker = ds['temperature'].rechunker()
 
-# Number of existing chunks
-n_chunks = rechunker.calc_n_chunks()
+    # Number of existing chunks
+    n_chunks = rechunker.calc_n_chunks()
 
-# Number of reads and writes for a rechunk operation
-n_reads, n_writes = rechunker.calc_n_reads_rechunker(new_chunk_shape)
+    # Number of reads and writes for a rechunk operation
+    n_reads, n_writes = rechunker.calc_n_reads_rechunker(new_chunk_shape)
 
-# Ideal read chunk shape (LCM-based, clipped to the variable's extent)
-ideal_shape = rechunker.calc_ideal_read_chunk_shape(new_chunk_shape)
+    # Ideal read chunk shape (LCM-based, clipped to the variable's extent)
+    ideal_shape = rechunker.calc_ideal_read_chunk_shape(new_chunk_shape)
 
-# Memory required for the ideal read chunk
-ideal_mem = rechunker.calc_ideal_read_chunk_mem(new_chunk_shape)
+    # Memory required for the ideal read chunk
+    ideal_mem = rechunker.calc_ideal_read_chunk_mem(new_chunk_shape)
 
-# Optimal read shape given a memory budget
-optimal_shape = rechunker.calc_source_read_chunk_shape(new_chunk_shape, max_mem=2**29)
+    # Optimal read shape given a memory budget
+    optimal_shape = rechunker.calc_source_read_chunk_shape(new_chunk_shape, max_mem=2**29)
 ```
 
 ## Multivariable Rechunking

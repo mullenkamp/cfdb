@@ -45,14 +45,14 @@ with cfdb.open_dataset(file_path) as ds:
 ### Indexing
 
 ```python
-temp[0, 0]          # single value
+temp[0, 0]          # a 1x1 view; .values gives the array
 temp[10:20, :]      # slice
 temp[5, 0:100]      # mixed
 ```
 
-### iter_chunks(chunk_shape=None, max_mem=2\*\*29, decoded=True)
+### iter_chunks(chunk_shape=None, max_mem=2\*\*29, decoded=True, include_data=True)
 
-Iterate through chunks of the variable. Always yields `(slices, data)` tuples.
+Iterate through chunks of the variable. Yields `(slices, data)` tuples, or only `slices` when `include_data=False`.
 
 ```python
 # Storage chunks
@@ -115,24 +115,27 @@ Group by one or more coordinates. Returns a generator of `(slices, data)` tuples
 for slices, data in temp.groupby('latitude'):
     print(slices, data.shape)
 
-for slices, data in temp.groupby(('latitude', 'time')):
+# The examples with time need a variable that has a time coordinate
+temp_t = ds['air_temperature']   # dims ('time', 'latitude', 'longitude')
+
+for slices, data in temp_t.groupby(('latitude', 'time')):
     print(slices, data.shape)
 
 # Group by time period
-for slices, data in temp.groupby({'time': 'D'}):
+for slices, data in temp_t.groupby({'time': 'D'}):
     print(slices, data.shape)
 
-for slices, data in temp.groupby({'time': 'M'}):
+for slices, data in temp_t.groupby({'time': 'M'}):
     print(slices, data.shape)
 
 # Mixed: period on time, chunk size on spatial
-for slices, data in temp.groupby({'time': 'D', 'latitude': 50}):
+for slices, data in temp_t.groupby({'time': 'D', 'latitude': 50}):
     print(slices, data.shape)
 ```
 
 ## Parallel Map
 
-### map(func, chunk_shape=None, n_workers=None, max_mem=2\*\*29)
+### map(func, chunk_shape=None, max_mem=2\*\*29, n_workers=None)
 
 Apply a function to each chunk in parallel using multiprocessing. Yields `(target_chunk, result)` tuples as workers complete.
 

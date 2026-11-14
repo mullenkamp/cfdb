@@ -40,7 +40,7 @@ ds['temperature']       # Get variable by name
 len(ds)                 # Number of variables
 for name in ds:         # Iterate variable names
     print(name)
-del ds['temperature']   # Delete a variable (writable only)
+del ds['old_var']   # Delete a variable (writable only)
 ```
 
 ## Methods
@@ -76,13 +76,13 @@ view = ds.select_loc({'latitude': slice(40.0, 50.0)})
 
 Copy the dataset to a new cfdb file. Returns the new `Dataset` (caller must close it).
 
-### to_netcdf4(file_path, compression='gzip', include_data_vars=None, exclude_data_vars=None)
+### to_netcdf4(file_path, compression='gzip', include_data_vars=None, exclude_data_vars=None, \*\*file_kwargs)
 
 Export to netCDF4 format. Requires h5netcdf.
 
-### iter_chunks(chunk_shape, data_vars=None, max_mem=2\*\*29)
+### iter_chunks(chunk_shape, data_vars=None, max_mem=2\*\*29, include_data=True)
 
-Iterate over aligned chunks of multiple data variables. Always yields `(target_chunk, var_data)` where `target_chunk` is a dict of `{coord_name: slice}` and `var_data` is a dict of `{var_name: ndarray}`.
+Iterate over aligned chunks of multiple data variables. Yields `(target_chunk, var_data)` (or only `target_chunk` when `include_data=False`) where `target_chunk` is a dict of `{coord_name: slice}` and `var_data` is a dict of `{var_name: ndarray}`.
 
 Parameters:
 - `chunk_shape` (dict): `{coord_name: int}` for target chunk sizes.

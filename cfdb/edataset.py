@@ -59,7 +59,7 @@ class EDataset(Dataset):
 
     def copy_remote(self, remote_conn: ebooklet.S3Connection):
         """
-        Copy the entire remote dataset to another remote location. The new location must be empty.
+        Copy the entire remote dataset to another remote location. The new location must be empty, and this dataset must be open for writing (e.g. flag='w'); a read-only handle raises ebooklet's ReadOnlyError.
         """
         self._blt.copy_remote(remote_conn)
 
