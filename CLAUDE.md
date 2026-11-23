@@ -77,7 +77,7 @@ Known limits of the docs tests (accepted as rare, 2026-11-14 code review `docs-t
 
 ### Core Layers
 
-**Entry points** (`main.py`): `open_dataset()` and `open_edataset()` are the public API. They return `Dataset` (local) or `EDataset` (S3-backed) objects. Datasets use Booklet as a key-value store with string keys for chunk data.
+**Entry points** (`main.py`): `open_dataset()`, `open_edataset()` and (0.12) `open_store_dataset()` are the public API. They return `Dataset` (local, or read-only on a caller-supplied store such as `ebooklet.mongo.MongoStore`) or `EDataset` (S3-backed) objects. All three pick the class through one table, `DATASET_CLASSES` / `edataset.E_DATASET_CLASSES` via `dataset_class()`, so a new dataset type is added there once. The store contract `open_store_dataset` needs is in its docstring (`writable`, `get_metadata`, `get`, `load_items`, `close`, `sync`). Datasets use Booklet as a key-value store with string keys for chunk data.
 
 **Data models** (`data_models.py`): msgspec Structs defining metadata schemas — `SysMeta` (top-level), `CoordinateVariable`, `DataVariable`. Shared types (`Type`, `Compressor`, `Axis`, `DataType`) are imported from `cfdb_models.data_models`. System metadata is stored in the Booklet file's metadata field. Variables are tagged unions (`tag='data_var'` / `tag='coord'`).
 
