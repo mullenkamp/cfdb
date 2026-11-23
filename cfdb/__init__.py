@@ -1,5 +1,5 @@
 """CF conventions multi-dimensional array database on top of Booklet"""
-from cfdb.main import open_dataset
+from cfdb.main import open_dataset, open_store_dataset
 from cfdb.data_models import PartialDataWarning
 from cfdb.utils import compute_scale_and_offset
 from cfdb.tools import cfdb_to_netcdf4
@@ -13,4 +13,4 @@ try:
 except (ImportError, AttributeError):
     pass
 
-__version__ = '0.11.0'
+__version__ = '0.12.0'

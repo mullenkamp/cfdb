@@ -109,6 +109,7 @@ nav:
         - Overview: reference/index.md
         - open_dataset: reference/open-dataset.md
         - open_edataset: reference/open-edataset.md
+        - open_store_dataset: reference/open-store-dataset.md
         - Dataset: reference/dataset.md
         - EDataset: reference/edataset.md
         - Coordinate: reference/coordinate.md
