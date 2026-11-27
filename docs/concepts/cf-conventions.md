@@ -81,5 +81,10 @@ When exporting to netCDF4 via `to_netcdf4()`, cfdb:
 - Writes proper CF time units (`days since 1970-01-01`, etc.)
 - Adds `calendar: proleptic_gregorian`
 - Adds `scale_factor` and `add_offset` for encoded variables
+- Writes an encoded variable's `valid_min`, `valid_max` and `valid_range` as packed values in the stored dtype, as
+  CF requires (a reader checks stored values against them before unpacking); `actual_range` stays in physical
+  units
 - Adds `_FillValue` where applicable
-- Preserves all user-set attributes
+- Writes geometries (a station dataset's `point` coordinate, a polygon variable) as strings of WKT, marked
+  `geometry_encoding = "WKT"`, because netCDF has no geometry type
+- Preserves all user-set attributes, except those whose value is `None` (netCDF has no null, so they are left out)

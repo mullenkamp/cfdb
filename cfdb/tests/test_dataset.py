@@ -2370,6 +2370,134 @@ def test_to_netcdf4_no_crs(tmp_path):
         assert 'grid_mapping' not in dict(f['temperature'].attrs)
 
 
+def test_to_netcdf4_geometry_as_wkt(tmp_path):
+    """
+    A geometry coord and a geometry data var export as WKT string variables, marked
+    geometry_encoding = 'WKT', with the station dimension and the values unchanged.
+    Until 0.12.1 a ts_ortho export raised AttributeError ('Point' has no _factor).
+    """
+    cfdb_fp = tmp_path / "stations.cfdb"
+    nc_fp = tmp_path / "stations.nc"
+
+    points = [shapely.Point(172.5, -43.25), shapely.Point(171.0, -44.0), shapely.Point(173.75, -42.5)]
+    areas = [shapely.box(x - 0.5, y - 0.5, x + 0.5, y + 0.5) for x, y in shapely.get_coordinates(points)]
+    times = np.arange(np.datetime64('2026-01-01T00', 'h'), np.datetime64('2026-01-01T06', 'h'))
+    flow = np.arange(18, dtype='float32').reshape(3, 6)
+
+    with open_dataset(cfdb_fp, flag='n', dataset_type='ts_ortho') as ds:
+        ds.create.coord.point().append(points)
+        ds.create.crs.from_user_input(4326, xy_coord='point')
+        ds.create.coord.time(data=times, dtype=times.dtype)
+        dv = ds.create.data_var.generic('flow', ('point', 'time'), dtypes.dtype('float32'))
+        dv[:] = flow
+        # chunks of 2 over 3 stations: the export streams more than one chunk
+        catchment = ds.create.data_var.generic('catchment', ('point',), dtypes.dtype('polygon', 6), chunk_shape=(2,))
+        catchment[:] = np.array(areas, dtype=object)
+        point_wkt = ds['point'].dtype.encode(ds['point'].data).tolist()
+        area_wkt = catchment.dtype.encode(catchment.data).tolist()
+        ds.to_netcdf4(nc_fp)
+
+    with h5netcdf.File(nc_fp) as f:
+        assert f.dimensions['point'].size == 3
+        for name, wkt in (('point', point_wkt), ('catchment', area_wkt)):
+            var = f[name]
+            assert var.dimensions == ('point',)
+            assert [s.decode() for s in var[:]] == wkt  # h5netcdf reads netCDF strings as bytes
+            attrs = dict(var.attrs)
+            assert attrs['geometry_encoding'] == 'WKT'
+            assert not {'add_offset', 'scale_factor'} & set(attrs)
+        assert [shapely.from_wkt(s.decode()).equals(p) for s, p in zip(f['point'][:], points)] == [True] * 3
+        assert f['flow'].dimensions == ('point', 'time')
+        np.testing.assert_array_equal(f['flow'][:], flow)
+
+
+def test_to_netcdf4_leaves_out_none_attrs(tmp_path):
+    """
+    An attribute whose value is None is left out, globally, on a coord and on a data var: netCDF has
+    no null, and h5py refuses None. Until 0.12.1 every envlib station dataset failed here
+    (envlib_product_code = None). The other attributes are written as before.
+    """
+    cfdb_fp = tmp_path / "none_attrs.cfdb"
+    nc_fp = tmp_path / "none_attrs.nc"
+
+    with open_dataset(cfdb_fp, flag='n') as ds:
+        lat = ds.create.coord.lat(data=np.linspace(-45, -42, 4), chunk_shape=(2,))
+        ds.create.coord.lon(data=np.linspace(171, 174, 4), chunk_shape=(2,))
+        dv = ds.create.data_var.generic('t2', ('latitude', 'longitude'), dtypes.dtype('float32'))
+        dv[:] = np.ones((4, 4), dtype='float32')
+        ds.attrs.update({'product_code': None, 'owner': 'ecan'})
+        lat.attrs.update({'comment': None, 'note': 'kept'})
+        dv.attrs.update({'cell_methods': None, 'units': 'K'})
+        ds.to_netcdf4(nc_fp)
+
+    with h5netcdf.File(nc_fp) as f:
+        assert 'product_code' not in f.attrs and f.attrs['owner'] == 'ecan'
+        assert 'comment' not in f['latitude'].attrs and f['latitude'].attrs['note'] == 'kept'
+        assert 'cell_methods' not in f['t2'].attrs and f['t2'].attrs['units'] == 'K'
+
+
+def test_to_netcdf4_packed_valid_range(tmp_path):
+    """
+    On a packed variable, valid_min / valid_max / valid_range are written as packed values in the
+    stored dtype (CF 2.5.1 and 8.1, the NUG), because readers such as netCDF4-python compare them with
+    the stored integers before unpacking. Until 0.12.1 they were written in physical units, so a
+    reader masked every value whose packed form exceeded the physical valid_max. actual_range stays
+    physical (CF gives it the unpacked type). An unpacked variable's range is written as it is.
+    """
+    cfdb_fp = tmp_path / "packed_range.cfdb"
+    nc_fp = tmp_path / "packed_range.nc"
+
+    flow = np.array([[0.0, 0.5, 2.0, 150.0], [1.0, 900.0, np.nan, 19999.5]])
+
+    with open_dataset(cfdb_fp, flag='n') as ds:
+        ds.create.coord.lat(data=np.array([-44.0, -43.0]), chunk_shape=(1,))
+        ds.create.coord.lon(data=np.array([171.0, 172.0, 173.0, 174.0]), chunk_shape=(2,))
+        packed = dtypes.dtype('float64', 4, -1.0, 20000.0)
+        dv = ds.create.data_var.generic('flow', ('latitude', 'longitude'), packed)
+        dv[:] = flow
+        dv.attrs.update({'valid_min': 0.0, 'valid_max': 20000.0, 'actual_range': [0.0, 19999.5]})
+        plain = ds.create.data_var.generic('plain', ('latitude', 'longitude'), dtypes.dtype('float32'))
+        plain[:] = flow.astype('float32')
+        plain.attrs.update({'valid_min': 0.0, 'valid_max': 20000.0})
+        # a packed coord takes the same path (the coord loop)
+        depth_dtype = dtypes.dtype('float64', 2, 0.0, 1000.0)
+        depth = ds.create.coord.generic('depth', data=np.array([0.5, 10.0, 999.0]), dtype=depth_dtype)
+        # 0.13 packs to 112.999... in floating point (offset -1, factor 100): truncation would give
+        # 112, rounding 113. The assertions below check the case really tells them apart.
+        depth.attrs.update({'valid_min': 0.13, 'valid_max': 1000.0})
+        # the export writes only the coords its data vars use
+        ds.create.data_var.generic('temp', ('depth',), dtypes.dtype('float32'))[:] = np.array([12.0, 11.0, 4.0], dtype='float32')
+        offset, factor, stored = packed.offset, packed._factor, np.dtype(packed.dtype_encoded)
+        ds.to_netcdf4(nc_fp)
+
+    assert stored.kind in 'ui' and factor is not None  # the case under test really is packed
+    with h5netcdf.File(nc_fp) as f:
+        v = f['flow']
+        a = dict(v.attrs)
+        assert np.asarray(a['valid_min']).dtype == stored and np.asarray(a['valid_max']).dtype == stored
+        assert int(a['valid_min']) == round((0.0 - offset) * factor)
+        assert int(a['valid_max']) == round((20000.0 - offset) * factor)
+        assert list(a['actual_range']) == [0.0, 19999.5]
+        # CF's order: check the stored value, then unpack. Every real value must pass the check.
+        raw = v[:]
+        real = raw != a['_FillValue']
+        assert real.sum() == np.count_nonzero(~np.isnan(flow))
+        assert np.all((raw[real] >= a['valid_min']) & (raw[real] <= a['valid_max']))
+        unpacked = raw[real] * a['scale_factor'] + a['add_offset']
+        np.testing.assert_allclose(unpacked, flow[~np.isnan(flow)], atol=1e-9)
+        p = dict(f['plain'].attrs)
+        assert (p['valid_min'], p['valid_max']) == (0.0, 20000.0)
+        d = dict(f['depth'].attrs)
+        d_stored = np.dtype(depth_dtype.dtype_encoded)
+        assert d_stored.kind in 'ui' and np.asarray(d['valid_max']).dtype == d_stored
+        x = (0.13 - depth_dtype.offset) * depth_dtype._factor
+        assert int(x) != round(x)  # the value discriminates rounding from truncation
+        assert int(d['valid_min']) == round(x)
+        d_raw = f['depth'][:]
+        assert np.all((d_raw >= d['valid_min']) & (d_raw <= d['valid_max']))
+        np.testing.assert_allclose(d_raw * d['scale_factor'] + d['add_offset'], [0.5, 10.0, 999.0], atol=1e-9)
+
+
 
 
 
