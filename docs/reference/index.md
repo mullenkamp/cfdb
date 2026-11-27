@@ -58,7 +58,7 @@ This section provides detailed API documentation for cfdb's public interface.
 
 ## Module Structure
 
-```
+```text
 cfdb/
 ├── __init__.py          # Public API: open_dataset, open_edataset, dtypes, etc.
 ├── main.py              # Dataset, DatasetView, open_dataset()

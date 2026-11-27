@@ -4,7 +4,14 @@ Attributes store metadata on datasets and individual variables. All attribute va
 
 ## Dataset Attributes
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_attrs_file
+file_path = make_attrs_file('attrs.cfdb')
+-->
+
 ```python
+import cfdb
+
 with cfdb.open_dataset(file_path, flag='w') as ds:
     # Set
     ds.attrs['title'] = 'Example dataset'
@@ -50,24 +57,41 @@ The `Attributes` class supports standard dict operations:
 
 All values must be JSON-serializable. This includes strings, numbers, booleans, lists, and dicts (with string keys). Numpy arrays and other complex objects are not allowed:
 
+<!-- invisible-code-block: python
+ds = cfdb.open_dataset(file_path, flag='w')
+-->
+
 ```python
+import numpy as np
+
 # OK
 ds.attrs['scale'] = 0.1
 ds.attrs['tags'] = ['climate', 'surface']
 ds.attrs['config'] = {'version': 2, 'enabled': True}
-
-# Raises ValueError
-ds.attrs['data'] = np.array([1, 2, 3])  # not JSON-serializable
 ```
+
+```python
+>>> ds.attrs['data'] = np.array([1, 2, 3])  # not JSON-serializable
+Traceback (most recent call last):
+    ...
+ValueError: The value passed is not json serializable.
+```
+
+<!-- invisible-code-block: python
+ds.close()
+-->
 
 ## Read-Only Access
 
 Attributes on a read-only dataset cannot be modified:
 
 ```python
-with cfdb.open_dataset(file_path, flag='r') as ds:
-    print(ds.attrs['title'])      # OK
-    ds.attrs['title'] = 'new'     # Raises ValueError
+>>> with cfdb.open_dataset(file_path, flag='r') as ds:
+...     print(ds.attrs['title'])      # OK
+...     ds.attrs['title'] = 'new'     # Raises ValueError
+Traceback (most recent call last):
+    ...
+ValueError: Dataset is not writable.
 ```
 
 ## Template Attributes

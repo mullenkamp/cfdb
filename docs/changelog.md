@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.12.0 (2026-11-24)
+
+### Added
+
+- **`open_store_dataset(store, name='store')`** opens a dataset read-only on a store the caller
+  supplies, instead of a file or an ebooklet remote. An example is ebooklet 0.13's
+  `ebooklet.mongo.MongoStore`, which serves a remote dataset from MongoDB.
+  - The store provides the read contract: `writable` (False), `get_metadata()`, `get(key)`,
+    `load_items(keys)`, `close()` and `sync()`.
+  - A writable store, a store without metadata and an unknown `dataset_type` each give a clear
+    error, and the store is closed in each case.
+  - Writes, `copy()` and `map()` are not supported through a store.
+
+### Changed
+
+- `open_dataset`, `open_edataset` and `open_store_dataset` share one `dataset_type`-to-class table.
+  The tables are `DATASET_CLASSES` and `E_DATASET_CLASSES`, read through `dataset_class()`, so a new
+  dataset type is added in one place. Behaviour and error messages are unchanged.
+
+### Documentation
+
+- Every code example in the README and the docs now runs as a test, and the shown values are checked. Fixes
+  from that: pages import and define what they use and close every dataset; examples on closed or never-opened
+  datasets are fixed; the chunk-key format is `{var_name}!{start0}.{start1}...` (it showed commas); the
+  dataset-level `iter_chunks`/`groupby`/`map` need the iterated variables to share coordinates; and a known
+  issue is flagged: `combine(overlap='first'/'error')` treats disjoint inputs that share an output chunk as
+  overlapping.
+
 ## 0.11.0 (2026-10-07)
 
 Requires **ebooklet >= 0.11.0**.

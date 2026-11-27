@@ -17,6 +17,11 @@ Coordinates in cfdb follow rules closer to the [COARDS conventions](https://ferr
 cfdb provides template methods for common coordinate types. These set standard names, dtypes, and attributes automatically:
 
 ```python
+import cfdb
+import numpy as np
+
+file_path = 'coords.cfdb'
+
 lat_data = np.linspace(0, 19.9, 200, dtype='float32')
 lon_data = np.linspace(0, 35.9, 360, dtype='float32')
 time_data = np.arange('2020-01-01', '2020-07-19', dtype='datetime64[D]')
@@ -150,13 +155,14 @@ The `step` parameter enforces regular spacing on a coordinate:
 When a step is set, `append()` and `prepend()` will validate that new data maintains regular spacing. If there is a gap between the existing data and the new data, cfdb will automatically fill in the missing intermediate values — as long as the gap is a valid multiple of the step. If the gap is not a valid multiple, a `ValueError` is raised.
 
 ```python
-with cfdb.open_dataset('time_example.cfdb', flag='n') as ds:
-    time = ds.create.coord.time(
-        data=np.array(['2023-01-01', '2023-01-02', '2023-01-03'], dtype='datetime64[D]'),
-    )
-    # Append non-adjacent data — Jan 4 and Jan 5 are auto-filled
-    time.append(np.array(['2023-01-06', '2023-01-07'], dtype='datetime64[D]'))
-    # time.data is now [Jan 1, Jan 2, Jan 3, Jan 4, Jan 5, Jan 6, Jan 7]
+>>> with cfdb.open_dataset('time_example.cfdb', flag='n') as ds:
+...     time = ds.create.coord.time(
+...         data=np.array(['2023-01-01', '2023-01-02', '2023-01-03'], dtype='datetime64[D]'),
+...     )
+...     # Append non-adjacent data — Jan 4 and Jan 5 are auto-filled
+...     time.append(np.array(['2023-01-06', '2023-01-07'], dtype='datetime64[D]'))
+...     print(time.data)
+['2023-01-01' '2023-01-02' '2023-01-03' '2023-01-04' '2023-01-05' '2023-01-06' '2023-01-07']
 ```
 
 The auto-filled coordinate positions have empty (NaN/fillvalue) data variable values until explicitly written. This is useful because coordinates do not support an insert operation — append and prepend with auto-fill are the only way to extend a coordinate at non-adjacent positions.

@@ -48,7 +48,7 @@ Understanding how selections interact with chunk boundaries is important context
 
 When a user rechunks a view (e.g., `var[10:40, :].rechunker().rechunk(...)`), cfdb passes both the full array shape and the selection to rechunkit:
 
-```python
+```text
 rechunkit.rechunker(
     source_func,
     shape=full_shape,             # Shape of the entire stored array
@@ -68,7 +68,7 @@ rechunkit's selection alignment solves the offset problem for **selection starts
 
 cfdb resolves this by folding the origin into rechunkit's *existing* phase machinery: the `Rechunker` declares the array to rechunkit in a **declared space** shifted so that storage-chunk boundaries land on multiples of `chunk_shape`:
 
-```
+```text
 d          = origin % chunk_shape          # per dim, 0 <= d < chunk (Python mod)
 declared   = user index + d                # what rechunkit sees
 storage    = declared - shift              # shift = d - origin, a multiple of chunk
@@ -90,7 +90,7 @@ cfdb's type system supports **encoded dtypes** where data is stored in a compact
 
 Used when `dtype.dtype_encoded is None` (no encoding). The source function deserializes chunks with `dtype.loads()`, which returns the final user-facing numpy array. rechunkit operates directly on decoded data.
 
-```
+```text
 Booklet bytes → decompress → dtype.loads() → decoded array
                                                     ↓
                                               rechunkit buffer
@@ -102,7 +102,7 @@ Booklet bytes → decompress → dtype.loads() → decoded array
 
 Used when `dtype.dtype_encoded is not None`. The source function deserializes chunks with `dtype.from_bytes()`, which returns the **encoded** (compact) array. rechunkit operates on the smaller encoded representation, which reduces buffer memory. After rechunkit yields each target chunk, cfdb decodes it before yielding to the user.
 
-```
+```text
 Booklet bytes → decompress → dtype.from_bytes() → encoded array
                                                         ↓
                                                   rechunkit buffer
@@ -127,7 +127,7 @@ The design relies on rechunkit's **deterministic iteration order**. Given identi
 2. Divides the total `max_mem` equally across variables
 3. Zips the generators together — each step yields the same target chunk position for all variables
 
-```python
+```text
 var_gens = [ds[name].rechunker().rechunk(shape, per_var_mem) for name in data_vars]
 
 for items in zip(*var_gens):
@@ -184,7 +184,7 @@ For `map()` with multiprocessing: `max_mem` is **per call** — N workers peak a
 
 The source function maps requested slices to Booklet keys through `indexers.slices_to_chunks_keys()`:
 
-```
+```text
 Requested slices: (slice(100, 150), slice(200, 300))
 Chunk shape:      (100, 100)
 

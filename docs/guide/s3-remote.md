@@ -10,6 +10,11 @@ pip install cfdb[ebooklet]
 
 ## Opening an EDataset
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_bucket, make_remote
+make_remote('datasets/example.cfdb')
+-->
+
 ```python
 import cfdb
 from ebooklet import S3Connection
@@ -75,6 +80,11 @@ with cfdb.open_edataset(remote_conn, 'local.cfdb') as ds:
 
 Writes only modify the local file. Nothing is ever uploaded automatically —
 publishing to the remote is always an explicit `push()`:
+
+<!-- invisible-code-block: python
+import numpy as np
+new_data = np.ones((10, 36), dtype='float32')
+-->
 
 ```python
 with cfdb.open_edataset(remote_conn, 'local.cfdb', flag='w') as ds:
@@ -176,6 +186,8 @@ request, but turns one station's history into a scan (0.3 s becomes 6.5 s). Keep
 chunk when single-station histories are the main read; use multi-station chunks when "latest data,
 all stations" is. The (141, 2 190) shape is ~310 K elements, inside cfdb's best range for local reads.
 
+<!-- skip: next "a sketch: the coordinates, flow_dtype and n_stations are elided" -->
+
 ```python
 # Growing station dataset on an ungrouped remote, read mostly as "latest data, all stations":
 # all stations x one quarter (2 190 hours) per chunk. (This layout predates write-order groups; for a
@@ -205,6 +217,10 @@ The measurements behind this section are in the repository's `benchmarks/RESULTS
 ### Copy Remote
 
 Copy the entire remote dataset to another S3 location:
+
+<!-- invisible-code-block: python
+make_bucket('backup-bucket')
+-->
 
 ```python
 new_remote = S3Connection(

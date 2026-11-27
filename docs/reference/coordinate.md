@@ -4,7 +4,7 @@ Coordinate variables define the labeled dimensions of a dataset. They hold all d
 
 ## Class Hierarchy
 
-```
+```text
 Variable (base)
   └── CoordinateView (sliced view, read-only)
         └── Coordinate (full coordinate, writable)
@@ -15,12 +15,21 @@ Variable (base)
 
 ## Usage
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_coord_ref
+file_path = make_coord_ref('coord.cfdb')
+-->
+
 ```python
-with cfdb.open_dataset(file_path) as ds:
-    lat = ds['latitude']
-    print(lat.data)        # full array (in memory)
-    print(lat.shape)       # (200,)
-    print(lat.chunk_shape) # (20,)
+>>> import cfdb
+>>> import numpy as np
+>>> with cfdb.open_dataset(file_path) as ds:
+...     lat = ds['latitude']
+...     data = lat.data        # the full array (in memory)
+...     print(lat.shape)
+...     print(lat.chunk_shape)
+(200,)
+(20,)
 ```
 
 ## Properties
@@ -50,6 +59,11 @@ with cfdb.open_dataset(file_path) as ds:
 
 Append data to the end of the coordinate. Data must maintain uniqueness and ascending order. If the coordinate has an enforced `step` and the new data is not adjacent (there is a gap), intermediate values are auto-filled provided the gap is a valid multiple of the step. Data variables at auto-filled positions are empty (NaN/fillvalue) until written.
 
+<!-- invisible-code-block: python
+ds = cfdb.open_dataset(file_path, flag='w')
+lat = ds['latitude']
+-->
+
 ```python
 lat.append(np.array([20.0, 20.1], dtype='float32'))
 ```
@@ -73,6 +87,10 @@ ds['time'].truncate(start='2023-02-01', stop='2023-02-28')
 # Remove everything before a latitude
 ds['latitude'].truncate(start=-45.0)
 ```
+
+<!-- invisible-code-block: python
+ds.close()
+-->
 
 ### iter_chunks(include_data=True, decoded=True)
 

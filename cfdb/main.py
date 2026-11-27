@@ -1027,6 +1027,28 @@ class GridForecast(Dataset):
     (x, y, forecast_reference_time, forecast_period) gridded forecasts.
     """
 
+
+## The one dataset_type -> class table for the plain (local-store) classes; open_edataset has
+## its own for the E* classes. dataset_class() is the single place a new type must be added.
+DATASET_CLASSES = {
+    'grid': Grid,
+    'ts_ortho': TimeSeriesOrtho,
+    'ts_forecast': TimeSeriesForecast,
+    'grid_forecast': GridForecast,
+}
+
+
+def dataset_class(dt, classes, what='dataset'):
+    """The class for dataset_type `dt` in `classes`, or a TypeError naming the known types."""
+    try:
+        return classes[dt]
+    except (KeyError, TypeError):
+        raise TypeError(
+            f'dataset_type must be one of "grid", "ts_ortho", "ts_forecast" or '
+            f'"grid_forecast"; got {dt!r}. If this {what} was written by a newer cfdb, '
+            f'upgrade cfdb and cfdb-models.'
+        ) from None
+
 #######################################################
 ### Open functions
 
@@ -1099,20 +1121,7 @@ def open_dataset(file_path: Union[str, pathlib.Path],
             meta = open_blt.get_metadata()
             dt = dataset_type.lower() if meta is None else meta['dataset_type']
 
-        if dt == 'grid':
-            ds = Grid(fp, open_blt, create, compression, compression_level, 'grid')
-        elif dt == 'ts_ortho':
-            ds = TimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
-        elif dt == 'ts_forecast':
-            ds = TimeSeriesForecast(fp, open_blt, create, compression, compression_level, 'ts_forecast')
-        elif dt == 'grid_forecast':
-            ds = GridForecast(fp, open_blt, create, compression, compression_level, 'grid_forecast')
-        else:
-            raise TypeError(
-                f'dataset_type must be one of "grid", "ts_ortho", "ts_forecast" or '
-                f'"grid_forecast"; got {dt!r}. If this file was written by a newer cfdb, '
-                f'upgrade cfdb and cfdb-models.'
-            )
+        ds = dataset_class(dt, DATASET_CLASSES, 'file')(fp, open_blt, create, compression, compression_level, dt)
     except BaseException:
         open_blt.close()
         raise
@@ -1128,6 +1137,43 @@ def open_dataset(file_path: Union[str, pathlib.Path],
         )
 
     return ds
+
+
+def open_store_dataset(store, name: str = 'store'):
+    """
+    Open a dataset READ-ONLY on a caller-supplied store instead of a local file or an ebooklet
+    remote - e.g. ``ebooklet.mongo.MongoStore``, which serves a remote dataset from MongoDB.
+
+    The store must provide what cfdb's read paths use: ``writable`` (False), ``get_metadata()``,
+    ``get(key)`` (the stored bytes, or None for an absent chunk), ``load_items(keys)`` (prefetch;
+    return {} or raise), ``close()`` and ``sync()``. Writes, ``copy()`` and ``map()`` are not
+    supported through such a store.
+
+    Parameters
+    ----------
+    store
+        The read-only store.
+    name : str
+        A label shown in the dataset's repr in place of a file name.
+
+    Returns
+    -------
+    Grid, TimeSeriesOrtho, TimeSeriesForecast or GridForecast
+        Chosen by the dataset_type the store's metadata records. The store is closed if opening
+        fails.
+    """
+    try:
+        if store.writable:
+            raise ValueError('open_store_dataset takes a read-only store (store.writable must be False).')
+        meta = store.get_metadata()
+        dt = meta.get('dataset_type') if isinstance(meta, dict) else None
+        if dt is None:
+            raise ValueError(f'The store {name!r} holds no cfdb dataset metadata (no dataset_type).')
+        cls = dataset_class(dt, DATASET_CLASSES, 'dataset')
+        return cls(pathlib.Path(name), store, False, utils.default_compression, None, dt)
+    except BaseException:
+        store.close()
+        raise
 
 
 

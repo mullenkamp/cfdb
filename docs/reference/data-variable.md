@@ -4,7 +4,7 @@ Data variables store N-dimensional data referenced by coordinates. Unlike coordi
 
 ## Class Hierarchy
 
-```
+```text
 Variable (base)
   └── DataVariableView (sliced view, supports read + write)
         └── DataVariable (full variable)
@@ -15,7 +15,15 @@ Variable (base)
 
 ## Usage
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_dv_ref, make_interp_small
+file_path = make_dv_ref('dv_ref.cfdb')
+-->
+
 ```python
+import cfdb
+import numpy as np
+
 with cfdb.open_dataset(file_path) as ds:
     temp = ds['temperature']
     print(temp.shape)
@@ -43,6 +51,13 @@ with cfdb.open_dataset(file_path) as ds:
 ## Reading
 
 ### Indexing
+
+<!-- invisible-code-block: python
+ds = cfdb.open_dataset(file_path, flag='w')
+temp = ds['temperature']
+full_array = np.zeros(temp.shape, dtype='float32')
+partial_data = np.ones((10,) + temp.shape[1:], dtype='float32')
+-->
 
 ```python
 temp[0, 0]          # a 1x1 view; .values gives the array
@@ -141,6 +156,10 @@ Apply a function to each chunk in parallel using multiprocessing. Yields `(targe
 
 The user function receives `(target_chunk, data)` — the same values yielded by `iter_chunks()`. It must be a top-level picklable function (not a lambda or closure).
 
+<!-- invisible-code-block: python
+ds.close()
+-->
+
 ```python
 def compute_mean(target_chunk, data):
     return data.mean()
@@ -161,6 +180,9 @@ with cfdb.open_dataset(file_path) as ds:
 With rechunked chunks:
 
 ```python
+def scale_kelvin(target_chunk, data):
+    return data + 273.15
+
 with cfdb.open_dataset(file_path, flag='w') as ds:
     temp = ds['temperature']
     for target_chunk, result in temp.map(scale_kelvin, chunk_shape={'latitude': 50}, n_workers=4):
@@ -170,6 +192,9 @@ with cfdb.open_dataset(file_path, flag='w') as ds:
 Works on views too:
 
 ```python
+def transform(target_chunk, data):
+    return data * 2
+
 with cfdb.open_dataset(file_path) as ds:
     view = ds['temperature'][0:50, :]
     for target_chunk, result in view.map(transform, n_workers=4):
@@ -181,6 +206,11 @@ with cfdb.open_dataset(file_path) as ds:
 ### interp(x=None, y=None, z=None, iter_dim=None, xy=None)
 
 Create an interpolation object for spatial interpolation. Returns `GridInterp` for `grid` datasets or `PointInterp` for `ts_ortho` datasets. Requires geointerp and a CRS. **Raises `NotImplementedError` for `ts_forecast` and `grid_forecast`** -- their two non-spatial dimensions are not handled by the current interpolators.
+
+<!-- invisible-code-block: python
+ds = cfdb.open_dataset(make_interp_small('dvi.cfdb'))
+temp = ds['temperature']
+-->
 
 ```python
 gi = temp.interp()
@@ -196,11 +226,21 @@ See [GridInterp / PointInterp](interp.md) for details.
 
 Return a `Rechunker` for on-the-fly rechunking:
 
+<!-- invisible-code-block: python
+ds.close()
+ds = cfdb.open_dataset(file_path)
+temp = ds['temperature']
+-->
+
 ```python
 rechunker = temp.rechunker()
 for slices, data in rechunker.rechunk((50, 50)):
     print(data.shape)
 ```
+
+<!-- invisible-code-block: python
+ds.close()
+-->
 
 See [Rechunker](rechunker.md) for details.
 

@@ -12,7 +12,7 @@ from typing import Union
 import pathlib
 
 from . import utils
-from .main import Dataset
+from .main import Dataset, dataset_class
 
 ## "Argument not given" for open_edataset's storage-mode arguments: only given
 ## arguments are forwarded, so ebooklet's own defaults (inherit the remote's
@@ -83,6 +83,14 @@ class EGridForecast(EDataset):
     """
     S3-backed (x, y, forecast_reference_time, forecast_period) gridded forecasts.
     """
+
+
+E_DATASET_CLASSES = {
+    'grid': EGrid,
+    'ts_ortho': ETimeSeriesOrtho,
+    'ts_forecast': ETimeSeriesForecast,
+    'grid_forecast': EGridForecast,
+}
 
 
 def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
@@ -175,20 +183,8 @@ def open_edataset(remote_conn: Union[ebooklet.S3Connection, str, dict],
         else:
             dt = meta['dataset_type']
 
-        if dt == 'grid':
-            return EGrid(fp, open_blt, create, compression, compression_level, 'grid')
-        elif dt == 'ts_ortho':
-            return ETimeSeriesOrtho(fp, open_blt, create, compression, compression_level, 'ts_ortho')
-        elif dt == 'ts_forecast':
-            return ETimeSeriesForecast(fp, open_blt, create, compression, compression_level, 'ts_forecast')
-        elif dt == 'grid_forecast':
-            return EGridForecast(fp, open_blt, create, compression, compression_level, 'grid_forecast')
-        else:
-            raise TypeError(
-                f'dataset_type must be one of "grid", "ts_ortho", "ts_forecast" or '
-                f'"grid_forecast"; got {dt!r}. If this dataset was written by a newer cfdb, '
-                f'upgrade cfdb and cfdb-models.'
-            )
+        cls = dataset_class(dt, E_DATASET_CLASSES, 'dataset')
+        return cls(fp, open_blt, create, compression, compression_level, dt)
     except BaseException:
         open_blt.close()
         raise

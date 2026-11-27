@@ -4,6 +4,11 @@ The `EDataset` class extends `Dataset` with S3 remote sync capabilities via [EBo
 
 ## Usage
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_bucket, make_remote
+make_remote('data.cfdb', bucket='bucket')
+-->
+
 ```python
 import cfdb
 from ebooklet import S3Connection
@@ -40,6 +45,10 @@ which is True only for a fully successful push that changed the remote. Use
 `force_push=True` to retry after a partial failure. Groups that did upload are committed even when
 others fail, so readers see the new data with gaps until the retry; retry promptly.
 
+<!-- invisible-code-block: python
+ds = cfdb.open_edataset(remote, 'local.cfdb', flag='w')
+-->
+
 ```python
 result = ds.push()
 ```
@@ -57,6 +66,11 @@ changes = ds.changes()
 Copy the entire remote dataset to another S3 location. The target must be empty, and the dataset must
 be open for writing (`flag='w'`); a read-only handle raises `ReadOnlyError`.
 
+<!-- invisible-code-block: python
+make_bucket('backup-bucket')
+new_s3_connection = S3Connection(endpoint_url='https://s3.example.com', access_key_id='KEY', access_key='SECRET', bucket='backup-bucket', db_key='data.cfdb')
+-->
+
 ```python
 ds.copy_remote(new_s3_connection)
 ```
@@ -73,7 +87,17 @@ ds.delete_remote()
 
 When using EDataset, chunks are loaded from S3 on demand. Call `load()` on a variable to pre-fetch:
 
+<!-- invisible-code-block: python
+ds.close()
+make_remote('data.cfdb', bucket='bucket')
+ds = cfdb.open_edataset(remote, 'reader.cfdb')
+-->
+
 ```python
 temp = ds['temperature']
 temp.load()  # downloads required chunks from S3
 ```
+
+<!-- invisible-code-block: python
+ds.close()
+-->

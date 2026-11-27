@@ -4,6 +4,11 @@ The `Dataset` class is the main object for interacting with a cfdb file. It acts
 
 ## Usage
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_time_grid
+make_time_grid('data.cfdb')
+-->
+
 ```python
 import cfdb
 
@@ -33,6 +38,11 @@ with cfdb.open_dataset('data.cfdb', flag='r') as ds:
 | `variables` | tuple | All Variable objects |
 
 ## Dict-Like Access
+
+<!-- invisible-code-block: python
+make_time_grid('data_b.cfdb', variables=('temperature', 'pressure', 'old_var'))
+ds = cfdb.open_dataset('data_b.cfdb', flag='w')
+-->
 
 ```python
 ds['temperature']       # Get variable by name
@@ -103,6 +113,10 @@ for target_chunk, var_data in ds.groupby('latitude'):
 for target_chunk, var_data in ds.groupby({'time': 'M'}, data_vars=['temperature']):
     print(target_chunk, {k: v.shape for k, v in var_data.items()})
 ```
+
+<!-- invisible-code-block: python
+ds.close()
+-->
 
 ### map(func, chunk_shape, data_vars=None, max_mem=2\*\*29, n_workers=None)
 

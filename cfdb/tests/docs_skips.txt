@@ -1,0 +1,4 @@
+# Every skip in README.md and docs/, as "<file>  <action>  <reason>  covers=<examples skipped>". test_docs_inventory.py
+# compares this against the docs, so a new or changed skip shows up in review.
+docs/guide/combining-datasets.md  next  "overlap='first'/'error' compare whole output chunks, so disjoint inputs that share a chunk count as overlapping (a cfdb bug)"  covers=1
+docs/guide/s3-remote.md  next  "a sketch: the coordinates, flow_dtype and n_stations are elided"  covers=1

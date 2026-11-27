@@ -4,7 +4,18 @@ The `Creator` class provides the interface for creating coordinates, data variab
 
 ## Usage
 
+<!-- invisible-code-block: python
+import numpy as np
+from cfdb.tests.docs_support import open_latlon_grid, open_station_ts
+file_path = 'creator.cfdb'
+lat_data = np.linspace(-90, 90, 181, dtype='float32')
+lon_data = np.linspace(-180, 180, 361, dtype='float32')
+-->
+
 ```python
+import cfdb
+import numpy as np
+
 with cfdb.open_dataset(file_path, flag='n') as ds:
     # Create coordinates
     lat = ds.create.coord.lat(data=lat_data)
@@ -30,6 +41,10 @@ with cfdb.open_dataset(file_path, flag='n') as ds:
 ### generic(name, data=None, dtype=None, chunk_shape=None, step=False, axis=None)
 
 Create a coordinate with full control over all parameters.
+
+<!-- invisible-code-block: python
+ds = open_latlon_grid('creator_a.cfdb')
+-->
 
 ```python
 coord = ds.create.coord.generic(
@@ -60,6 +75,10 @@ Template methods set standard names, dtypes, and attributes automatically. They 
 
 Additional templates are generated from [cfdb-vars](https://github.com/mullenkamp/cfdb-vars). To see all available templates:
 
+<!-- invisible-code-block: python
+ds.close()
+-->
+
 ```python
 with cfdb.open_dataset(file_path, flag='n') as ds:
     print(dir(ds.create.coord))
@@ -67,7 +86,7 @@ with cfdb.open_dataset(file_path, flag='n') as ds:
 
 Template signature:
 
-```python
+```text
 ds.create.coord.lat(data=None, step=True, **kwargs) -> Coordinate
 ```
 
@@ -76,6 +95,10 @@ ds.create.coord.lat(data=None, step=True, **kwargs) -> Coordinate
 ### generic(name, coords, dtype, chunk_shape=None)
 
 Create a data variable linked to existing coordinates.
+
+<!-- invisible-code-block: python
+ds = open_latlon_grid('creator_b.cfdb')
+-->
 
 ```python
 temp = ds.create.data_var.generic(
@@ -104,11 +127,15 @@ Data variable templates set standard names and dtypes. They accept `coords` and 
 
 Template signature:
 
-```python
+```text
 ds.create.data_var.air_temp(coords, **kwargs) -> DataVariable   # creates 'air_temperature'
 ```
 
 To see all available templates:
+
+<!-- invisible-code-block: python
+ds.close()
+-->
 
 ```python
 with cfdb.open_dataset(file_path, flag='n') as ds:
@@ -123,14 +150,27 @@ Set the dataset's coordinate reference system and assign spatial axes.
 
 For grid datasets with separate x/y coordinates:
 
+<!-- invisible-code-block: python
+ds = open_latlon_grid('creator_b.cfdb', flag='w')
+-->
+
 ```python
 ds.create.crs.from_user_input(4326, x_coord='longitude', y_coord='latitude')
 ```
 
 For ts_ortho datasets with a geometry coordinate:
 
+<!-- invisible-code-block: python
+ds.close()
+ds = open_station_ts('creator_c.cfdb')
+-->
+
 ```python
 ds.create.crs.from_user_input(4326, xy_coord='station')
 ```
+
+<!-- invisible-code-block: python
+ds.close()
+-->
 
 The `crs` parameter accepts anything `pyproj.CRS.from_user_input()` understands: EPSG codes (int), WKT strings, PROJ strings, etc.

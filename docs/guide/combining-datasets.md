@@ -8,6 +8,11 @@ cfdb provides two distinct functions for combining multiple datasets together:
 
 The `combine` function takes multiple input datasets, computes the union of their coordinates, and writes all data into a new output file. This is useful for joining datasets that cover different spatial regions or creating a clean dataset from many smaller files.
 
+<!-- invisible-code-block: python
+from cfdb.tests.docs_support import make_combine_inputs
+datasets = make_combine_inputs()
+-->
+
 ```python
 import cfdb
 
@@ -94,7 +99,17 @@ Both `combine` and `merge_into` support an `overlap` parameter that controls wha
 # Last dataset wins (default, most performant — overwrites existing data)
 cfdb.combine(datasets, 'out.cfdb', overlap='last').close()
 cfdb.merge_into(datasets, 'target.cfdb', overlap='last').close()
+```
 
+!!! bug "Known issue: `overlap='first'` and `overlap='error'`"
+    In cfdb 0.11 these two modes compare whole output chunks rather than values. Inputs that do not overlap but
+    land in the same output chunk are treated as overlapping: `'first'` then leaves the second input's rows as
+    missing values, and `'error'` raises. Until this is fixed, use `overlap='last'` (the default) when the inputs
+    are disjoint.
+
+<!-- skip: next "overlap='first'/'error' compare whole output chunks, so disjoint inputs that share a chunk count as overlapping (a cfdb bug)" -->
+
+```python
 # First dataset wins (skips writing if data already exists in the target)
 cfdb.combine(datasets, 'out.cfdb', overlap='first').close()
 

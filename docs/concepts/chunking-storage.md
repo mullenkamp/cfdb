@@ -12,8 +12,8 @@ Each chunk is independently compressed and stored as a single Booklet key-value 
 
 Chunk keys follow the pattern:
 
-```
-{var_name}!{dim0_start},{dim1_start},...
+```text
+{var_name}!{dim0_start}.{dim1_start}...
 ```
 
 For example, chunk `(200, 400)` of variable `temperature` is stored with key `temperature!200.400`.
