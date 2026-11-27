@@ -30,6 +30,15 @@ Options:
 | `exclude_data_vars` | list of str or None | Exclude these data variables |
 | `**file_kwargs` | | Passed to `h5netcdf.File()` |
 
+**Geometries** (a station dataset's `point` coordinate, or a geometry data variable) are written as
+netCDF strings of WKT, marked `geometry_encoding = "WKT"`. netCDF has no geometry type, so a reader
+gets text; `shapely.from_wkt` turns it back into geometries.
+
+**Attributes** are written as they are, with two exceptions. An attribute whose value is `None` is left out,
+since netCDF has no null. On a packed variable (one with `scale_factor` and `add_offset`), `valid_min`,
+`valid_max` and `valid_range` are written as packed values in the stored dtype, which is how CF readers
+apply them.
+
 ### Using the Module Function
 
 For a one-step conversion with optional selection:

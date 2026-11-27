@@ -36,6 +36,38 @@ from . import utils, indexers, data_models, creation, support_classes as sc
 ### Functions
 
 
+def _nc_attrs(attrs: dict) -> dict:
+    """
+    The attributes a netCDF file can hold: those whose value is not None. netCDF has no null, and h5py
+    refuses None, so an attribute with no value is left out (its absence says the same thing).
+    """
+    return {k: v for k, v in attrs.items() if v is not None}
+
+
+def _pack_valid_range(attrs: dict, dtype, dtype_encoded) -> None:
+    """
+    On a packed variable, rewrite valid_min / valid_max / valid_range as packed values in the stored
+    dtype, in place. CF (2.5.1, 8.1) and the NUG put them in the domain of the stored data, because a
+    reader checks a stored value against them before unpacking it; in physical units, netCDF4-python
+    masks every value whose packed form is above the physical valid_max. A non-numeric value is left
+    as it is. actual_range is not touched: CF gives it the unpacked type.
+    """
+    stored = np.dtype(dtype_encoded)
+    for key in ('valid_min', 'valid_max', 'valid_range'):
+        value = attrs.get(key)
+        if value is None:
+            continue
+        physical = np.asarray(value)
+        if physical.dtype.kind not in 'iuf':
+            continue
+        packed = physical.astype('float64') - dtype.offset
+        if dtype._factor is not None:
+            packed = np.round(packed * dtype._factor)
+        if stored.kind in 'ui':
+            info = np.iinfo(stored)
+            packed = np.clip(packed, info.min, info.max)
+        packed = packed.astype(stored)
+        attrs[key] = packed[()] if packed.ndim == 0 else packed
 
 
 ############################################
@@ -566,7 +598,13 @@ class DatasetBase:
 
                 attrs = deepcopy(coord.attrs.data)
                 fillvalue = coord.dtype.fillvalue
-                if coord.dtype.dtype_encoded is None:
+                if coord.dtype.kind == 'G':
+                    # Geometries are stored as WKT, so the encoded values stream as netCDF strings.
+                    # netCDF has no geometry type; CF 1.8 simple geometries are the compliant
+                    # alternative if WKT is ever not enough.
+                    dtype_encoded = coord.dtype.dtype_encoded
+                    attrs['geometry_encoding'] = 'WKT'
+                elif coord.dtype.dtype_encoded is None:
                     if coord.dtype.kind in ('G', 'T'):
                         dtype_encoded = np.dtypes.StringDType(na_object=None)
                     elif coord.dtype.kind == 'u':
@@ -601,6 +639,7 @@ class DatasetBase:
                         attrs['add_offset'] = coord.dtype.offset
                         # Integer packing has no scale factor (_factor is None): unpacked = packed + offset
                         attrs['scale_factor'] = 1.0 if coord.dtype._factor is None else 1/coord.dtype._factor
+                        _pack_valid_range(attrs, coord.dtype, dtype_encoded)
 
                 if fillvalue is not None:
                     attrs['_FillValue'] = fillvalue
@@ -613,7 +652,7 @@ class DatasetBase:
                 h5_coord = h5.create_variable(coord_name, (coord_name,), dtype_encoded, compression=compression, chunks=chunk_shape, fillvalue=fillvalue)
 
                 try:
-                    h5_coord.attrs.update(attrs)
+                    h5_coord.attrs.update(_nc_attrs(attrs))
                 except Exception as err:
                     print(attrs)
                     raise err
@@ -642,7 +681,11 @@ class DatasetBase:
                 attrs = deepcopy(data_var.attrs.data)
 
                 fillvalue = data_var.dtype.fillvalue
-                if data_var.dtype.dtype_encoded is None:
+                if data_var.dtype.kind == 'G':
+                    # As the coord loop: WKT strings, marked.
+                    dtype_encoded = data_var.dtype.dtype_encoded
+                    attrs['geometry_encoding'] = 'WKT'
+                elif data_var.dtype.dtype_encoded is None:
                     if data_var.dtype.kind in ('G', 'T'):
                         dtype_encoded = np.dtypes.StringDType(na_object=None)
                     elif data_var.dtype.kind == 'u':
@@ -674,6 +717,7 @@ class DatasetBase:
                         attrs['add_offset'] = data_var.dtype.offset
                         # Integer packing has no scale factor (_factor is None): unpacked = packed + offset
                         attrs['scale_factor'] = 1.0 if data_var.dtype._factor is None else 1/data_var.dtype._factor
+                        _pack_valid_range(attrs, data_var.dtype, dtype_encoded)
 
                 if fillvalue is not None:
                     attrs['_FillValue'] = fillvalue
@@ -690,14 +734,14 @@ class DatasetBase:
 
                 h5_data_var = h5.create_variable(data_var_name, data_var.coord_names, dtype_encoded, compression=compression, chunks=tuple(chunk_shape), fillvalue=fillvalue)
 
-                h5_data_var.attrs.update(attrs)
+                h5_data_var.attrs.update(_nc_attrs(attrs))
 
                 # Datetimes stream DECODED (ticks must match the units attr); see the coord loop.
                 for write_chunk, data in data_var.iter_chunks(decoded=(data_var.dtype.kind == 'M')):
                     h5_data_var[write_chunk] = data.astype(dtype_encoded)
 
             # Add global attrs
-            h5.attrs.update(self.attrs.data)
+            h5.attrs.update(_nc_attrs(self.attrs.data))
 
 
 class Dataset(DatasetBase):

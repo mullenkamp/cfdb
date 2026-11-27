@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.12.1 (2026-11-27)
+
+### Fixed
+
+- **`to_netcdf4` exports geometry variables**, so a `ts_ortho` (station) dataset now exports at all.
+  Before, any geometry coord or data var raised `AttributeError: 'Point' object has no attribute '_factor'`.
+  - A geometry is written as a netCDF string variable of WKT, the form cfdb already stores, on its own
+    dimension (`point` for stations). The variable carries `geometry_encoding = "WKT"`.
+  - netCDF has no geometry type. Tools that read CF see the strings as text: netCDF4 and xarray read them
+    as `str`, and `shapely.from_wkt` turns them back into geometries.
+- **`to_netcdf4` leaves out attributes whose value is `None`,** globally and on each variable. netCDF has no
+  null, and h5py refused them with `TypeError: Object dtype dtype('O') has no native HDF5 equivalent`.
+  Every envlib station dataset failed here (`envlib_product_code = None`).
+- **`to_netcdf4` writes a packed variable's `valid_min`, `valid_max` and `valid_range` as packed values,** in
+  the stored dtype, as CF (2.5.1, 8.1) and the NUG require. A reader checks a stored value against them
+  before unpacking it. Written in physical units, they made netCDF4-python mask every value whose packed form
+  was above the physical `valid_max`: on ECan's streamflow, every flow above 1 m³/s. xarray, which ignores
+  them, was unaffected. `actual_range` stays physical, as CF defines it.
+
 ## 0.12.0 (2026-11-24)
 
 ### Added
